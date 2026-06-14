@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Château Maudit — Survival Horror 3D</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div id="damage-vignette"></div>
+<div id="vignette"></div>
+
+<!-- Viseur -->
+<div id="crosshair" class="hidden"><span></span><span></span><span></span><span></span></div>
+
+<!-- Invite d'interaction -->
+<div id="interact" class="hidden">[E] Interagir</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-left">
+    <div class="bar-block">
+      <span class="bar-label">❤ SANTÉ</span>
+      <div class="bar"><div id="hp-fill" class="bar-fill"></div></div>
+      <span id="hp-text" class="bar-num">100 / 100</span>
+    </div>
+    <div class="bar-block">
+      <span class="bar-label">⚡ ENDURANCE</span>
+      <div class="bar small"><div id="stam-fill" class="bar-fill stam"></div></div>
+    </div>
+  </div>
+  <div class="hud-center">
+    <div class="obj-label">OBJECTIF</div>
+    <div id="objective">—</div>
+  </div>
+  <div class="hud-right">
+    <div class="stat"><span class="stat-ic">🔫</span><span id="ammo-text">15</span></div>
+    <div class="stat"><span class="stat-ic">🌿</span><span id="herb-text">0</span></div>
+    <div class="stat"><span class="stat-ic">📜</span><span id="notes-text">0 / 5</span></div>
+    <div class="stat"><span class="stat-ic">⭐</span><span id="score-text">0</span></div>
+    <div id="keys-row" class="keys-row"></div>
+  </div>
+</div>
+
+<!-- Barre de vie du boss -->
+<div id="boss-bar" class="hidden">
+  <div class="boss-name">☠ LE GARDIEN</div>
+  <div class="boss-track"><div id="boss-fill"></div></div>
+</div>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<!-- Overlay pointer-lock -->
+<div id="lock-overlay" class="hidden">
+  <div class="lock-box">⏸ EN PAUSE<br /><span>Cliquez pour reprendre</span></div>
+</div>
+
+<!-- Écran titre -->
+<div id="screen-start" class="screen">
+  <div class="panel">
+    <h1 class="title">CHÂTEAU<span>MAUDIT</span></h1>
+    <p class="subtitle">— Survival Horror 3D —</p>
+    <p class="story">
+      Une tempête vous a forcé à trouver refuge dans le château du Comte Vorlac.
+      Les portes se sont verrouillées derrière vous, et les couloirs grouillent de créatures.
+      Le seul espoir : le <em>Sérum-G</em> caché dans le laboratoire interdit, gardé par une
+      abomination. Trouvez les clés, survivez, et fuyez avant l'aube.
+    </p>
+    <div class="controls">
+      <div><b>ZQSD / WASD</b> — Se déplacer &nbsp;•&nbsp; <b>Souris</b> — Regarder</div>
+      <div><b>Clic gauche</b> — Tirer &nbsp;•&nbsp; <b>Clic droit / F</b> — Couteau</div>
+      <div><b>Maj</b> — Sprinter &nbsp;•&nbsp; <b>E</b> — Interagir &nbsp;•&nbsp; <b>H</b> — Se soigner</div>
+      <div><b>L</b> — Lampe torche &nbsp;•&nbsp; <b>I / Tab</b> — Inventaire &nbsp;•&nbsp; <b>Échap</b> — Pause</div>
+    </div>
+    <button id="start-btn" class="btn">ENTRER DANS LE CHÂTEAU</button>
+    <p class="hint">La souris sera capturée. Appuyez sur Échap pour libérer le curseur.</p>
+  </div>
+</div>
+
+<!-- Game Over -->
+<div id="screen-gameover" class="screen hidden">
+  <div class="panel">
+    <h1 class="title dead">VOUS ÊTES MORT</h1>
+    <p class="story">Les ténèbres du château vous ont englouti...</p>
+    <p class="bigstat">Score : <span id="go-score">0</span></p>
+    <button id="restart-btn" class="btn">RÉESSAYER</button>
+  </div>
+</div>
+
+<!-- Victoire -->
+<div id="screen-victory" class="screen hidden">
+  <div class="panel">
+    <h1 class="title win">ÉVASION RÉUSSIE</h1>
+    <p class="story">L'aube se lève alors que vous franchissez la grande porte.
+      Le château s'effondre derrière vous. Vous avez survécu.</p>
+    <p class="bigstat">Temps : <span id="vi-time">00:00</span></p>
+    <p class="bigstat">Score : <span id="vi-score">0</span></p>
+    <button id="restart-btn2" class="btn">REJOUER</button>
+  </div>
+</div>
+
+<!-- Modale document -->
+<div id="note-modal" class="modal hidden">
+  <div class="modal-box parchment">
+    <h2 id="note-title">Document</h2>
+    <p id="note-body"></p>
+    <button id="note-close" class="btn small">Fermer (E)</button>
+  </div>
+</div>
+
+<!-- Modale inventaire -->
+<div id="inv-modal" class="modal hidden">
+  <div class="modal-box">
+    <h2>INVENTAIRE</h2>
+    <div id="inv-grid" class="inv-grid"></div>
+    <button id="inv-close" class="btn small">Fermer (Tab)</button>
+  </div>
+</div>
+
+<!-- Modale pause (réserve) -->
+<div id="pause-modal" class="modal hidden">
+  <div class="modal-box"><h2>PAUSE</h2><p>Cliquez pour reprendre.</p></div>
+</div>
+
+<!-- Three.js (build UMD local, global THREE) -->
+<script src="vendor/three.min.js"></script>
+<!-- Jeu (ordre important) -->
+<script src="js/config.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/world3d.js"></script>
+<script src="js/input3d.js"></script>
+<script src="js/player3d.js"></script>
+<script src="js/monsters3d.js"></script>
+<script src="js/quests.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game3d.js"></script>
+</body>
+</html>
