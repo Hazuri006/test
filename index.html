@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stellar Drift — exploration spatiale</title>
+<style>
+  :root { --accent: #4fd1ff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: #cfeaff; }
+  canvas { display: block; }
+
+  /* HUD */
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+  .panel {
+    position: absolute; padding: 10px 14px;
+    background: rgba(6, 18, 30, 0.45);
+    border: 1px solid rgba(79, 209, 255, 0.35);
+    border-radius: 8px;
+    backdrop-filter: blur(2px);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px; line-height: 1.6;
+  }
+  #stats { left: 18px; bottom: 18px; min-width: 210px; }
+  #target { right: 18px; bottom: 18px; min-width: 210px; text-align: right; }
+  #stats .big, #target .big { font-size: 20px; color: var(--accent); font-weight: 600; }
+  .label { color: #7fa9c4; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .bar { height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .1s linear; }
+
+  /* Réticule */
+  #reticle {
+    position: fixed; left: 50%; top: 50%; width: 34px; height: 34px;
+    transform: translate(-50%, -50%); pointer-events: none;
+    border: 1px solid rgba(79, 209, 255, 0.6); border-radius: 50%;
+  }
+  #reticle::before, #reticle::after {
+    content: ""; position: absolute; background: rgba(79, 209, 255, 0.6);
+  }
+  #reticle::before { left: 50%; top: -8px; width: 1px; height: 8px; transform: translateX(-50%); }
+  #reticle::after  { left: 50%; bottom: -8px; width: 1px; height: 8px; transform: translateX(-50%); }
+
+  /* Écran d'accueil */
+  #intro {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: radial-gradient(circle at 50% 40%, rgba(10,30,50,0.85), rgba(0,0,0,0.96));
+    z-index: 10; cursor: pointer;
+  }
+  #intro h1 { font-size: 44px; letter-spacing: 3px; color: #fff; font-weight: 300; }
+  #intro h1 b { color: var(--accent); font-weight: 700; }
+  #intro p { margin-top: 10px; color: #9fc4dd; max-width: 520px; }
+  .keys { margin-top: 26px; display: grid; grid-template-columns: auto auto; gap: 6px 22px; font-size: 14px; }
+  .keys span:nth-child(odd) { color: var(--accent); font-weight: 600; text-align: right; }
+  .keys span:nth-child(even) { text-align: left; color: #bcd; }
+  #intro .start { margin-top: 30px; padding: 12px 28px; border: 1px solid var(--accent);
+    border-radius: 30px; color: #fff; font-size: 15px; letter-spacing: 1px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="hud" class="hidden">
+    <div id="stats" class="panel">
+      <div class="label">Vitesse</div>
+      <div><span class="big" id="speed">0</span> u/s</div>
+      <div class="label" style="margin-top:8px">Poussée</div>
+      <div class="bar"><i id="throttleBar"></i></div>
+      <div class="label" style="margin-top:8px">Position</div>
+      <div id="coords">0, 0, 0</div>
+    </div>
+    <div id="target" class="panel">
+      <div class="label">Corps le plus proche</div>
+      <div class="big" id="planetName">—</div>
+      <div><span id="planetDist">—</span> u</div>
+      <div class="label" style="margin-top:8px" id="planetType">—</div>
+    </div>
+  </div>
+  <div id="reticle" class="hidden"></div>
+
+  <div id="intro">
+    <h1>STELLAR <b>DRIFT</b></h1>
+    <p>Un prototype d'exploration spatiale en monde ouvert. Pilotez votre vaisseau
+       à travers un système généré de façon procédurale.</p>
+    <div class="keys">
+      <span>Souris</span><span>Orienter le vaisseau (tangage / lacet)</span>
+      <span>W / S</span><span>Augmenter / réduire la poussée</span>
+      <span>A / D</span><span>Tonneau (roulis)</span>
+      <span>Espace</span><span>Boost</span>
+      <span>X</span><span>Arrêt complet</span>
+    </div>
+    <div class="start">▶ Cliquez pour décoller</div>
+  </div>
+
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+
+  // ----------------------------------------------------------------------------
+  // Scène, caméra, rendu
+  // ----------------------------------------------------------------------------
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x000308, 0.00006);
+
+  const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.5, 200000);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // ----------------------------------------------------------------------------
+  // Le vaisseau : un groupe que l'on déplace, la caméra le suit en 3e personne
+  // ----------------------------------------------------------------------------
+  const ship = new THREE.Group();
+  scene.add(ship);
+
+  const hull = new THREE.Group();
+  // corps
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xc9d6e0, metalness: 0.8, roughness: 0.35 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: 0x2a6f97, metalness: 0.7, roughness: 0.4, emissive: 0x0a2233, emissiveIntensity: 0.6 });
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.6, 3, 8), bodyMat);
+  body.rotation.x = -Math.PI / 2; hull.add(body);
+  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 12), accentMat);
+  cockpit.position.set(0, 0.25, -0.4); cockpit.scale.set(1, 0.7, 1.4); hull.add(cockpit);
+  const wingGeo = new THREE.BoxGeometry(2.6, 0.1, 0.9);
+  const wing = new THREE.Mesh(wingGeo, bodyMat); wing.position.z = 0.7; hull.add(wing);
+  // tuyères
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0x66e0ff });
+  for (const x of [-0.45, 0.45]) {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.1, 0.5, 10), glowMat);
+    t.rotation.x = Math.PI / 2; t.position.set(x, 0, 1.4); hull.add(t);
+  }
+  ship.add(hull);
+
+  // caméra en 3e personne, enfant du vaisseau
+  camera.position.set(0, 1.6, 7);
+  camera.lookAt(0, 0.5, -5);
+  ship.add(camera);
+
+  // ----------------------------------------------------------------------------
+  // Lumières
+  // ----------------------------------------------------------------------------
+  scene.add(new THREE.AmbientLight(0x223344, 1.4));
+  const sunLight = new THREE.PointLight(0xfff2d8, 4, 0, 0.0008);
+  scene.add(sunLight);
+
+  // ----------------------------------------------------------------------------
+  // Champ d'étoiles
+  // ----------------------------------------------------------------------------
+  function makeStars(count, radius) {
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(count * 3);
+    const col = new Float32Array(count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      const v = new THREE.Vector3().randomDirection().multiplyScalar(radius * (0.5 + Math.random() * 0.5));
+      pos.set([v.x, v.y, v.z], i * 3);
+      c.setHSL(0.55 + Math.random() * 0.15, 0.5, 0.6 + Math.random() * 0.4);
+      col.set([c.r, c.g, c.b], i * 3);
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = new THREE.PointsMaterial({ size: 40, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.9 });
+    return new THREE.Points(geo, mat);
+  }
+  scene.add(makeStars(9000, 90000));
+
+  // ----------------------------------------------------------------------------
+  // Génération procédurale du système
+  // ----------------------------------------------------------------------------
+  const SYL_A = ['Ke', 'Zo', ' Va', 'Ny', 'Ar', 'Th', 'Qu', 'Lo', 'Xe', 'Mi', 'Os', 'Ra'];
+  const SYL_B = ['ron', 'los', 'tia', 'dex', 'mor', 'nis', 'var', 'eon', 'tak', 'lune', 'pra', 'gix'];
+  const TYPES = ['Monde tempéré', 'Géante gazeuse', 'Monde glacé', 'Désert toxique', 'Lune morte', 'Monde luxuriant', 'Monde volcanique'];
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+  const planetName = () => pick(SYL_A) + pick(SYL_B) + '-' + ((Math.random() * 90 + 10) | 0);
+
+  const planets = [];
+
+  // Soleil
+  const sun = new THREE.Mesh(
+    new THREE.SphereGeometry(1400, 48, 48),
+    new THREE.MeshBasicMaterial({ color: 0xffd27f })
+  );
+  sun.position.set(0, 0, -8000);
+  scene.add(sun);
+  sunLight.position.copy(sun.position);
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(1900, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffae42, transparent: true, opacity: 0.18, side: THREE.BackSide })
+  );
+  sun.add(halo);
+
+  // Planètes réparties autour du soleil
+  const PLANET_COUNT = 11;
+  for (let i = 0; i < PLANET_COUNT; i++) {
+    const radius = rand(120, 520);
+    const hue = Math.random();
+    const mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color().setHSL(hue, rand(0.4, 0.8), rand(0.35, 0.6)),
+      roughness: 0.95, metalness: 0.05, flatShading: true,
+    });
+    const geo = new THREE.IcosahedronGeometry(radius, 4);
+    // léger relief procédural
+    const p = geo.attributes.position;
+    const v = new THREE.Vector3();
+    for (let j = 0; j < p.count; j++) {
+      v.fromBufferAttribute(p, j);
+      const n = Math.sin(v.x * 0.02) * Math.cos(v.y * 0.02) * Math.sin(v.z * 0.02);
+      v.multiplyScalar(1 + n * 0.05);
+      p.setXYZ(j, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, mat);
+    const ang = (i / PLANET_COUNT) * Math.PI * 2 + rand(-0.3, 0.3);
+    const dist = rand(3500, 14000);
+    mesh.position.set(Math.cos(ang) * dist, rand(-1500, 1500), -8000 + Math.sin(ang) * dist);
+    scene.add(mesh);
+
+    // anneaux pour certaines
+    if (Math.random() < 0.35) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(radius * 1.4, radius * 2.1, 64),
+        new THREE.MeshBasicMaterial({ color: 0xddccaa, side: THREE.DoubleSide, transparent: true, opacity: 0.4 })
+      );
+      ring.rotation.x = rand(0.3, 1.2);
+      mesh.add(ring);
+    }
+    // atmosphère
+    const atmo = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 1.08, 32, 32),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(hue, 0.6, 0.7), transparent: true, opacity: 0.12, side: THREE.BackSide })
+    );
+    mesh.add(atmo);
+
+    planets.push({
+      mesh, radius,
+      name: planetName(),
+      type: pick(TYPES),
+      spin: rand(-0.05, 0.05),
+    });
+  }
+
+  // ----------------------------------------------------------------------------
+  // Contrôles
+  // ----------------------------------------------------------------------------
+  const keys = {};
+  addEventListener('keydown', (e) => { keys[e.code] = true; });
+  addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  let mouseX = 0, mouseY = 0; // -1..1, position relative au centre
+  let pointerLocked = false;
+  addEventListener('mousemove', (e) => {
+    if (pointerLocked) {
+      mouseX = THREE.MathUtils.clamp(mouseX + e.movementX * 0.0016, -1, 1);
+      mouseY = THREE.MathUtils.clamp(mouseY + e.movementY * 0.0016, -1, 1);
+    }
+  });
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === renderer.domElement;
+  });
+
+  // ----------------------------------------------------------------------------
+  // État de vol
+  // ----------------------------------------------------------------------------
+  let throttle = 0;          // 0..1
+  let velocity = new THREE.Vector3();
+  const MAX_SPEED = 1800;
+  const BOOST = 2.2;
+
+  // ----------------------------------------------------------------------------
+  // HUD
+  // ----------------------------------------------------------------------------
+  const el = (id) => document.getElementById(id);
+  const ui = {
+    speed: el('speed'), throttle: el('throttleBar'), coords: el('coords'),
+    pName: el('planetName'), pDist: el('planetDist'), pType: el('planetType'),
+  };
+
+  // ----------------------------------------------------------------------------
+  // Boucle
+  // ----------------------------------------------------------------------------
+  const clock = new THREE.Clock();
+  const tmp = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const e3 = new THREE.Euler();
+
+  function update(dt) {
+    // Poussée
+    if (keys['KeyW']) throttle = Math.min(1, throttle + dt * 0.8);
+    if (keys['KeyS']) throttle = Math.max(0, throttle - dt * 0.8);
+    if (keys['KeyX']) { throttle = 0; velocity.multiplyScalar(0.9); }
+    const boosting = keys['Space'];
+
+    // Rotation du vaisseau (tangage/lacet par la souris, roulis par A/D)
+    const pitch = -mouseY * 1.4 * dt;
+    const yaw = -mouseX * 1.4 * dt;
+    let roll = 0;
+    if (keys['KeyA']) roll += 1.6 * dt;
+    if (keys['KeyD']) roll -= 1.6 * dt;
+    e3.set(pitch, yaw, roll, 'XYZ');
+    q.setFromEuler(e3);
+    ship.quaternion.multiply(q);
+    // recentrage doux de la souris pour un pilotage stable
+    mouseX *= 0.92; mouseY *= 0.92;
+
+    // inclinaison visuelle du fuselage selon les commandes
+    hull.rotation.z = THREE.MathUtils.lerp(hull.rotation.z, (keys['KeyA'] ? 0.4 : 0) - (keys['KeyD'] ? 0.4 : 0), 0.1);
+    hull.rotation.x = THREE.MathUtils.lerp(hull.rotation.x, mouseY * 0.3, 0.1);
+
+    // Vitesse cible le long de l'axe avant du vaisseau (-Z local)
+    const speed = throttle * MAX_SPEED * (boosting ? BOOST : 1);
+    tmp.set(0, 0, -1).applyQuaternion(ship.quaternion).multiplyScalar(speed);
+    velocity.lerp(tmp, 1 - Math.pow(0.0001, dt)); // inertie
+    ship.position.addScaledVector(velocity, dt);
+
+    // Collision douce avec les planètes / soleil
+    for (const pl of planets) {
+      const d = ship.position.distanceTo(pl.mesh.position);
+      const min = pl.radius + 6;
+      if (d < min) {
+        tmp.copy(ship.position).sub(pl.mesh.position).setLength(min);
+        ship.position.copy(pl.mesh.position).add(tmp);
+        velocity.multiplyScalar(0.3);
+      }
+      pl.mesh.rotation.y += pl.spin * dt;
+    }
+    const ds = ship.position.distanceTo(sun.position);
+    if (ds < 1900) { tmp.copy(ship.position).sub(sun.position).setLength(1900); ship.position.copy(sun.position).add(tmp); velocity.multiplyScalar(0.2); }
+
+    sun.rotation.y += 0.02 * dt;
+
+    // HUD
+    const realSpeed = velocity.length();
+    ui.speed.textContent = realSpeed.toFixed(0);
+    ui.throttle.style.width = (throttle * 100).toFixed(0) + '%';
+    ui.coords.textContent = `${ship.position.x.toFixed(0)}, ${ship.position.y.toFixed(0)}, ${ship.position.z.toFixed(0)}`;
+
+    // corps le plus proche
+    let near = null, nd = Infinity;
+    for (const pl of planets) {
+      const d = ship.position.distanceTo(pl.mesh.position) - pl.radius;
+      if (d < nd) { nd = d; near = pl; }
+    }
+    if (near) {
+      ui.pName.textContent = near.name;
+      ui.pDist.textContent = Math.max(0, nd).toFixed(0);
+      ui.pType.textContent = near.type;
+    }
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (started) update(dt);
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ----------------------------------------------------------------------------
+  // Démarrage
+  // ----------------------------------------------------------------------------
+  let started = false;
+  const intro = document.getElementById('intro');
+  intro.addEventListener('click', () => {
+    intro.classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('reticle').classList.remove('hidden');
+    renderer.domElement.requestPointerLock();
+    started = true;
+  });
+  renderer.domElement.addEventListener('click', () => {
+    if (started && !pointerLocked) renderer.domElement.requestPointerLock();
+  });
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+  </script>
+</body>
+</html>
