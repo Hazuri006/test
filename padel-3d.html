@@ -91,7 +91,7 @@
           background: linear-gradient(90deg,#4dd0ff,#7fe3a1); transition: .15s; }
   .play:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(77,208,255,.4); }
   .help-list { text-align: left; font-size: 13px; line-height: 1.7; opacity: .85;
-               margin: 16px auto 0; max-width: 380px; }
+               margin: 16px auto 0; max-width: 400px; }
   .help-list b { color: #ffd84d; }
   kbd { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
         border-radius: 5px; padding: 1px 7px; font-size: 12px; }
@@ -99,7 +99,7 @@
   /* ---------- Aide en jeu (coin bas-gauche) ---------- */
   #help { position: absolute; left: 14px; bottom: 14px; font-size: 12px; line-height: 1.6;
           background: rgba(10,16,32,.55); border: 1px solid rgba(255,255,255,.12);
-          border-radius: 12px; padding: 10px 14px; max-width: 290px; backdrop-filter: blur(6px); }
+          border-radius: 12px; padding: 10px 14px; max-width: 300px; backdrop-filter: blur(6px); }
   #help.hidden { display: none; }
   #help .t { font-weight: 700; color: #4dd0ff; margin-bottom: 4px; }
   #helpToggle { position: absolute; right: 14px; bottom: 14px; font-size: 12px; opacity: .7;
@@ -149,7 +149,7 @@
   <div id="menu" class="overlay">
     <div class="panel clickable">
       <h1>PADEL&nbsp;3D</h1>
-      <p class="sub">Le terrain clos où les murs font partie du jeu</p>
+      <p class="sub">Vue à la première personne — le terrain clos où les murs font partie du jeu</p>
       <div class="modes">
         <button class="mode-btn active" id="mode1">1 Joueur<br><small>contre l'IA</small></button>
         <button class="mode-btn" id="mode2">2 Joueurs<br><small>même clavier</small></button>
@@ -157,11 +157,11 @@
       <button class="play" id="playBtn">Jouer</button>
       <div class="help-list">
         <div><b>Bouger :</b> <kbd>Z</kbd><kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd> ou flèches</div>
-        <div><b>Viser :</b> bougez la <b>souris</b> (la caméra s'oriente, réticule au centre)</div>
-        <div><b>Charger le tir :</b> <b>maintenez</b> le <kbd>clic gauche</kbd> ou <kbd>Espace</kbd>, relâchez pour frapper</div>
+        <div><b>Viser :</b> bougez la <b>souris</b> (oriente la vue, réticule au centre)</div>
+        <div><b>Tir / charge :</b> <b>maintenez</b> le <kbd>clic gauche</kbd> ou <kbd>Espace</kbd> — <b>1 s = 100 %</b>, relâchez pour frapper</div>
+        <div><b>Lob :</b> <kbd>clic droit</kbd> (cloche par-dessus l'adversaire)</div>
         <div><b>🔥 Pleine puissance :</b> la balle prend feu !</div>
-        <div><b>Joueur 2 :</b> <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> + maintien <kbd>Entrée</kbd></div>
-        <div><b>Aide en jeu :</b> touche <kbd>H</kbd></div>
+        <div><b>Joueur 2 (2 joueurs) :</b> <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> + maintien <kbd>Entrée</kbd></div>
       </div>
     </div>
   </div>
@@ -179,8 +179,9 @@
   <div id="help" class="hidden">
     <div class="t">Contrôles</div>
     <div>Déplacement : <b>ZQSD</b> / flèches</div>
-    <div>Viser : <b>souris</b> (oriente la caméra)</div>
-    <div>Charger : <b>maintenir clic</b> / <b>Espace</b>, relâcher pour frapper</div>
+    <div>Viser : <b>souris</b> (vue 1re personne)</div>
+    <div>Tir : <b>maintenir clic gauche</b> / <b>Espace</b> (1 s = 100 %)</div>
+    <div>Lob : <b>clic droit</b></div>
     <div>Pleine puissance = <b>balle en feu 🔥</b></div>
     <div>Astuce : jouez la balle <b>après le rebond au mur</b> !</div>
   </div>
@@ -203,11 +204,11 @@
      2. Variables globales & état de la partie
      3. Initialisation Three.js (scène, caméra, lumières, ciel)
      4. Construction du terrain (sol + lignes, murs vitrés, grillage, filet)
-     5. Joueurs (modèle humanoïde + raquette) et balle (+ traînée + feu)
-     6. Entrées clavier / souris (visée caméra + charge de puissance)
-     7. Logique de jeu (service, frappe, IA, score type tennis)
-     8. Physique de la balle (gravité, rebonds sol/murs/filet)
-     9. Boucle d'animation + caméra dynamique + HUD + effets de feu
+     5. Joueurs (humanoïde + raquette), raquette 1re personne, balle (+ feu)
+     6. Entrées clavier / souris (visée caméra, charge, lob au clic droit)
+     7. Logique de jeu (service, frappe, lob, IA, score type tennis, filet)
+     8. Physique de la balle (gravité, rebonds sol/murs ; filet = point)
+     9. Boucle d'animation + caméra 1re personne + HUD + effets de feu
    Chaque section est commentée pour pouvoir être modifiée facilement.
    ====================================================================== */
 
@@ -243,20 +244,25 @@ const SET_GAMES    = 4;      // jeux à gagner pour remporter la manche (mettez 
 const YAW_LIMIT   = 1.1;     // amplitude horizontale de visée (radians, ~63°)
 const PITCH_MIN   = -0.30;   // visée basse (tir tendu)
 const PITCH_MAX   = 0.70;    // visée haute (lob)
-const CHARGE_TIME = 1.1;     // temps (s) de maintien pour atteindre la puissance max
+const CHARGE_TIME = 1.0;     // temps (s) de maintien pour atteindre 100 % de puissance
 const FIRE_THRESHOLD = 0.9;  // au-delà de cette puissance -> balle en feu 🔥
+const EYE_H       = 1.62;    // hauteur des yeux (caméra 1re personne)
 
 /* ----------------------------------------------------------------------
    2. VARIABLES GLOBALES & ÉTAT
    ---------------------------------------------------------------------- */
 let scene, camera, renderer;
+let players = [];
 let ballMesh, trailGhosts = [];
 let fireLight, fireSprite, embers = [], glowTex, targetRing; // effets de feu + réticule au sol
+let fpRacket = null, fpSwingT = 0;        // raquette « 1re personne » (viewmodel) + son swing
 const ballPos = new THREE.Vector3();
 const ballVel = new THREE.Vector3();
 const trailPositions = [];
 const camPos  = new THREE.Vector3(-15, 6, 0);
 const camLook = new THREE.Vector3(0, 1, 0);
+const lastP0  = new THREE.Vector3(-7, 0, 0); // pour le balancement de tête (head-bob)
+let bobPhase = 0;
 const keys = new Set();
 const mouseNDC = new THREE.Vector2(0, 0);
 let aimYaw = 0, aimPitch = 0.2;   // orientation de visée pilotée par la souris
@@ -273,6 +279,7 @@ const G = {
   lastHitter: 0,          // dernier joueur ayant frappé
   groundBounces: 0,       // rebonds au sol depuis la dernière frappe
   lastBounceSide: 0,      // côté du dernier rebond au sol
+  crossedSinceHit: false, // la balle a-t-elle franchi le filet depuis la dernière frappe ?
   netTouched: false,      // la balle a-t-elle touché le filet pendant l'échange ?
   pointWinner: 0,
   pointTimer: 0,          // minuterie avant le service suivant
@@ -294,9 +301,10 @@ const G = {
 function init() {
   scene = new THREE.Scene();
 
-  // Caméra perspective (vue 3e personne)
-  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 300);
+  // Caméra perspective (1re personne)
+  camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 300);
   camera.position.copy(camPos);
+  scene.add(camera); // nécessaire pour que la raquette « 1re personne » (enfant) soit rendue
 
   // Renderer + ombres douces
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -332,6 +340,7 @@ function init() {
   buildWalls();
   buildNet();
   buildBall();
+  buildFPRacket();                    // raquette vue à la 1re personne
   players.push(makePlayer(0x2f7bff)); // Joueur 1 (bleu)
   players.push(makePlayer(0xff5a4d)); // Joueur 2 / IA (rouge)
   players[1].group.rotation.y = Math.PI; // le joueur d'en face regarde vers le filet
@@ -341,7 +350,6 @@ function init() {
   setupInputs();
   setupMenu();
 }
-let players = [];
 
 // Crée un dégradé vertical utilisé comme arrière-plan (ciel)
 function makeSkyTexture() {
@@ -567,7 +575,7 @@ function netHeightAt(z) {
 }
 
 /* ----------------------------------------------------------------------
-   5. BALLE (+ TRAÎNÉE + FEU) ET JOUEURS
+   5. BALLE (+ TRAÎNÉE + FEU), RAQUETTE 1re PERSONNE, JOUEURS
    ---------------------------------------------------------------------- */
 function buildBall() {
   ballMesh = new THREE.Mesh(
@@ -620,6 +628,41 @@ function buildBall() {
   targetRing.position.y = 0.02;
   targetRing.visible = false;
   scene.add(targetRing);
+}
+
+// Raquette de padel visible à la 1re personne (montée sur la caméra, comme une « arme » FPS)
+function buildFPRacket() {
+  fpRacket = new THREE.Group();
+  const dark = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.5 });
+  const blue = new THREE.MeshStandardMaterial({ color: 0x2f7bff, roughness: 0.4, metalness: 0.1 });
+  const grip = new THREE.MeshStandardMaterial({ color: 0x101418, roughness: 0.9 });
+
+  // Manche (le long de l'axe Y local)
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.26, 10), grip);
+  handle.position.y = -0.16; fpRacket.add(handle);
+  // Cœur / pont
+  const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.14, 8), dark);
+  throat.position.y = 0.0; fpRacket.add(throat);
+  // Tamis (disque plein, face vers la caméra : normale le long de Z)
+  const face = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.022, 26), dark);
+  face.rotation.x = Math.PI / 2; face.position.y = 0.2; fpRacket.add(face);
+  // Cadre du tamis (couleur du joueur)
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.018, 8, 26), blue);
+  rim.position.y = 0.2; fpRacket.add(rim);
+  // Quelques « trous » suggérés par un léger motif (petits cylindres clairs)
+  const holeMat = new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.6 });
+  for (let k = 0; k < 6; k++) {
+    const a = k / 6 * Math.PI * 2;
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 6), holeMat);
+    h.rotation.x = Math.PI / 2; h.position.set(Math.cos(a) * 0.07, 0.2, Math.sin(a) * 0.07);
+    fpRacket.add(h);
+  }
+
+  // Pose de repos (en bas à droite de l'écran, légèrement inclinée)
+  fpRacket.position.set(0.42, -0.42, -0.8);
+  fpRacket.rotation.set(0.18, -0.25, -0.4);
+  fpRacket.visible = false;       // affichée seulement en mode 1 joueur
+  camera.add(fpRacket);
 }
 
 // Un joueur = modèle humanoïde simple (corps, tête, jambes, bras) + raquette de padel.
@@ -703,6 +746,7 @@ function makePlayer(shirtColor) {
    ----------------------------------------------------------------------
    - Souris : oriente la visée/caméra (position à l'écran).
    - Maintien clic gauche / Espace : charge la puissance, relâcher = frappe.
+   - Clic droit : lob (cloche par-dessus l'adversaire).
    ---------------------------------------------------------------------- */
 function setupInputs() {
   // Clavier
@@ -728,9 +772,14 @@ function setupInputs() {
       aimPitch = THREE.MathUtils.lerp(PITCH_MIN, PITCH_MAX, (mouseNDC.y + 1) / 2);
     }
   });
-  // Clic gauche : commence la charge (ou sert) ; relâcher : frappe
-  renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0) startChargeOrServe(0); });
+  // Clic : gauche = charge/service, droit = lob
+  renderer.domElement.addEventListener('mousedown', e => {
+    if (e.button === 0) startChargeOrServe(0);
+    else if (e.button === 2 && G.state === 'RALLY') attemptHit(0, 0.7, true); // lob
+  });
   addEventListener('mouseup', e => { if (e.button === 0) releaseCharge(0); });
+  // Empêche le menu contextuel du clic droit
+  renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 // Direction horizontale de visée (yaw=0 -> vers le camp adverse)
@@ -751,7 +800,7 @@ function releaseCharge(pi) {
   const power = THREE.MathUtils.clamp((now - G.chargeStart[pi]) / CHARGE_TIME, 0, 1);
   G.charging[pi] = false;
   G.power[pi] = 0;
-  attemptHit(pi, power);
+  attemptHit(pi, power, false);
 }
 
 function toggleHelp() { document.getElementById('help').classList.toggle('hidden'); }
@@ -759,6 +808,13 @@ function toggleHelp() { document.getElementById('help').classList.toggle('hidden
 /* ----------------------------------------------------------------------
    7. LOGIQUE DE JEU
    ---------------------------------------------------------------------- */
+
+// Applique le mode de vue : 1 joueur = 1re personne (raquette visible, corps caché) ; 2 joueurs = 3e personne
+function applyViewMode() {
+  const fp = (G.mode === '1P');
+  if (players[0]) players[0].group.visible = !fp;
+  if (fpRacket) fpRacket.visible = fp;
+}
 
 // Démarre une partie dans le mode choisi
 function startGame(mode) {
@@ -775,6 +831,7 @@ function startGame(mode) {
   document.getElementById('help').classList.remove('hidden');
   document.getElementById('helpToggle').classList.remove('hidden');
   document.body.classList.add('playing');
+  applyViewMode();
   updateHUD();
   setupServe();
 }
@@ -784,6 +841,7 @@ function setupServe() {
   G.state = 'SERVE';
   G.groundBounces = 0;
   G.netTouched = false;
+  G.crossedSinceHit = false;
   G.lastHitter = G.server;
   G.charging = [false, false]; G.power = [0, 0];
   setBallFire(false);
@@ -828,13 +886,16 @@ function doServe(server) {
     0.05,
     THREE.MathUtils.clamp(targetZ, -4.4, 4.4)
   );
+  const v = solveArc(start, target, 1.0); // trajectoire en cloche (1 s de vol)
+  ensureNetClearance(start, v, 0.2);       // garantit que le service passe le filet
   ballPos.copy(start);
-  ballVel.copy(solveArc(start, target, 1.0)); // trajectoire en cloche (1 s de vol)
+  ballVel.copy(v);
 
   G.state = 'RALLY';
   G.lastHitter = server;
   G.groundBounces = 0;
   G.netTouched = false;
+  G.crossedSinceHit = false;
   triggerSwing(server);
   blip(440, 0.05);
 }
@@ -846,6 +907,18 @@ function solveArc(start, target, T) {
   v.z = (target.z - start.z) / T;
   v.y = (target.y - start.y + 0.5 * GRAV * T * T) / T;
   return v;
+}
+
+// Garantit que la trajectoire franchit le filet (augmente juste assez la vitesse verticale).
+// Utilisé pour l'IA, le service et le lob -> évite que ces coups « meurent » dans le filet.
+function ensureNetClearance(start, v, margin) {
+  if (v.x === 0) return;
+  const tc = -start.x / v.x;             // instant où X = 0 (passage du filet)
+  if (tc <= 0 || !isFinite(tc)) return;  // ne traverse pas le filet : rien à faire
+  const zc = start.z + v.z * tc;
+  const yc = start.y + v.y * tc - 0.5 * GRAV * tc * tc;
+  const need = netHeightAt(zc) + BALL_R + margin;
+  if (yc < need) v.y += (need - yc) / tc; // monte juste ce qu'il faut pour passer
 }
 
 // Cible de tir du Joueur 1 (souris) : direction = visée, portée = puissance
@@ -873,44 +946,52 @@ function computeP1Target(power) {
   );
 }
 
-// Tente une frappe pour le joueur pi (vérifie la portée). power = 0..1
-function attemptHit(pi, power) {
+// Tente une frappe pour le joueur pi (vérifie la portée). power = 0..1, isLob = lob
+function attemptHit(pi, power, isLob) {
   if (power == null) power = 0.6;
   if (G.state !== 'RALLY' || now < G.hitCooldown[pi]) return;
   G.hitCooldown[pi] = now + 0.22;
   triggerSwing(pi); // on arme toujours le geste (retour visuel)
   const p = players[pi].pos;
   const horiz = Math.hypot(ballPos.x - p.x, ballPos.z - p.z);
-  if (horiz <= REACH && ballPos.y <= REACH_H) hitBall(pi, null, power);
+  if (horiz <= REACH && ballPos.y <= REACH_H) hitBall(pi, null, power, isLob);
 }
 
 // Applique la frappe : envoie la balle vers le camp adverse selon la visée et la puissance
-function hitBall(pi, targetOverride, power) {
+function hitBall(pi, targetOverride, power, isLob) {
   if (power == null) power = 0.6;
   let target;
-  if (targetOverride) target = targetOverride;                 // tir de l'IA
-  else if (pi === 0) target = computeP0Target(power);          // Joueur 1 (souris)
-  else target = computeP1Target(power);                        // Joueur 2 (clavier)
+  if (targetOverride) target = targetOverride;                         // tir de l'IA
+  else if (pi === 0) target = computeP0Target(isLob ? THREE.MathUtils.lerp(0.7, 1, power) : power);
+  else target = computeP1Target(power);                                // Joueur 2 (clavier)
 
   const start = ballPos.clone();
   const dist = Math.hypot(target.x - start.x, target.z - start.z);
-  // Durée de vol : la visée verticale (pitch) règle l'arc, la puissance aplatit la trajectoire
+
+  // Durée de vol : le lob = cloche haute ; sinon la visée verticale (pitch) règle l'arc,
+  // et la puissance aplatit la trajectoire.
   let T;
-  if (pi === 0 && !targetOverride) {
+  if (isLob) {
+    T = 1.45;
+  } else if (pi === 0 && !targetOverride) {
     const pitchN = (aimPitch - PITCH_MIN) / (PITCH_MAX - PITCH_MIN);
     T = THREE.MathUtils.lerp(0.55, 1.15, pitchN) * THREE.MathUtils.lerp(1.05, 0.78, power);
   } else {
     T = THREE.MathUtils.clamp(0.45 + dist * 0.045, 0.5, 1.0) * THREE.MathUtils.lerp(1.0, 0.82, power);
   }
+
   const v = solveArc(start, target, T);
   if (v.y < 2) v.y = 2;        // garantit un minimum d'arc
+  // L'IA, le service et le lob doivent TOUJOURS franchir le filet
+  if (targetOverride || isLob) ensureNetClearance(start, v, isLob ? 0.5 : 0.4);
   ballVel.copy(v);
 
   G.lastHitter = pi;
-  G.groundBounces = 0;         // la frappe « remet à zéro » le compteur de rebonds
+  G.groundBounces = 0;          // la frappe « remet à zéro » le compteur de rebonds
   G.netTouched = false;
-  setBallFire(power >= FIRE_THRESHOLD);  // 🔥 tir à pleine puissance = balle en feu
-  if (power >= FIRE_THRESHOLD) blip(120, 0.25);
+  G.crossedSinceHit = false;    // il faut de nouveau franchir le filet
+  setBallFire(!isLob && power >= FIRE_THRESHOLD);  // 🔥 tir à pleine puissance = balle en feu
+  if (!isLob && power >= FIRE_THRESHOLD) blip(120, 0.25);
   else blip(pi === 0 ? 520 : 480, 0.04);
 }
 
@@ -924,16 +1005,16 @@ function setBallFire(on) {
 function aiHit() {
   const px = players[0].pos;
   let tz = (px.z > 0 ? -3.5 : 3.5) + (Math.random() * 2 - 1) * AI_AIM_ERR * 4;
-  let tx = -(3 + Math.random() * 5) + (Math.random() * 2 - 1) * AI_AIM_ERR * 3;
+  let tx = -(3.5 + Math.random() * 4.5) + (Math.random() * 2 - 1) * AI_AIM_ERR * 3;
   const target = new THREE.Vector3(
-    THREE.MathUtils.clamp(tx, -9.3, -1),
+    THREE.MathUtils.clamp(tx, -9.3, -2),
     0.05,
     THREE.MathUtils.clamp(tz, -4.4, 4.4)
   );
   // Smash enflammé si la balle est haute et proche du filet
   const smash = ballPos.y > 1.5 && Math.abs(players[1].pos.x) < 5;
   const power = smash ? 1.0 : (0.45 + Math.random() * 0.3);
-  hitBall(1, target, power);
+  hitBall(1, target, power, false); // ensureNetClearance s'applique (cible imposée) => l'IA passe le filet
   G.hitCooldown[1] = now + 0.4;
   triggerSwing(1);
 }
@@ -951,11 +1032,12 @@ function aiUpdate(dt) {
   }
   if (G.state !== 'RALLY') { moveTowards(1, 7, 0, dt, AI_SPEED * 0.7); return; }
 
-  // Déplacement : intercepter la balle si elle vient vers l'IA, sinon revenir au centre
+  // Déplacement : intercepter la balle si elle vient vers l'IA, sinon revenir au centre.
+  // On garde l'IA un peu en retrait (>=1.8) pour ne pas se coller au filet.
   const onAISide = ballPos.x > 0;
   let tx, tz;
   if (onAISide || ballVel.x > 0) {
-    tx = THREE.MathUtils.clamp(ballPos.x, 1.0, 9.3);
+    tx = THREE.MathUtils.clamp(ballPos.x, 1.8, 9.3);
     tz = THREE.MathUtils.clamp(ballPos.z, -4.4, 4.4);
   } else { tx = 7; tz = 0; }
   moveTowards(1, tx, tz, dt, AI_SPEED);
@@ -1063,22 +1145,33 @@ function substep(h) {
     else markOut();
   }
 
+  // La balle a-t-elle réellement franchi le filet (bien passée du côté adverse) ?
+  const oppSide = (G.lastHitter === 0) ? 1 : -1;
+  if (Math.sign(ballPos.x) === oppSide && Math.abs(ballPos.x) > 0.4) G.crossedSinceHit = true;
+
   // --- Collision avec le filet ---
   const crossed = (prevX > 0) !== (ballPos.x > 0);
   if ((crossed || Math.abs(ballPos.x) < BALL_R) && ballPos.y < netHeightAt(ballPos.z) + BALL_R) {
-    const s = (prevX >= 0) ? 1 : -1;
-    ballPos.x = s * (BALL_R + 0.02);     // renvoyée du côté du frappeur
-    ballVel.x = -ballVel.x * 0.25;
-    ballVel.y *= 0.45; ballVel.z *= 0.6; // la balle retombe et meurt souvent côté frappeur
     G.netTouched = true;
-    blip(200, 0.05);
+    if (!G.crossedSinceHit) {
+      // Le frappeur n'a pas réussi à passer le filet -> FILET : point pour l'adversaire
+      ballVel.multiplyScalar(0.05);
+      blip(180, 0.12);
+      endRally(1 - G.lastHitter, 'Filet !');
+      return;
+    } else {
+      // Cas rare : la balle était déjà passée et revient mourir au filet -> on amortit
+      const s = (prevX >= 0) ? 1 : -1;
+      ballPos.x = s * (BALL_R + 0.02);
+      ballVel.x = -ballVel.x * 0.25; ballVel.y *= 0.45; ballVel.z *= 0.6;
+    }
   }
 
   // Sécurité : balle perdue très haut
   if (ballPos.y > 16) markOut();
 }
 
-// Rebond au sol : compte les rebonds, détecte le double rebond, valide le service
+// Rebond au sol : compte les rebonds, détecte le double rebond
 function onGroundBounce() {
   blip(330, 0.03);
   G.groundBounces++;
@@ -1088,14 +1181,16 @@ function onGroundBounce() {
     // Le camp où la balle rebondit deux fois perd le point
     const loser = G.lastBounceSide;
     const winner = 1 - loser;
-    let msg = 'Double rebond !';
-    if (loser === G.lastHitter) msg = G.netTouched ? 'Dans le filet !' : 'Faute !';
-    else msg = 'Joli point !';
+    let msg = (loser === G.lastHitter) ? 'Faute !' : 'Joli point !';
     endRally(winner, msg);
   }
 }
 
-function onWallBounce() { blip(260, 0.025); }
+function onWallBounce() {
+  blip(260, 0.025);
+  // Petites étincelles si la balle de feu percute un mur
+  if (G.fire && now < G.fireUntil) for (const em of embers) em.material.opacity = 1;
+}
 
 // Balle sortie (passée au-dessus des murs) : faute du dernier frappeur
 function markOut() {
@@ -1123,6 +1218,7 @@ function animate(t) {
     updateBall(dt);
     updateTrail();
     updateFire();            // effets de la balle en feu
+    updateFPRacket(dt);      // animation de la raquette 1re personne
     updatePowerUI();         // jauge de puissance
     updateAimReticle();      // anneau au sol indiquant la cible
   }
@@ -1157,13 +1253,22 @@ function handleMovement(dt) {
   }
 }
 
-// Applique un déplacement normalisé à un joueur et le confine dans son camp
+// Applique un déplacement normalisé à un joueur et le confine dans son camp.
+// En 1re personne, les déplacements sont relatifs à la direction de visée (avancer = là où on regarde).
 function applyMove(pi, mx, mz, dt) {
   if (mx === 0 && mz === 0) return;
   const len = Math.hypot(mx, mz);
+  let dx = mx / len, dz = mz / len;
+  if (pi === 0 && G.mode === '1P') {
+    // Repère relatif à la visée : « avant » suit le regard horizontal
+    const c = Math.cos(aimYaw), s = Math.sin(aimYaw);
+    const fx = dx * c - dz * s;
+    const fz = dx * s + dz * c;
+    dx = fx; dz = fz;
+  }
   const sp = PLAYER_SPEED * dt;
-  players[pi].pos.x += (mx / len) * sp;
-  players[pi].pos.z += (mz / len) * sp;
+  players[pi].pos.x += dx * sp;
+  players[pi].pos.z += dz * sp;
   clampPlayer(pi);
 }
 
@@ -1186,8 +1291,11 @@ function clampPlayer(pi) {
   p.z = THREE.MathUtils.clamp(p.z, -4.6, 4.6);
 }
 
-// Déclenche l'animation de frappe
-function triggerSwing(pi) { players[pi].swingT = 0.0001; }
+// Déclenche l'animation de frappe (corps + raquette 1re personne pour le joueur 0)
+function triggerSwing(pi) {
+  players[pi].swingT = 0.0001;
+  if (pi === 0) fpSwingT = 0.0001;
+}
 
 // Met à jour position/orientation des joueurs + animations (course, frappe)
 function syncPlayers(dt) {
@@ -1207,7 +1315,7 @@ function syncPlayers(dt) {
     pl.legL.rotation.x = swingLeg;
     pl.legR.rotation.x = -swingLeg;
 
-    // Animation de frappe (balayage de la raquette)
+    // Animation de frappe (balayage de la raquette du modèle)
     let angle = 0;
     if (pl.swingT > 0) {
       pl.swingT += dt;
@@ -1282,6 +1390,23 @@ function updateFire() {
   }
 }
 
+// Animation de la raquette vue à la 1re personne
+function updateFPRacket(dt) {
+  if (!fpRacket || !fpRacket.visible) return;
+  let sx = 0, sz = 0, push = 0;
+  if (fpSwingT > 0) {
+    fpSwingT += dt;
+    const prog = Math.min(fpSwingT / 0.22, 1);
+    const s = Math.sin(prog * Math.PI);
+    sz = -s * 1.4;     // balayage latéral
+    sx = s * 0.5;      // bascule
+    push = s * 0.22;   // poussée vers l'avant
+    if (fpSwingT >= 0.22) fpSwingT = 0;
+  }
+  fpRacket.rotation.set(0.18 + sx, -0.25, -0.4 + sz);
+  fpRacket.position.set(0.42, -0.42, -0.8 - push);
+}
+
 // Calcule la puissance courante des joueurs en train de charger
 function updateCharge() {
   for (let pi = 0; pi < 2; pi++) {
@@ -1323,21 +1448,36 @@ function updateAimReticle() {
   targetRing.scale.setScalar(1 + pw * 0.9);
 }
 
-// Caméra 3e personne : orbite derrière le Joueur 1 selon la visée (souris), avec lissage
+// Caméra : 1re personne en mode 1 joueur, 3e personne en mode 2 joueurs
 function updateCamera(dt) {
   const p = players[0] ? players[0].pos : new THREE.Vector3(-7, 0, 0);
-  const dir = aimDir();
-  const pitchN = (aimPitch - PITCH_MIN) / (PITCH_MAX - PITCH_MIN);
-  const back = (G.mode === '2P') ? 8.5 : 7.0;
-  const height = THREE.MathUtils.lerp(2.7, 6.2, pitchN) + (G.mode === '2P' ? 1.0 : 0);
 
-  const desired = new THREE.Vector3(p.x - dir.x * back, height, p.z - dir.z * back);
-  camPos.lerp(desired, 1 - Math.pow(0.0009, dt));  // lissage exponentiel (effet « doux »)
-  camera.position.copy(camPos);
+  if (G.mode === '1P') {
+    // --- Vue à la première personne ---
+    // Léger balancement de tête selon la vitesse de déplacement (effet dynamique)
+    const sp = Math.hypot(p.x - lastP0.x, p.z - lastP0.z) / Math.max(dt, 1e-3);
+    lastP0.set(p.x, 0, p.z);
+    bobPhase += Math.min(sp, 6) * dt * 6;
+    const bob = Math.sin(bobPhase) * Math.min(sp, 6) * 0.006;
 
-  const look = new THREE.Vector3(p.x + dir.x * 6, 1.1 + (1 - pitchN) * 0.4, p.z + dir.z * 6);
-  camLook.lerp(look, 1 - Math.pow(0.002, dt));
-  camera.lookAt(camLook);
+    camera.position.set(p.x, EYE_H + bob, p.z);
+    const cp = Math.cos(aimPitch), sps = Math.sin(aimPitch);
+    const forward = new THREE.Vector3(Math.cos(aimYaw) * cp, sps, Math.sin(aimYaw) * cp);
+    camLook.copy(camera.position).add(forward);
+    camera.lookAt(camLook);
+  } else {
+    // --- Vue 3e personne (orbite derrière le Joueur 1, pilotée par la visée) ---
+    const dir = aimDir();
+    const pitchN = (aimPitch - PITCH_MIN) / (PITCH_MAX - PITCH_MIN);
+    const back = 8.5;
+    const height = THREE.MathUtils.lerp(2.7, 6.2, pitchN) + 1.0;
+    const desired = new THREE.Vector3(p.x - dir.x * back, height, p.z - dir.z * back);
+    camPos.lerp(desired, 1 - Math.pow(0.0009, dt));
+    camera.position.copy(camPos);
+    const look = new THREE.Vector3(p.x + dir.x * 6, 1.1 + (1 - pitchN) * 0.4, p.z + dir.z * 6);
+    camLook.lerp(look, 1 - Math.pow(0.002, dt));
+    camera.lookAt(camLook);
+  }
 }
 
 // ----- HUD (score) -----
