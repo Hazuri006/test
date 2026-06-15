@@ -222,13 +222,14 @@ const FIRE_THRESHOLD = 0.9;  // au-delà -> balle en feu 🔥
 const POWER_MIN_CLEAR = 0.15;// en dessous, le tir n'est PAS rehaussé (peut finir au filet)
 const JUMP_V      = 5.5;     // vitesse de saut (m/s)
 const JUMP_G      = 18;      // gravité du saut
-const AIM_SMOOTH  = 14;      // lissage de la visée/caméra (plus haut = plus réactif)
+const AIM_SMOOTH  = 22;      // réactivité de la visée (lambda d'amortissement, plus haut = plus direct)
 
 /* ------------------------- 2. VARIABLES & ÉTAT ------------------------ */
 let scene, camera, renderer;
 let players = [];
 let ballMesh, trailGhosts = [];
 let fireLight, fireSprite, embers = [], glowTex, targetRing;
+let shadowTex, ballShadow;          // ombres de contact (ancrage au sol)
 const ballPos = new THREE.Vector3();
 const ballVel = new THREE.Vector3();
 const trailPositions = [];
@@ -303,7 +304,7 @@ function init() {
   buildBall();
   players.push(makePlayer(0x2f7bff)); // Joueur 1 (bleu)
   players.push(makePlayer(0xff5a4d)); // Joueur 2 / IA (rouge)
-  players[1].group.rotation.y = Math.PI;
+  players[1].facing = Math.PI; players[1].group.rotation.y = Math.PI;
 
   addEventListener('resize', onResize);
   setupInputs();
@@ -368,6 +369,39 @@ function makeGlowTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// Tache d'ombre douce (ombre de contact / occlusion ambiante sous les objets)
+function makeShadowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0.0, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(0.6, 'rgba(0,0,0,0.28)');
+  grd.addColorStop(1.0, 'rgba(0,0,0,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+// Crée un disque d'ombre posé au sol (suivra un objet)
+function makeBlob() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.5 }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.015; m.renderOrder = 1; scene.add(m);
+  return m;
+}
+// Relief fin de gazon synthétique (bump map en niveaux de gris)
+function makeTurfBump() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const img = g.createImageData(256, 256);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 175 + Math.random() * 80;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(20, 10);
+  return t;
+}
+
 /* --------------------------- 4. TERRAIN ------------------------------- */
 function buildSurroundings() {
   const g = new THREE.Mesh(
@@ -382,7 +416,8 @@ function buildCourt() {
   const tex = makeCourtTexture();
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(2 * HALF_LEN, 2 * HALF_WID),
-    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, metalness: 0, envMapIntensity: 0.25 })
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0, envMapIntensity: 0.25,
+                                     bumpMap: makeTurfBump(), bumpScale: 0.02 })
   );
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
   scene.add(floor);
@@ -422,9 +457,12 @@ function makeCourtTexture() {
 }
 
 function glassMaterial() {
-  return new THREE.MeshStandardMaterial({
-    color: 0xcdeeff, transparent: true, opacity: 0.16,
-    roughness: 0.03, metalness: 0, envMapIntensity: 1.6,
+  // Verre physique : couche de vernis (clearcoat) + reflets d'environnement -> aspect vitre réaliste
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xddf3ff, metalness: 0, roughness: 0.04,
+    transparent: true, opacity: 0.18,
+    clearcoat: 1.0, clearcoatRoughness: 0.04,
+    reflectivity: 0.9, ior: 1.45, envMapIntensity: 1.8,
     side: THREE.DoubleSide, depthWrite: false
   });
 }
@@ -508,11 +546,13 @@ function netHeightAt(z) { return NET_CENTER + (NET_POST - NET_CENTER) * Math.abs
 
 /* --------------------- 5. BALLE (+ FEU) ET JOUEURS -------------------- */
 function buildBall() {
+  shadowTex = makeShadowTexture();        // texture partagée des ombres de contact
   ballMesh = new THREE.Mesh(
     new THREE.SphereGeometry(BALL_R, 20, 16),
     new THREE.MeshStandardMaterial({ color: 0xcfe23a, roughness: 0.85, metalness: 0, envMapIntensity: 0.5, emissive: 0x000000 })
   );
   ballMesh.castShadow = true; scene.add(ballMesh);
+  ballShadow = makeBlob();                 // ombre de la balle au sol
 
   for (let i = 0; i < 16; i++) {
     const ghost = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 10, 8),
@@ -555,8 +595,8 @@ function makePlayer(shirtColor) {
     thigh.position.y = -0.21; thigh.castShadow = true; g.add(thigh);
     const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.07, 0.42, 12), mSkin);
     shin.position.y = -0.63; shin.castShadow = true; g.add(shin);
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.3), mShoe);
-    shoe.position.set(0, -0.85, 0.06); shoe.castShadow = true; g.add(shoe);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.16), mShoe); // long vers l'avant (+X)
+    shoe.position.set(0.06, -0.85, 0); shoe.castShadow = true; g.add(shoe);
     g.position.set(side * 0.12, 0.86, 0);
     return g;
   }
@@ -595,7 +635,9 @@ function makePlayer(shirtColor) {
   rim.rotation.y = Math.PI / 2; rim.position.set(0.72, 0, 0); pivot.add(rim);
 
   scene.add(group);
-  return { group, pivot, legL, legR, pos: new THREE.Vector3(), prev: new THREE.Vector3(), swingT: 0, jumpY: 0, jumpVy: 0 };
+  return { group, pivot, legL, legR, shadowBlob: makeBlob(),
+           pos: new THREE.Vector3(), prev: new THREE.Vector3(),
+           swingT: 0, jumpY: 0, jumpVy: 0, stridePhase: 0, facing: 0 };
 }
 
 /* ----------------------- 6. ENTRÉES CLAVIER/SOURIS -------------------- */
@@ -692,6 +734,8 @@ function setupServe() {
   const srv = G.server, rec = 1 - srv;
   players[srv].pos.set((srv === 0) ? -8.6 : 8.6, 0, G.serveFromZSign * 2.6);
   players[rec].pos.set((srv === 0) ? 6.8 : -6.8, 0, -G.serveFromZSign * 2.6);
+  // évite un sursaut d'animation (téléportation) : on aligne prev sur la nouvelle position
+  for (const pl of players) pl.prev.set(pl.pos.x, 0, pl.pos.z);
 
   refreshHeldBall(); ballVel.set(0, 0, 0);
   if (G.mode === '1P' && G.server === 1) G.aiServeTimer = 0.9;
@@ -1002,13 +1046,28 @@ function syncPlayers(dt) {
   const SW = 0.2;
   for (let i = 0; i < players.length; i++) {
     const pl = players[i];
-    const moved = Math.hypot(pl.pos.x - pl.prev.x, pl.pos.z - pl.prev.z);
-    const speed = dt > 0 ? Math.min(moved / dt, 8) : 0;
+    const mvx = pl.pos.x - pl.prev.x, mvz = pl.pos.z - pl.prev.z;
+    const moved = Math.hypot(mvx, mvz);
+    const speed = dt > 0 ? Math.min(moved / dt, 10) : 0;
     pl.prev.set(pl.pos.x, 0, pl.pos.z);
+
     pl.group.position.set(pl.pos.x, pl.jumpY, pl.pos.z);
-    pl.group.rotation.y = (i === 0) ? 0 : Math.PI;
-    const swingLeg = Math.sin(now * 12) * speed * 0.1;
-    pl.legL.rotation.x = swingLeg; pl.legR.rotation.x = -swingLeg;
+
+    // Orientation : face au filet quand on frappe / immobile ; sinon face à la direction de course
+    const netFacing = (i === 0) ? 0 : Math.PI;
+    let targetFacing = netFacing;
+    if (pl.swingT <= 0 && speed > 0.4) targetFacing = Math.atan2(mvz, mvx);
+    pl.facing = lerpAngle(pl.facing, targetFacing, 1 - Math.pow(0.0002, dt));
+    pl.group.rotation.y = pl.facing;
+
+    // Foulée : la jambe pivote à la HANCHE dans l'axe d'avancée (rotation.z = avant/arrière local).
+    // La phase avance avec la distance et l'amplitude suit la vitesse -> pas de saccade, pas d'écart latéral.
+    pl.stridePhase += moved * 9;
+    const osc = Math.sin(pl.stridePhase) * Math.min(speed / PLAYER_SPEED, 1) * 0.8;
+    pl.legR.rotation.set(0, 0, osc);
+    pl.legL.rotation.set(0, 0, -osc);
+
+    // Frappe : balayage de la raquette
     let angle = 0;
     if (pl.swingT > 0) {
       pl.swingT += dt;
@@ -1016,6 +1075,12 @@ function syncPlayers(dt) {
       if (pl.swingT >= SW) pl.swingT = 0;
     }
     pl.pivot.rotation.y = -angle;
+
+    // Ombre de contact (s'agrandit/s'estompe avec le saut)
+    pl.shadowBlob.position.set(pl.pos.x, 0.015, pl.pos.z);
+    const ps = 1.1 + pl.jumpY * 0.35;
+    pl.shadowBlob.scale.set(ps, ps, 1);
+    pl.shadowBlob.material.opacity = THREE.MathUtils.clamp(0.5 - pl.jumpY * 0.12, 0.12, 0.5);
   }
 }
 
@@ -1025,6 +1090,11 @@ function updateBall(dt) {
     ballMesh.rotation.x += ballVel.z * dt * 1.5;
     ballMesh.rotation.z -= ballVel.x * dt * 1.5;
   }
+  // Ombre de la balle : plus haute = plus grande et plus diffuse (aide aussi à juger la hauteur)
+  ballShadow.position.set(ballPos.x, 0.016, ballPos.z);
+  const s = 0.5 + ballPos.y * 0.12;
+  ballShadow.scale.set(s, s, 1);
+  ballShadow.material.opacity = THREE.MathUtils.clamp(0.55 - ballPos.y * 0.04, 0.08, 0.55);
 }
 function updateTrail() {
   if (G.state === 'RALLY') {
@@ -1096,28 +1166,38 @@ function updateAimReticle() {
   targetRing.scale.setScalar(1 + pw * 0.9);
 }
 
-// Lissage de la visée -> caméra fluide
-function updateAim(dt) {
-  const k = Math.min(1, dt * AIM_SMOOTH);
-  aimYaw   += (targetYaw - aimYaw) * k;
-  aimPitch += (targetPitch - aimPitch) * k;
+// Amortissement exponentiel (indépendant du framerate) : lisse mais réactif
+function damp(a, b, lambda, dt) { return a + (b - a) * (1 - Math.exp(-lambda * dt)); }
+// Interpolation d'angle par le plus court chemin (évite les sauts à ±π)
+function lerpAngle(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
 }
 
-// Caméra 3e personne : orbite derrière le Joueur 1, pilotée par la visée, avec lissage
+// Lissage de la visée -> caméra fluide (amortissement, pas un simple lerp dépendant du framerate)
+function updateAim(dt) {
+  aimYaw   = damp(aimYaw, targetYaw, AIM_SMOOTH, dt);
+  aimPitch = damp(aimPitch, targetPitch, AIM_SMOOTH, dt);
+}
+
+// Caméra 3e personne : orbite derrière le Joueur 1, pilotée par la visée, amortie pour la fluidité.
+// Hauteur peu sensible au pitch -> caméra stable (pas de balancement vertical en visant).
 function updateCamera(dt) {
   const p = players[0] ? players[0].pos : new THREE.Vector3(-7, 0, 0);
   const jy = players[0] ? players[0].jumpY : 0;
   const dir = aimDir();
   const pitchN = (aimPitch - PITCH_MIN) / (PITCH_MAX - PITCH_MIN);
-  const back = (G.mode === '2P') ? 9 : 7.5;
-  const height = THREE.MathUtils.lerp(2.6, 6.0, pitchN) + 1.2 + (G.mode === '2P' ? 0.8 : 0);
+  const back = (G.mode === '2P') ? 9 : 7.2;
+  const height = THREE.MathUtils.lerp(3.8, 5.4, pitchN) + (G.mode === '2P' ? 1.0 : 0) + jy * 0.4;
 
-  const desired = new THREE.Vector3(p.x - dir.x * back, height + jy * 0.5, p.z - dir.z * back);
-  camPos.lerp(desired, 1 - Math.pow(0.0008, dt));
+  const dx = p.x - dir.x * back, dy = height, dz = p.z - dir.z * back;
+  camPos.set(damp(camPos.x, dx, 10, dt), damp(camPos.y, dy, 10, dt), damp(camPos.z, dz, 10, dt));
   camera.position.copy(camPos);
 
-  const look = new THREE.Vector3(p.x + dir.x * 5, 1.2 + jy * 0.6 + (1 - pitchN) * 0.3, p.z + dir.z * 5);
-  camLook.lerp(look, 1 - Math.pow(0.0016, dt));
+  const lx = p.x + dir.x * 5, ly = 1.1 + jy * 0.6 + (1 - pitchN) * 0.2, lz = p.z + dir.z * 5;
+  camLook.set(damp(camLook.x, lx, 13, dt), damp(camLook.y, ly, 13, dt), damp(camLook.z, lz, 13, dt));
   camera.lookAt(camLook);
 }
 
