@@ -158,10 +158,11 @@
       <div class="help-list">
         <div><b>Bouger :</b> <kbd>Z</kbd><kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd> ou flèches</div>
         <div><b>Viser :</b> bougez la <b>souris</b> (oriente la vue, réticule au centre)</div>
-        <div><b>Tir / charge :</b> <b>maintenez</b> le <kbd>clic gauche</kbd> ou <kbd>Espace</kbd> — <b>1 s = 100 %</b>, relâchez pour frapper</div>
+        <div><b>Tir / charge :</b> <b>maintenez</b> le <kbd>clic gauche</kbd> — <b>1 s = 100 %</b>, relâchez pour frapper</div>
+        <div><b>Saut / smash :</b> <kbd>Espace</kbd> (sautez sur une balle haute pour smasher)</div>
         <div><b>Lob :</b> <kbd>clic droit</kbd> (cloche par-dessus l'adversaire)</div>
-        <div><b>🔥 Pleine puissance :</b> la balle prend feu !</div>
-        <div><b>Joueur 2 (2 joueurs) :</b> <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> + maintien <kbd>Entrée</kbd></div>
+        <div><b>🔥 Pleine puissance / smash :</b> la balle prend feu !</div>
+        <div><b>Joueur 2 (2 joueurs) :</b> <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>, charge <kbd>Entrée</kbd>, saut <kbd>Maj droite</kbd></div>
       </div>
     </div>
   </div>
@@ -180,10 +181,10 @@
     <div class="t">Contrôles</div>
     <div>Déplacement : <b>ZQSD</b> / flèches</div>
     <div>Viser : <b>souris</b> (vue 1re personne)</div>
-    <div>Tir : <b>maintenir clic gauche</b> / <b>Espace</b> (1 s = 100 %)</div>
+    <div>Tir : <b>maintenir clic gauche</b> (1 s = 100 %)</div>
+    <div>Saut / smash : <b>Espace</b></div>
     <div>Lob : <b>clic droit</b></div>
-    <div>Pleine puissance = <b>balle en feu 🔥</b></div>
-    <div>Astuce : jouez la balle <b>après le rebond au mur</b> !</div>
+    <div>Pleine puissance / smash = <b>balle en feu 🔥</b></div>
   </div>
   <div id="helpToggle" class="hidden clickable">Aide : touche H</div>
 
@@ -247,6 +248,9 @@ const PITCH_MAX   = 0.70;    // visée haute (lob)
 const CHARGE_TIME = 1.0;     // temps (s) de maintien pour atteindre 100 % de puissance
 const FIRE_THRESHOLD = 0.9;  // au-delà de cette puissance -> balle en feu 🔥
 const EYE_H       = 1.62;    // hauteur des yeux (caméra 1re personne)
+const JUMP_V      = 5.5;     // vitesse verticale au saut (m/s) — permet d'atteindre les balles hautes
+const JUMP_G      = 18;      // gravité appliquée au saut des joueurs
+const AIM_SMOOTH  = 16;      // lissage de la visée/caméra (plus haut = plus réactif)
 
 /* ----------------------------------------------------------------------
    2. VARIABLES GLOBALES & ÉTAT
@@ -265,7 +269,8 @@ const lastP0  = new THREE.Vector3(-7, 0, 0); // pour le balancement de tête (he
 let bobPhase = 0;
 const keys = new Set();
 const mouseNDC = new THREE.Vector2(0, 0);
-let aimYaw = 0, aimPitch = 0.2;   // orientation de visée pilotée par la souris
+let aimYaw = 0, aimPitch = 0.2;        // visée « lissée » réellement utilisée (caméra, tir, réticule)
+let targetYaw = 0, targetPitch = 0.2;  // visée cible (souris) -> lissée en douceur vers aimYaw/aimPitch
 let now = 0, last = 0;
 let selectedMode = '1P';
 
@@ -738,7 +743,7 @@ function makePlayer(shirtColor) {
   rim.rotation.y = Math.PI / 2; rim.position.set(0.72, 0, 0.14); pivot.add(rim);
 
   scene.add(group);
-  return { group, pivot, legL, legR, pos: new THREE.Vector3(), prev: new THREE.Vector3(), swingT: 0 };
+  return { group, pivot, legL, legR, pos: new THREE.Vector3(), prev: new THREE.Vector3(), swingT: 0, jumpY: 0, jumpVy: 0 };
 }
 
 /* ----------------------------------------------------------------------
@@ -752,13 +757,13 @@ function setupInputs() {
   // Clavier
   addEventListener('keydown', e => {
     keys.add(e.code);
-    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) startChargeOrServe(0); }
+    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(0); }       // saut / smash (ou service)
+    if (e.code === 'ShiftRight' && G.mode === '2P') { if (!e.repeat) jump(1); }           // saut du Joueur 2
     if (e.code === 'Enter' && G.mode === '2P') { if (!e.repeat) startChargeOrServe(1); }
     if (e.code === 'KeyH' && G.state !== 'MENU') toggleHelp();
   });
   addEventListener('keyup', e => {
     keys.delete(e.code);
-    if (e.code === 'Space') releaseCharge(0);
     if (e.code === 'Enter') releaseCharge(1);
   });
 
@@ -768,8 +773,9 @@ function setupInputs() {
     mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     if (G.state !== 'MENU' && G.state !== 'OVER') {
-      aimYaw = THREE.MathUtils.clamp(mouseNDC.x * YAW_LIMIT, -YAW_LIMIT, YAW_LIMIT);
-      aimPitch = THREE.MathUtils.lerp(PITCH_MIN, PITCH_MAX, (mouseNDC.y + 1) / 2);
+      // On définit la visée CIBLE ; aimYaw/aimPitch la rejoignent en douceur (updateAim) -> caméra fluide
+      targetYaw = THREE.MathUtils.clamp(mouseNDC.x * YAW_LIMIT, -YAW_LIMIT, YAW_LIMIT);
+      targetPitch = THREE.MathUtils.lerp(PITCH_MIN, PITCH_MAX, (mouseNDC.y + 1) / 2);
     }
   });
   // Clic : gauche = charge/service, droit = lob
@@ -791,6 +797,29 @@ function startChargeOrServe(pi) {
   if (G.state === 'RALLY' && !G.charging[pi]) {
     G.charging[pi] = true;
     G.chargeStart[pi] = now;
+  }
+}
+
+// Touche Espace : sert si c'est le service du joueur, sinon saute (pour smasher une balle haute)
+function spaceAction(pi) {
+  if (G.state === 'SERVE' && G.server === pi) { doServe(pi); return; }
+  if (G.state === 'RALLY') jump(pi);
+}
+
+// Déclenche un saut (seulement si le joueur est au sol)
+function jump(pi) {
+  const pl = players[pi];
+  if (pl && pl.jumpY <= 0.001) { pl.jumpVy = JUMP_V; blip(300, 0.05); }
+}
+
+// Intègre la hauteur de saut des joueurs (gravité dédiée)
+function updateJump(dt) {
+  for (const pl of players) {
+    if (pl.jumpVy !== 0 || pl.jumpY > 0) {
+      pl.jumpVy -= JUMP_G * dt;
+      pl.jumpY += pl.jumpVy * dt;
+      if (pl.jumpY <= 0) { pl.jumpY = 0; pl.jumpVy = 0; }
+    }
   }
 }
 
@@ -823,7 +852,8 @@ function startGame(mode) {
   G.server = 0;     // le Joueur 1 sert en premier
   G.charging = [false, false]; G.power = [0, 0];
   setBallFire(false);
-  aimYaw = 0; aimPitch = 0.2;
+  aimYaw = targetYaw = 0; aimPitch = targetPitch = 0.2;
+  for (const pl of players) { pl.jumpY = 0; pl.jumpVy = 0; }
   document.getElementById('n1').textContent = (mode === '2P') ? 'Joueur 2' : 'IA';
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('end').classList.add('hidden');
@@ -954,24 +984,32 @@ function attemptHit(pi, power, isLob) {
   triggerSwing(pi); // on arme toujours le geste (retour visuel)
   const p = players[pi].pos;
   const horiz = Math.hypot(ballPos.x - p.x, ballPos.z - p.z);
-  if (horiz <= REACH && ballPos.y <= REACH_H) hitBall(pi, null, power, isLob);
+  // En sautant, on atteint des balles plus hautes (pour smasher)
+  if (horiz <= REACH && ballPos.y <= REACH_H + players[pi].jumpY) hitBall(pi, null, power, isLob);
 }
 
 // Applique la frappe : envoie la balle vers le camp adverse selon la visée et la puissance
 function hitBall(pi, targetOverride, power, isLob) {
   if (power == null) power = 0.6;
+  // SMASH : frappe en suspension (saut) sur une balle haute -> tir puissant et plongeant
+  const jumping = players[pi] && players[pi].jumpY > 0.25;
+  const isSmash = !targetOverride && !isLob && jumping && ballPos.y > 1.4;
+  if (isSmash) power = Math.max(power, 0.92);
+
   let target;
   if (targetOverride) target = targetOverride;                         // tir de l'IA
-  else if (pi === 0) target = computeP0Target(isLob ? THREE.MathUtils.lerp(0.7, 1, power) : power);
-  else target = computeP1Target(power);                                // Joueur 2 (clavier)
+  else if (pi === 0) target = computeP0Target(isLob ? THREE.MathUtils.lerp(0.7, 1, power) : (isSmash ? 0.5 : power));
+  else target = computeP1Target(isSmash ? 0.5 : power);                // Joueur 2 (clavier)
 
   const start = ballPos.clone();
   const dist = Math.hypot(target.x - start.x, target.z - start.z);
 
-  // Durée de vol : le lob = cloche haute ; sinon la visée verticale (pitch) règle l'arc,
-  // et la puissance aplatit la trajectoire.
+  // Durée de vol : smash = rapide et plongeant ; lob = cloche haute ; sinon la visée
+  // verticale (pitch) règle l'arc et la puissance aplatit la trajectoire.
   let T;
-  if (isLob) {
+  if (isSmash) {
+    T = 0.42;
+  } else if (isLob) {
     T = 1.45;
   } else if (pi === 0 && !targetOverride) {
     const pitchN = (aimPitch - PITCH_MIN) / (PITCH_MAX - PITCH_MIN);
@@ -981,7 +1019,7 @@ function hitBall(pi, targetOverride, power, isLob) {
   }
 
   const v = solveArc(start, target, T);
-  if (v.y < 2) v.y = 2;        // garantit un minimum d'arc
+  if (!isSmash && v.y < 2) v.y = 2;   // arc minimal (sauf smash, qui doit pouvoir plonger)
   // L'IA, le service et le lob doivent TOUJOURS franchir le filet
   if (targetOverride || isLob) ensureNetClearance(start, v, isLob ? 0.5 : 0.4);
   ballVel.copy(v);
@@ -990,8 +1028,9 @@ function hitBall(pi, targetOverride, power, isLob) {
   G.groundBounces = 0;          // la frappe « remet à zéro » le compteur de rebonds
   G.netTouched = false;
   G.crossedSinceHit = false;    // il faut de nouveau franchir le filet
-  setBallFire(!isLob && power >= FIRE_THRESHOLD);  // 🔥 tir à pleine puissance = balle en feu
-  if (!isLob && power >= FIRE_THRESHOLD) blip(120, 0.25);
+  setBallFire(isSmash || (!isLob && power >= FIRE_THRESHOLD));  // 🔥 smash / pleine puissance = balle en feu
+  if (isSmash) blip(90, 0.3);
+  else if (!isLob && power >= FIRE_THRESHOLD) blip(120, 0.25);
   else blip(pi === 0 ? 520 : 480, 0.04);
 }
 
@@ -1208,7 +1247,9 @@ function animate(t) {
   last = now;
 
   if (G.state !== 'MENU') {
+    updateAim(dt);           // lissage de la visée (caméra fluide)
     handleMovement(dt);
+    updateJump(dt);          // saut des joueurs
     if (G.state === 'SERVE') refreshHeldBall();     // la balle suit la main du serveur
     aiUpdate(dt);
     if (G.state === 'RALLY') physics(dt);
@@ -1307,7 +1348,7 @@ function syncPlayers(dt) {
     const speed = dt > 0 ? Math.min(moved / dt, 8) : 0;
     pl.prev.set(pl.pos.x, 0, pl.pos.z);
 
-    pl.group.position.set(pl.pos.x, Math.abs(Math.sin(now * 8)) * speed * 0.004, pl.pos.z);
+    pl.group.position.set(pl.pos.x, Math.abs(Math.sin(now * 8)) * speed * 0.004 + pl.jumpY, pl.pos.z);
     pl.group.rotation.y = (i === 0) ? 0 : Math.PI; // orienté vers le filet
 
     // Cycle de jambes
@@ -1448,6 +1489,13 @@ function updateAimReticle() {
   targetRing.scale.setScalar(1 + pw * 0.9);
 }
 
+// Lissage de la visée : aimYaw/aimPitch rejoignent en douceur la cible souris -> caméra fluide
+function updateAim(dt) {
+  const k = Math.min(1, dt * AIM_SMOOTH);
+  aimYaw   += (targetYaw - aimYaw) * k;
+  aimPitch += (targetPitch - aimPitch) * k;
+}
+
 // Caméra : 1re personne en mode 1 joueur, 3e personne en mode 2 joueurs
 function updateCamera(dt) {
   const p = players[0] ? players[0].pos : new THREE.Vector3(-7, 0, 0);
@@ -1460,7 +1508,11 @@ function updateCamera(dt) {
     bobPhase += Math.min(sp, 6) * dt * 6;
     const bob = Math.sin(bobPhase) * Math.min(sp, 6) * 0.006;
 
-    camera.position.set(p.x, EYE_H + bob, p.z);
+    // Position de l'œil (avec saut) lissée pour plus de fluidité
+    const eye = new THREE.Vector3(p.x, EYE_H + bob + players[0].jumpY, p.z);
+    camPos.lerp(eye, Math.min(1, dt * 22));
+    camera.position.copy(camPos);
+
     const cp = Math.cos(aimPitch), sps = Math.sin(aimPitch);
     const forward = new THREE.Vector3(Math.cos(aimYaw) * cp, sps, Math.sin(aimYaw) * cp);
     camLook.copy(camera.position).add(forward);
