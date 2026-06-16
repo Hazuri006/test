@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="ELIX — Raquettes de padel haut de gamme. Design, puissance et précision en noir, blanc et bleu." />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>ELIX — Raquettes de Padel d'Exception</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Grain / noise overlay for premium texture -->
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- Custom cursor -->
+  <div class="cursor" aria-hidden="true"></div>
+  <div class="cursor-dot" aria-hidden="true"></div>
+
+  <!-- Page loader -->
+  <div class="loader" id="loader" aria-hidden="true">
+    <div class="loader__inner">
+      <span class="loader__logo">ELIX</span>
+      <div class="loader__bar"><span></span></div>
+    </div>
+  </div>
+
+  <!-- ===================== NAVBAR ===================== -->
+  <header class="nav" id="nav">
+    <div class="nav__wrap">
+      <a href="#hero" class="nav__logo" data-cursor="hover">
+        <span class="nav__logo-mark">E</span>
+        <span class="nav__logo-text">ELIX</span>
+      </a>
+
+      <nav class="nav__links" id="navLinks">
+        <a href="#collection" data-cursor="hover">Collection</a>
+        <a href="#tech" data-cursor="hover">Technologie</a>
+        <a href="#about" data-cursor="hover">L'Atelier</a>
+        <a href="#contact" data-cursor="hover">Contact</a>
+      </nav>
+
+      <div class="nav__actions">
+        <button class="nav__icon-btn" id="likeNav" data-cursor="hover" aria-label="Mes favoris">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M12 21s-7.5-4.6-10-9.2C.3 8.4 1.7 4.7 5.2 4.1 7.4 3.7 9.3 4.9 12 7.6c2.7-2.7 4.6-3.9 6.8-3.5 3.5.6 4.9 4.3 3.2 7.7C19.5 16.4 12 21 12 21Z" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          </svg>
+          <span class="badge" id="likeCount">0</span>
+        </button>
+
+        <button class="nav__icon-btn" id="cartNav" data-cursor="hover" aria-label="Mon panier">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M5 7h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 7Z" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M9 7V5.5a3 3 0 0 1 6 0V7" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          </svg>
+          <span class="badge badge--blue" id="cartCount">0</span>
+        </button>
+
+        <button class="nav__burger" id="burger" aria-label="Menu"><span></span><span></span></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== HERO ===================== -->
+  <section class="hero" id="hero">
+    <div class="hero__bg" aria-hidden="true">
+      <div class="hero__glow hero__glow--1"></div>
+      <div class="hero__glow hero__glow--2"></div>
+      <div class="hero__grid"></div>
+    </div>
+
+    <div class="hero__content">
+      <p class="hero__eyebrow reveal"><span class="dot"></span> Saison 2026 · Édition Carbone</p>
+      <h1 class="hero__title">
+        <span class="line"><span class="word reveal-word">LE</span> <span class="word reveal-word">PADEL</span></span>
+        <span class="line"><span class="word reveal-word outline">RÉINVENTÉ</span></span>
+      </h1>
+      <p class="hero__sub reveal">Des raquettes sculptées pour la vitesse, le contrôle et l'élégance.
+        Carbone aéronautique, design épuré, signature <strong>ELIX</strong>.</p>
+
+      <div class="hero__cta reveal">
+        <a href="#collection" class="btn btn--primary" data-cursor="hover">
+          <span>Découvrir la collection</span>
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </a>
+        <a href="#tech" class="btn btn--ghost" data-cursor="hover">La technologie</a>
+      </div>
+
+      <div class="hero__stats reveal">
+        <div class="stat"><span class="stat__num" data-count="32">0</span><span class="stat__label">Modèles</span></div>
+        <div class="stat"><span class="stat__num" data-count="100">0</span><span class="stat__suffix">%</span><span class="stat__label">Carbone</span></div>
+        <div class="stat"><span class="stat__num" data-count="48">0</span><span class="stat__suffix">h</span><span class="stat__label">De fabrication</span></div>
+      </div>
+    </div>
+
+    <!-- Floating hero racket (injected by JS) -->
+    <div class="hero__racket" id="heroRacket" data-cursor="hover"></div>
+
+    <div class="hero__scroll" aria-hidden="true">
+      <span>Scroll</span>
+      <div class="hero__scroll-line"><i></i></div>
+    </div>
+  </section>
+
+  <!-- ===================== MARQUEE ===================== -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee__track">
+      <span>PUISSANCE</span><span class="star">✦</span><span>CONTRÔLE</span><span class="star">✦</span><span>PRÉCISION</span><span class="star">✦</span><span>CARBONE</span><span class="star">✦</span>
+      <span>PUISSANCE</span><span class="star">✦</span><span>CONTRÔLE</span><span class="star">✦</span><span>PRÉCISION</span><span class="star">✦</span><span>CARBONE</span><span class="star">✦</span>
+    </div>
+  </div>
+
+  <!-- ===================== COLLECTION ===================== -->
+  <section class="collection" id="collection">
+    <div class="section-head">
+      <div>
+        <p class="section-eyebrow reveal">/ La Collection</p>
+        <h2 class="section-title reveal">Choisis ton arme</h2>
+      </div>
+      <p class="section-desc reveal">Six raquettes, trois géométries, une obsession : la perfection du geste.
+        Filtre par profil de jeu pour trouver ta signature.</p>
+    </div>
+
+    <div class="filters reveal" id="filters">
+      <button class="filter is-active" data-filter="all" data-cursor="hover">Toutes</button>
+      <button class="filter" data-filter="diamant" data-cursor="hover">Diamant · Puissance</button>
+      <button class="filter" data-filter="larme" data-cursor="hover">Larme · Polyvalence</button>
+      <button class="filter" data-filter="ronde" data-cursor="hover">Ronde · Contrôle</button>
+    </div>
+
+    <div class="grid" id="productGrid"><!-- injected by JS --></div>
+  </section>
+
+  <!-- ===================== TECH / FEATURES ===================== -->
+  <section class="tech" id="tech">
+    <div class="tech__head">
+      <p class="section-eyebrow reveal">/ Technologie</p>
+      <h2 class="section-title reveal">Ingénierie de précision</h2>
+    </div>
+
+    <div class="tech__grid">
+      <article class="feature reveal" data-cursor="hover">
+        <div class="feature__icon">
+          <svg viewBox="0 0 48 48" width="40" height="40"><path d="M24 4l5.5 12.5L43 18l-9.5 9 2.5 14L24 34.5 12 41l2.5-14L5 18l13.5-1.5L24 4Z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <h3>Carbone 24K</h3>
+        <p>Tissage haute densité pour un rendu explosif sans alourdir le tamis.</p>
+        <span class="feature__num">01</span>
+      </article>
+
+      <article class="feature reveal" data-cursor="hover">
+        <div class="feature__icon">
+          <svg viewBox="0 0 48 48" width="40" height="40"><circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M24 6v8M24 34v8M6 24h8M34 24h8" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <h3>Noyau EVA Soft</h3>
+        <p>Mousse à mémoire de forme qui restitue l'énergie à chaque impact.</p>
+        <span class="feature__num">02</span>
+      </article>
+
+      <article class="feature reveal" data-cursor="hover">
+        <div class="feature__icon">
+          <svg viewBox="0 0 48 48" width="40" height="40"><path d="M8 36c8-20 24-20 32 0" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M24 8v28" stroke="currentColor" stroke-width="1.6"/><circle cx="24" cy="36" r="3" fill="currentColor"/></svg>
+        </div>
+        <h3>Équilibre Aéro</h3>
+        <p>Profil percé en soufflerie pour fendre l'air et accélérer le bras.</p>
+        <span class="feature__num">03</span>
+      </article>
+
+      <article class="feature reveal" data-cursor="hover">
+        <div class="feature__icon">
+          <svg viewBox="0 0 48 48" width="40" height="40"><rect x="10" y="10" width="28" height="28" rx="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M18 24l4 4 8-9" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </div>
+        <h3>Garantie 2 ans</h3>
+        <p>Chaque ELIX est testée à la main et garantie contre la casse de cadre.</p>
+        <span class="feature__num">04</span>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===================== ABOUT / SPLIT ===================== -->
+  <section class="about" id="about">
+    <div class="about__visual reveal">
+      <div class="about__racket" id="aboutRacket"></div>
+      <div class="about__ring"></div>
+    </div>
+    <div class="about__text">
+      <p class="section-eyebrow reveal">/ L'Atelier</p>
+      <h2 class="section-title reveal">Façonné à la main,<br>pensé pour gagner</h2>
+      <p class="reveal">Né d'une obsession pour le geste parfait, ELIX dessine et assemble chaque raquette
+        dans son atelier. Pas de série anonyme : du carbone brut au grip final, 48 heures
+        de soin par modèle.</p>
+      <ul class="about__list">
+        <li class="reveal"><span>⟶</span> Sélection du carbone par lot</li>
+        <li class="reveal"><span>⟶</span> Moulage et cuisson sous presse</li>
+        <li class="reveal"><span>⟶</span> Contrôle d'équilibre au gramme</li>
+        <li class="reveal"><span>⟶</span> Finition et signature numérotée</li>
+      </ul>
+      <a href="#collection" class="btn btn--primary" data-cursor="hover"><span>Voir les modèles</span></a>
+    </div>
+  </section>
+
+  <!-- ===================== NEWSLETTER / CTA ===================== -->
+  <section class="cta" id="contact">
+    <div class="cta__inner reveal">
+      <h2 class="cta__title">Rejoins le cercle <span class="grad">ELIX</span></h2>
+      <p>Accès anticipé aux éditions limitées, conseils de pros et offres réservées aux membres.</p>
+      <form class="cta__form" id="newsletter">
+        <input type="email" placeholder="ton@email.com" required aria-label="Email" />
+        <button type="submit" class="btn btn--primary" data-cursor="hover"><span>S'inscrire</span></button>
+      </form>
+      <p class="cta__note" id="newsletterNote" hidden>✦ Bienvenue dans le cercle. À très vite sur le court.</p>
+    </div>
+  </section>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <span class="footer__logo">ELIX</span>
+        <p>Raquettes de padel d'exception.<br>Conçues pour le geste parfait.</p>
+      </div>
+      <div class="footer__cols">
+        <div><h4>Boutique</h4><a href="#collection">Collection</a><a href="#collection">Nouveautés</a><a href="#collection">Éditions limitées</a></div>
+        <div><h4>Maison</h4><a href="#about">L'Atelier</a><a href="#tech">Technologie</a><a href="#contact">Contact</a></div>
+        <div><h4>Suivre</h4><a href="#">Instagram</a><a href="#">TikTok</a><a href="#">YouTube</a></div>
+      </div>
+    </div>
+    <div class="footer__bottom">
+      <span>© 2026 ELIX — Tous droits réservés.</span>
+      <span>Fait avec ❤ pour le padel.</span>
+    </div>
+  </footer>
+
+  <!-- ===================== CART DRAWER ===================== -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <aside class="drawer" id="cartDrawer" aria-label="Panier">
+    <div class="drawer__head">
+      <h3>Ton panier <span id="drawerCount">(0)</span></h3>
+      <button class="drawer__close" id="closeCart" aria-label="Fermer" data-cursor="hover">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8"/></svg>
+      </button>
+    </div>
+    <div class="drawer__body" id="cartItems"><!-- injected --></div>
+    <div class="drawer__empty" id="cartEmpty">
+      <div class="drawer__empty-icon">🛒</div>
+      <p>Ton panier est vide.</p>
+      <button class="btn btn--ghost" id="emptyShop" data-cursor="hover">Explorer la collection</button>
+    </div>
+    <div class="drawer__foot" id="cartFoot">
+      <div class="drawer__total"><span>Total</span><span id="cartTotal">0 €</span></div>
+      <button class="btn btn--primary btn--full" id="checkout" data-cursor="hover"><span>Passer la commande</span></button>
+      <p class="drawer__secure">🔒 Paiement sécurisé · Livraison offerte dès 250 €</p>
+    </div>
+  </aside>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" aria-live="polite"></div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
