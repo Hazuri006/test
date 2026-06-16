@@ -5,128 +5,33 @@
   'use strict';
 
   /* -------------------------------------------------------
-     1. SVG RACKET GENERATOR
-     Generates a unique padel racket illustration per product
-  ------------------------------------------------------- */
-  const HEADS = {
-    ronde:   'M120 46 C 64 46,22 96,22 156 C 22 224,70 270,120 270 C 170 270,218 224,218 156 C 218 96,176 46,120 46 Z',
-    larme:   'M120 46 C 70 46,26 92,26 150 C 26 212,86 252,120 292 C 154 252,214 212,214 150 C 214 92,170 46,120 46 Z',
-    diamant: 'M120 40 Q 150 70,196 120 Q 218 150,196 196 Q 156 256,120 292 Q 84 256,44 196 Q 22 150,44 120 Q 90 70,120 40 Z'
-  };
-
-  function racketSVG(opt) {
-    const {
-      shape = 'diamant',
-      frame = ['#4d8bff', '#2f6bff'],
-      face  = ['#1c1c28', '#0a0a12'],
-      grip  = '#101018',
-      accent = '#2f6bff',
-      id = 'r'
-    } = opt;
-    const head = HEADS[shape] || HEADS.diamant;
-
-    // Perforated holes
-    let holes = '';
-    for (let y = 80; y <= 248; y += 21) {
-      const off = ((y - 80) / 21) % 2 === 0 ? 0 : 10.5;
-      for (let x = 50 + off; x <= 190; x += 21) {
-        holes += `<circle cx="${x.toFixed(0)}" cy="${y}" r="5.4"/>`;
-      }
-    }
-
-    // Grip wrap diagonal lines
-    let grips = '';
-    for (let i = -2; i < 12; i++) {
-      const x = 90 + i * 14;
-      grips += `<line x1="${x}" y1="356" x2="${x - 30}" y2="528" stroke="rgba(255,255,255,0.10)" stroke-width="3"/>`;
-    }
-
-    return `
-<svg viewBox="0 0 240 545" xmlns="http://www.w3.org/2000/svg" role="img">
-  <defs>
-    <linearGradient id="face-${id}" x1="0" y1="0" x2="0.4" y2="1">
-      <stop offset="0" stop-color="${face[0]}"/>
-      <stop offset="1" stop-color="${face[1]}"/>
-    </linearGradient>
-    <linearGradient id="frame-${id}" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="${frame[0]}"/>
-      <stop offset="1" stop-color="${frame[1]}"/>
-    </linearGradient>
-    <linearGradient id="grip-${id}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${grip}"/>
-      <stop offset="1" stop-color="#05050a"/>
-    </linearGradient>
-    <radialGradient id="sheen-${id}" cx="0.35" cy="0.25" r="0.7">
-      <stop offset="0" stop-color="rgba(255,255,255,0.22)"/>
-      <stop offset="0.5" stop-color="rgba(255,255,255,0)"/>
-    </radialGradient>
-    <clipPath id="clip-${id}"><path d="${head}"/></clipPath>
-  </defs>
-
-  <!-- Throat / bridge -->
-  <path d="M86 262 L74 366 L166 366 L154 262 Z M108 280 L99 356 L141 356 L132 280 Z"
-        fill="url(#frame-${id})" fill-rule="evenodd"/>
-
-  <!-- Handle -->
-  <rect x="97" y="356" width="46" height="170" rx="15" fill="url(#grip-${id})" stroke="${frame[1]}" stroke-width="1.5"/>
-  <g clip-path="url(#cliphandle-${id})">${grips}</g>
-  <clipPath id="cliphandle-${id}"><rect x="97" y="356" width="46" height="170" rx="15"/></clipPath>
-  <rect x="91" y="506" width="58" height="24" rx="9" fill="url(#frame-${id})"/>
-  <rect x="91" y="506" width="58" height="9" rx="4" fill="rgba(255,255,255,0.12)"/>
-
-  <!-- Face -->
-  <path d="${head}" fill="url(#face-${id})"/>
-  <!-- Holes -->
-  <g clip-path="url(#clip-${id})" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.07)" stroke-width="1">${holes}</g>
-  <!-- Sheen -->
-  <path d="${head}" fill="url(#sheen-${id})"/>
-  <!-- Frame outline -->
-  <path d="${head}" fill="none" stroke="url(#frame-${id})" stroke-width="9"/>
-  <path d="${head}" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1.4"/>
-
-  <!-- Brand emblem -->
-  <circle cx="120" cy="120" r="20" fill="none" stroke="${accent}" stroke-width="2"/>
-  <text x="120" y="128" text-anchor="middle" font-family="Syne, sans-serif" font-weight="800"
-        font-size="22" fill="${accent}">E</text>
-  <text x="120" y="220" text-anchor="middle" font-family="Syne, sans-serif" font-weight="700"
-        letter-spacing="3" font-size="13" fill="rgba(255,255,255,0.45)">ELIX</text>
-</svg>`;
-  }
-
-  /* -------------------------------------------------------
-     2. PRODUCTS DATA
+     1. PRODUCTS DATA  (real padel racket photos in assets/products)
   ------------------------------------------------------- */
   const PRODUCTS = [
-    { id: 'vortex',  name: 'Vortex Pro',  cat: 'Diamant · Puissance', shape: 'diamant', price: 349, old: null, rating: 5, reviews: 214, isNew: true,
-      specs: ['Carbone 18K', '365 g', 'Équilibre haut'],
-      svg: { shape: 'diamant', frame: ['#4d8bff', '#2f6bff'], face: ['#161622', '#08080f'], accent: '#4d8bff', id: 'vortex' } },
+    { id: 'vortex', name: 'Vortex Pro',  cat: 'Diamant · Puissance', shape: 'diamant', price: 349, old: null, rating: 5, reviews: 214, isNew: true,
+      specs: ['Carbone 18K', '365 g', 'Équilibre haut'],   img: 'assets/products/vortex.jpg' },
 
-    { id: 'shadow',  name: 'Shadow X',    cat: 'Larme · Polyvalence', shape: 'larme', price: 289, old: 329, rating: 5, reviews: 178, isNew: false,
-      specs: ['Carbone 12K', '360 g', 'Équilibre médian'],
-      svg: { shape: 'larme', frame: ['#f4f5fa', '#b9bcc9'], face: ['#15151e', '#070710'], accent: '#ffffff', id: 'shadow' } },
+    { id: 'shadow', name: 'Shadow X',    cat: 'Larme · Polyvalence', shape: 'larme',   price: 289, old: 329,  rating: 5, reviews: 178, isNew: false,
+      specs: ['Carbone 12K', '360 g', 'Équilibre médian'], img: 'assets/products/shadow.jpg' },
 
-    { id: 'frost',   name: 'Frost Edge',  cat: 'Ronde · Contrôle', shape: 'ronde', price: 229, old: null, rating: 4, reviews: 142, isNew: false,
-      specs: ['Fibre verre', '355 g', 'Équilibre bas'],
-      svg: { shape: 'ronde', frame: ['#dfe4ee', '#9aa3b8'], face: ['#1a1f2e', '#0a0c14'], accent: '#9fb4ff', id: 'frost' } },
+    { id: 'frost',  name: 'Frost Edge',  cat: 'Ronde · Contrôle',    shape: 'ronde',   price: 229, old: null, rating: 4, reviews: 142, isNew: false,
+      specs: ['Fibre verre', '355 g', 'Équilibre bas'],    img: 'assets/products/frost.jpg' },
 
-    { id: 'storm',   name: 'Storm Elite', cat: 'Diamant · Puissance', shape: 'diamant', price: 399, old: null, rating: 5, reviews: 96, isNew: true,
-      specs: ['Carbone 24K', '370 g', 'Équilibre haut'],
-      svg: { shape: 'diamant', frame: ['#2f6bff', '#143a9e'], face: ['#0f1830', '#05060f'], accent: '#4d8bff', id: 'storm' } },
+    { id: 'storm',  name: 'Storm Elite', cat: 'Diamant · Puissance', shape: 'diamant', price: 399, old: null, rating: 5, reviews: 96,  isNew: true,
+      specs: ['Carbone 24K', '370 g', 'Équilibre haut'],   img: 'assets/products/storm.jpg' },
 
-    { id: 'pulse',   name: 'Pulse Air',   cat: 'Larme · Polyvalence', shape: 'larme', price: 259, old: null, rating: 4, reviews: 203, isNew: false,
-      specs: ['Hybride Aero', '358 g', 'Équilibre médian'],
-      svg: { shape: 'larme', frame: ['#5e9bff', '#2f6bff'], face: ['#101a30', '#070b16'], accent: '#6ea3ff', id: 'pulse' } },
+    { id: 'pulse',  name: 'Pulse Air',   cat: 'Larme · Polyvalence', shape: 'larme',   price: 259, old: null, rating: 4, reviews: 203, isNew: false,
+      specs: ['Hybride Aero', '358 g', 'Équilibre médian'], img: 'assets/products/pulse.jpg' },
 
-    { id: 'titan',   name: 'Titan Force', cat: 'Diamant · Puissance', shape: 'diamant', price: 449, old: 499, rating: 5, reviews: 67, isNew: false,
-      specs: ['Carbone Aero', '375 g', 'Équilibre haut'],
-      svg: { shape: 'diamant', frame: ['#ffffff', '#c7ccd9'], face: ['#13131d', '#06060d'], accent: '#2f6bff', id: 'titan' } }
+    { id: 'titan',  name: 'Titan Force', cat: 'Diamant · Puissance', shape: 'diamant', price: 449, old: 499,  rating: 5, reviews: 67,  isNew: false,
+      specs: ['Carbone Aero', '375 g', 'Équilibre haut'],  img: 'assets/products/titan.jpg' }
   ];
 
   const euro = n => n.toLocaleString('fr-FR') + ' €';
   const stars = n => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
 
   /* -------------------------------------------------------
-     3. STATE (likes + cart) with persistence
+     2. STATE (likes + cart) with persistence
   ------------------------------------------------------- */
   const store = {
     likes: new Set(JSON.parse(localStorage.getItem('elix_likes') || '[]')),
@@ -141,7 +46,7 @@
   const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 
   /* -------------------------------------------------------
-     4. RENDER PRODUCTS
+     3. RENDER PRODUCTS
   ------------------------------------------------------- */
   const grid = $('#productGrid');
 
@@ -155,7 +60,7 @@
         <button class="like ${liked ? 'is-liked' : ''}" data-like="${p.id}" data-cursor="hover" aria-label="Ajouter aux favoris">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-10-9.2C.3 8.4 1.7 4.7 5.2 4.1 7.4 3.7 9.3 4.9 12 7.6c2.7-2.7 4.6-3.9 6.8-3.5 3.5.6 4.9 4.3 3.2 7.7C19.5 16.4 12 21 12 21Z"/></svg>
         </button>
-        ${racketSVG(p.svg)}
+        <img class="card__img" src="${p.img}" alt="Raquette de padel ELIX ${p.name}" loading="lazy" decoding="async" />
       </div>
       <div class="card__body">
         <div class="card__top">
@@ -178,7 +83,7 @@
   grid.innerHTML = PRODUCTS.map(productCard).join('');
 
   /* -------------------------------------------------------
-     5. LIKE SYSTEM
+     4. LIKE SYSTEM
   ------------------------------------------------------- */
   const likeCountEl = $('#likeCount');
   const likeNav = $('#likeNav');
@@ -209,7 +114,7 @@
   });
 
   /* -------------------------------------------------------
-     6. CART SYSTEM
+     5. CART SYSTEM
   ------------------------------------------------------- */
   const cartDrawer  = $('#cartDrawer');
   const overlay     = $('#drawerOverlay');
@@ -270,7 +175,7 @@
       const p = getProduct(id); const qty = store.cart[id];
       return `
       <div class="cart-item" data-row="${id}">
-        <div class="cart-item__img">${racketSVG({ ...p.svg, id: 'cart-' + p.id })}</div>
+        <div class="cart-item__img"><img src="${p.img}" alt="${p.name}" loading="lazy"></div>
         <div>
           <p class="cart-item__name">${p.name}</p>
           <p class="cart-item__cat">${p.cat}</p>
@@ -313,7 +218,7 @@
   likeNav.addEventListener('click', () => $('#collection').scrollIntoView({ behavior: 'smooth' }));
 
   /* -------------------------------------------------------
-     7. TOAST
+     6. TOAST
   ------------------------------------------------------- */
   const toastEl = $('#toast'); let toastTimer;
   function toast(msg, icon = '✓') {
@@ -324,7 +229,7 @@
   }
 
   /* -------------------------------------------------------
-     8. FILTERS
+     7. FILTERS
   ------------------------------------------------------- */
   $('#filters').addEventListener('click', e => {
     const btn = e.target.closest('.filter'); if (!btn) return;
@@ -339,13 +244,7 @@
   });
 
   /* -------------------------------------------------------
-     9. INJECT HERO / ABOUT RACKETS
-  ------------------------------------------------------- */
-  $('#heroRacket').innerHTML  = racketSVG({ shape: 'diamant', frame: ['#4d8bff', '#2f6bff'], face: ['#14141f', '#070710'], accent: '#4d8bff', id: 'hero' });
-  $('#aboutRacket').innerHTML = racketSVG({ shape: 'larme',   frame: ['#f4f5fa', '#aeb3c2'], face: ['#13131d', '#06060d'], accent: '#2f6bff', id: 'about' });
-
-  /* -------------------------------------------------------
-     10. SCROLL REVEAL
+     8. SCROLL REVEAL
   ------------------------------------------------------- */
   const io = new IntersectionObserver((entries) => {
     entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
@@ -355,7 +254,7 @@
   $$('.reveal, .reveal-word').forEach(el => { if (!el.closest('.hero')) io.observe(el); });
 
   /* -------------------------------------------------------
-     11. ANIMATED COUNTERS
+     9. ANIMATED COUNTERS
   ------------------------------------------------------- */
   const counterIO = new IntersectionObserver((entries) => {
     entries.forEach(en => {
@@ -374,7 +273,7 @@
   $$('[data-count]').forEach(el => counterIO.observe(el));
 
   /* -------------------------------------------------------
-     12. NAVBAR scroll + mobile menu
+     10. NAVBAR scroll + mobile menu
   ------------------------------------------------------- */
   const nav = $('#nav');
   const onScroll = () => nav.classList.toggle('is-scrolled', window.scrollY > 30);
@@ -385,7 +284,7 @@
   $$('#navLinks a').forEach(a => a.addEventListener('click', () => { burger.classList.remove('open'); navLinks.classList.remove('open'); }));
 
   /* -------------------------------------------------------
-     13. CARD glow follow
+     11. CARD glow follow
   ------------------------------------------------------- */
   grid.addEventListener('pointermove', e => {
     const card = e.target.closest('.card'); if (!card) return;
@@ -395,7 +294,7 @@
   });
 
   /* -------------------------------------------------------
-     14. CUSTOM CURSOR
+     12. CUSTOM CURSOR
   ------------------------------------------------------- */
   const cursor = $('.cursor'); const dot = $('.cursor-dot');
   if (cursor && matchMedia('(hover: hover)').matches) {
@@ -408,7 +307,7 @@
   }
 
   /* -------------------------------------------------------
-     15. NEWSLETTER
+     13. NEWSLETTER
   ------------------------------------------------------- */
   $('#newsletter').addEventListener('submit', e => {
     e.preventDefault();
@@ -418,7 +317,7 @@
   });
 
   /* -------------------------------------------------------
-     16. LOADER + initial hero racket reveal
+     14. LOADER + hero reveal
   ------------------------------------------------------- */
   function revealHero() {
     $('#heroRacket').classList.add('in');

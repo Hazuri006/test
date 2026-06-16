@@ -99,8 +99,14 @@
       </div>
     </div>
 
-    <!-- Floating hero racket (injected by JS) -->
-    <div class="hero__racket" id="heroRacket" data-cursor="hover"></div>
+    <!-- Floating hero visual (real padel rackets) -->
+    <div class="hero__racket" id="heroRacket" data-cursor="hover">
+      <div class="hero__photo">
+        <img src="assets/hero.jpg" alt="Raquettes de padel ELIX en carbone" fetchpriority="high" />
+        <span class="hero__photo-tag"><span class="dot"></span> Carbone · Édition Pro</span>
+      </div>
+      <div class="hero__photo-glow"></div>
+    </div>
 
     <div class="hero__scroll" aria-hidden="true">
       <span>Scroll</span>
@@ -186,7 +192,9 @@
   <!-- ===================== ABOUT / SPLIT ===================== -->
   <section class="about" id="about">
     <div class="about__visual reveal">
-      <div class="about__racket" id="aboutRacket"></div>
+      <div class="about__media" id="aboutRacket">
+        <img src="assets/about.jpg" alt="Joueur de padel en action avec une raquette ELIX" loading="lazy" />
+      </div>
       <div class="about__ring"></div>
     </div>
     <div class="about__text">

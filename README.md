@@ -2,14 +2,15 @@
 
 Site vitrine & boutique pour **ELIX**, une marque de raquettes de padel haut de gamme.
 Design moderne **noir & blanc** rehaussé de touches de **bleu électrique**, animations
-soignées, illustrations de raquettes générées en SVG.
+soignées, et **vraies photos** de raquettes de padel (traitées en N&B, couleur révélée au survol).
 
 ![ELIX](assets/favicon.svg)
 
 ## ✨ Fonctionnalités
 
 - **Hero animé** — titre à révélation, raquette flottante en SVG, halos lumineux, compteurs animés.
-- **Collection filtrable** — 6 raquettes, 3 géométries (Diamant · Larme · Ronde) générées dynamiquement.
+- **Collection filtrable** — 6 raquettes (vraies photos), 3 géométries (Diamant · Larme · Ronde).
+- **Photos réelles** — images libres de droits (Unsplash + Wikimedia Commons), traitées en noir & blanc et révélées en couleur au survol. Crédits dans `assets/CREDITS.md`.
 - **Système de likes** — bouton cœur par produit, compteur dans la barre de navigation, persistance `localStorage`.
 - **Panier complet** — tiroir latéral, ajout/retrait, quantités, total en temps réel, persistance `localStorage`.
 - **Animations** — révélations au scroll, effet de lueur sur les cartes, curseur personnalisé, bandeau défilant, anneaux rotatifs, toasts.
