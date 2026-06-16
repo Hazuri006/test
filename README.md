@@ -42,21 +42,37 @@ l'exécution (géométrie par code, textures via canvas 2D, audio via la Web Aud
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation & lancement
 
 Prérequis : **Node.js ≥ 18** (testé sous Node 22) et npm.
 
 ```bash
 npm install
-npm run dev      # serveur de développement → http://localhost:5173
+npm run dev      # serveur de développement → ouvre http://localhost:5173
 ```
 
-Build de production et prévisualisation :
+> ⚠️ **Ne double-cliquez pas `index.html`** (ni `dist/index.html` du build classique).
+> C'est une application Vite : les navigateurs **bloquent** le chargement des modules
+> JS/CSS en `file://` (politique CORS) → **page blanche**. Il faut passer par un serveur.
+
+Build de production servi sur HTTP :
 
 ```bash
-npm run build    # vérifie les types puis bundle dans dist/
+npm run build    # vérifie les types puis bundle dans dist/ (chemins relatifs)
 npm run preview  # sert le build sur http://localhost:4173
 ```
+
+### 🖱️ Version « double-cliquable » (un seul fichier, sans serveur)
+
+Pour obtenir un **unique `dist/index.html` autonome** (JS + CSS inlinés) qui s'ouvre
+directement par double-clic, sans aucun serveur :
+
+```bash
+npm run build:single   # → dist/index.html autonome (~700 kB)
+```
+
+Ouvrez ensuite `dist/index.html` dans le navigateur (double-clic ou glisser-déposer). Ce
+mode a été vérifié en `file://` (rendu WebGL + nouvelle partie OK, aucune erreur console).
 
 ---
 
@@ -157,6 +173,9 @@ HUD complet, menus, et un test de fumée navigateur.
 
 ## 🐞 Problèmes connus
 
+- **Page blanche ?** Vous avez probablement ouvert `index.html` en `file://`. Lancez
+  `npm run dev`, ou générez la version autonome avec `npm run build:single` puis ouvrez
+  `dist/index.html`.
 - Le **Pointer Lock** nécessite un clic dans la fenêtre (politique navigateur). Si le
   curseur ne se verrouille pas, cliquez sur la scène.
 - L'**audio** ne démarre qu'après la première interaction utilisateur (autoplay policy).
