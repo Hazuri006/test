@@ -4,7 +4,7 @@ This walks you from a fresh clone to flying a ship around procedural planets.
 
 ## 0. Prerequisites
 
-- **Unreal Engine 5.4** installed via the Epic Games Launcher.
+- **Unreal Engine 5.7** installed via the Epic Games Launcher.
 - A C++ toolchain:
   - **Windows:** Visual Studio 2022 with "Game development with C++".
   - **macOS:** Xcode + command line tools.
@@ -20,7 +20,7 @@ From a terminal you can instead run (adjust the engine path):
 
 ```bash
 # Windows (Developer Command Prompt)
-"C:\Program Files\Epic Games\UE_5.4\Engine\Build\BatchFiles\Build.bat" ^
+"C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat" ^
   StellarFrontierEditor Win64 Development -project="%CD%\StellarFrontier.uproject" -waitmutex
 ```
 

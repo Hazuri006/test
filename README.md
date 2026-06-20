@@ -44,7 +44,7 @@ See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for the exact click-b
 
 ## Quick start
 
-1. **Requirements:** Unreal Engine **5.4** + a C++ toolchain
+1. **Requirements:** Unreal Engine **5.7** + a C++ toolchain
    (Windows: Visual Studio 2022; macOS: Xcode; Linux: clang).
 2. Clone this branch, then **right-click `StellarFrontier.uproject` →
    Generate project files** (or run from a terminal — see GETTING_STARTED).

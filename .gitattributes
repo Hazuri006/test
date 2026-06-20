@@ -1,0 +1,18 @@
+# Normalize line endings to LF in the repo; checkout native on each OS.
+* text=auto eol=lf
+
+# Unreal/source text files — always LF, treated as text.
+*.uproject text eol=lf
+*.uplugin  text eol=lf
+*.cs       text eol=lf
+*.h        text eol=lf
+*.cpp      text eol=lf
+*.ini      text eol=lf
+*.md       text eol=lf
+
+# Unreal binary assets — never touch.
+*.uasset binary
+*.umap   binary
+*.png    binary
+*.tga    binary
+*.fbx    binary

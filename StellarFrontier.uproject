@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.4",
+	"EngineAssociation": "5.7",
 	"Category": "Space Exploration",
 	"Description": "Stellar Frontier — a No Man's Sky-inspired procedural space exploration game built in Unreal Engine 5.",
 	"Modules": [
