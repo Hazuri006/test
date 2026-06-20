@@ -153,7 +153,9 @@ func _read_accessibility_settings() -> void:
 
 # --- Input -------------------------------------------------------------------
 
-func _unhandled_input(event: InputEvent) -> void:
+## Mouse look is handled in _input (not _unhandled_input) so HUD Control nodes
+## under the captured cursor (e.g. the centred crosshair) cannot swallow the motion.
+func _input(event: InputEvent) -> void:
 	if _dead:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -162,11 +164,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_rotate_inspect(mm.relative)
 		else:
 			_look_delta += mm.relative
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _dead:
 		return
 
 	if move_mode == MoveMode.INSPECT:
 		if event.is_action_pressed("secondary_action") or event.is_action_pressed("interact"):
 			_end_inspection()
+		return
+
+	# Ignore world actions while a menu/overlay is open (mouse released).
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or GameManager.state != GameTypes.GameState.PLAYING:
 		return
 
 	if event.is_action_pressed("interact") or event.is_action_pressed("primary_action"):

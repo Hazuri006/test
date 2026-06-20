@@ -25,6 +25,7 @@ func _ready() -> void:
 	UITheme.full_rect(self)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build()
+	_ignore_mouse(self)
 	_connect_managers()
 	if GameManager.get_player() != null:
 		_bind_player(GameManager.get_player())
@@ -131,6 +132,14 @@ func _build() -> void:
 	_hidden_label.custom_minimum_size = Vector2(600, 0)
 	_hidden_label.visible = false
 	add_child(_hidden_label)
+
+## The HUD never needs the cursor, so make every element transparent to it; this
+## guarantees captured-mouse motion always reaches the player's look handler.
+func _ignore_mouse(node: Node) -> void:
+	for child: Node in node.get_children():
+		if child is Control:
+			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ignore_mouse(child)
 
 func _labeled_bar(parent: VBoxContainer, name_text: String, color: Color) -> Control:
 	var row: HBoxContainer = HBoxContainer.new()

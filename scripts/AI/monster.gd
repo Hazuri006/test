@@ -9,6 +9,21 @@ extends CharacterBody3D
 signal state_changed(state: int)
 
 @export var config_path: String = "res://data/monster/hollow_attendant.tres"
+## The Hollow Attendant model. Falls back to procedural geometry if absent.
+@export var model_path: String = "res://assets/monster/zombie_hazmat.glb"
+@export var model_scale: float = 1.12
+## Y rotation applied to the model so its visual front aligns with the monster's
+## forward (-Z). Flip to 0.0 if the model walks backward.
+@export var model_yaw_offset: float = PI
+
+const ANIM_IDLE: String = "Zombie_Idle"
+const ANIM_WALK: String = "Zombie_Walk_Root"
+const ANIM_SPOTTED: String = "Zombie_EnemySpotted"
+const ANIM_ATTACK: String = "Zombie_Skill"
+
+var _anim: AnimationPlayer
+var _current_anim: String = ""
+var _anim_lock: float = 0.0
 
 var config: MonsterConfig
 var agent: NavigationAgent3D
@@ -71,19 +86,9 @@ func _build_body() -> void:
 	add_child(cs)
 
 	_mesh_root = Node3D.new()
+	_mesh_root.rotation.y = model_yaw_offset
 	add_child(_mesh_root)
-	var skin: StandardMaterial3D = MaterialLibrary.monster_skin()
-	var uniform: StandardMaterial3D = MaterialLibrary.monster_uniform()
-	# Thin tall body, overlong arms, a pale masked head.
-	_box(_mesh_root, Vector3(0, 1.15, 0), Vector3(0.42, 1.1, 0.28), uniform)        # torso
-	_box(_mesh_root, Vector3(0, 0.45, 0), Vector3(0.18, 0.95, 0.18), uniform)       # left leg
-	_box(_mesh_root, Vector3(0.0, 0.45, 0), Vector3(0.18, 0.95, 0.18), uniform)     # (overlap ok)
-	var arm_l: Node3D = _box(_mesh_root, Vector3(-0.34, 0.95, 0), Vector3(0.12, 1.35, 0.12), skin)
-	var arm_r: Node3D = _box(_mesh_root, Vector3(0.34, 0.95, 0), Vector3(0.12, 1.35, 0.12), skin)
-	arm_l.name = "ArmL"
-	arm_r.name = "ArmR"
-	_box(_mesh_root, Vector3(0, 1.95, 0), Vector3(0.24, 0.3, 0.24), skin)           # head
-	_box(_mesh_root, Vector3(0, 1.95, 0.12), Vector3(0.2, 0.24, 0.05), MaterialLibrary.get_material("mask", Color(0.7, 0.68, 0.62), 0.5, 0.0, false))  # mask
+	_setup_model()
 
 	_eye = Node3D.new()
 	_eye.position = Vector3(0, config.eye_height, 0)
@@ -110,6 +115,42 @@ func _build_body() -> void:
 	_debug_draw.visible = false
 	add_child(_debug_draw)
 
+## Instances the rigged GLB model and grabs its AnimationPlayer. Falls back to the
+## procedural humanoid if the model is missing, so the game still runs without it.
+func _setup_model() -> void:
+	if model_path != "" and ResourceLoader.exists(model_path):
+		var packed: PackedScene = ResourceLoader.load(model_path) as PackedScene
+		if packed != null:
+			var model: Node3D = packed.instantiate() as Node3D
+			model.scale = Vector3(model_scale, model_scale, model_scale)
+			_mesh_root.add_child(model)
+			_anim = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+			if _anim != null:
+				_anim.playback_default_blend_time = 0.2
+				_ensure_loop(ANIM_IDLE)
+				_ensure_loop(ANIM_WALK)
+				_play_anim(ANIM_IDLE)
+			GameLog.debug("Monster: loaded GLB model (anim=%s)." % str(_anim != null))
+			return
+	_build_fallback_body()
+
+func _ensure_loop(anim_name: String) -> void:
+	if _anim != null and _anim.has_animation(anim_name):
+		_anim.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
+
+## Procedural fallback humanoid (tall, thin, overlong arms, pale masked head).
+func _build_fallback_body() -> void:
+	var skin: StandardMaterial3D = MaterialLibrary.monster_skin()
+	var uniform: StandardMaterial3D = MaterialLibrary.monster_uniform()
+	_box(_mesh_root, Vector3(0, 1.15, 0), Vector3(0.42, 1.1, 0.28), uniform)
+	_box(_mesh_root, Vector3(0, 0.45, 0), Vector3(0.18, 0.95, 0.18), uniform)
+	var arm_l: Node3D = _box(_mesh_root, Vector3(-0.34, 0.95, 0), Vector3(0.12, 1.35, 0.12), skin)
+	var arm_r: Node3D = _box(_mesh_root, Vector3(0.34, 0.95, 0), Vector3(0.12, 1.35, 0.12), skin)
+	arm_l.name = "ArmL"
+	arm_r.name = "ArmR"
+	_box(_mesh_root, Vector3(0, 1.95, 0), Vector3(0.24, 0.3, 0.24), skin)
+	_box(_mesh_root, Vector3(0, 1.95, 0.12), Vector3(0.2, 0.24, 0.05), MaterialLibrary.get_material("mask", Color(0.7, 0.68, 0.62), 0.5, 0.0, false))
+
 func _box(parent: Node, pos: Vector3, size: Vector3, mat: Material) -> MeshInstance3D:
 	var mi: MeshInstance3D = MeshInstance3D.new()
 	var mesh: BoxMesh = BoxMesh.new()
@@ -119,6 +160,22 @@ func _box(parent: Node, pos: Vector3, size: Vector3, mat: Material) -> MeshInsta
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+# --- Animation ---------------------------------------------------------------
+
+func _play_anim(anim_name: String) -> void:
+	if _anim == null or _current_anim == anim_name or not _anim.has_animation(anim_name):
+		return
+	_current_anim = anim_name
+	_anim.play(anim_name, 0.25)
+
+## Plays a one-shot clip and locks state-driven animation for `lock` seconds.
+func _play_oneshot(anim_name: String, lock: float) -> void:
+	if _anim == null or not _anim.has_animation(anim_name):
+		return
+	_current_anim = anim_name
+	_anim.play(anim_name, 0.15)
+	_anim_lock = lock
 
 func _build_agent() -> void:
 	agent = NavigationAgent3D.new()
@@ -245,9 +302,11 @@ func _set_state(new_state: int) -> void:
 			_set_nav_target(_last_known_pos)
 		GameTypes.MonsterState.CHASE:
 			AudioManager.play_at("sting", global_position, -8.0)
+			_play_oneshot(ANIM_SPOTTED, 0.8)
 		GameTypes.MonsterState.ATTACK:
 			_attack_timer = 0.0
 			_attack_phase = 0
+			_play_oneshot(ANIM_ATTACK, config.attack_windup + 0.2)
 		GameTypes.MonsterState.STUNNED:
 			velocity = Vector3.ZERO
 
@@ -390,7 +449,9 @@ func _move_along_path(delta: float, speed: float) -> void:
 func _face_dir(dir: Vector3, delta: float) -> void:
 	if dir.length() < 0.01:
 		return
-	var target_yaw: float = atan2(dir.x, dir.z)
+	# Align the monster's forward (-Z) with the movement direction so the vision cone
+	# (which uses -basis.z) points where it walks.
+	var target_yaw: float = atan2(-dir.x, -dir.z)
 	rotation.y = lerp_angle(rotation.y, target_yaw, clampf(config.turn_speed * delta, 0.0, 1.0))
 
 func _face_towards(point: Vector3, delta: float) -> void:
@@ -429,6 +490,26 @@ func _maybe_search_locker() -> void:
 # --- Animation / external ----------------------------------------------------
 
 func _update_animation(delta: float) -> void:
+	if _anim != null:
+		_update_glb_animation(delta)
+	else:
+		_update_fallback_animation(delta)
+
+func _update_glb_animation(delta: float) -> void:
+	_anim_lock = maxf(0.0, _anim_lock - delta)
+	if _anim_lock > 0.0:
+		return
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	if state == GameTypes.MonsterState.ATTACK:
+		_play_anim(ANIM_ATTACK)
+	elif speed > 0.25:
+		_play_anim(ANIM_WALK)
+	else:
+		_play_anim(ANIM_IDLE)
+	# Faster gait while hunting.
+	_anim.speed_scale = 1.5 if state == GameTypes.MonsterState.CHASE else 1.0
+
+func _update_fallback_animation(delta: float) -> void:
 	_idle_anim_time += delta
 	var speed: float = Vector2(velocity.x, velocity.z).length()
 	var arm_l: Node3D = _mesh_root.get_node_or_null("ArmL")

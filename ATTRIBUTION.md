@@ -24,6 +24,27 @@ ship this prototype.
 |---|---|---|---|
 | Godot Engine 4.6.x | Godot contributors | MIT | <https://godotengine.org> |
 
+## Bundled external assets (user‑supplied)
+
+These GLB assets were provided by the project owner and added to the build. They are
+used in‑game (the zombie as the monster, the pack as set dressing). **Confirm and
+fill in the author/source/licence below** — both appear to be Sketchfab models, so
+verify each model's page and licence before distributing.
+
+### Zombie (HazMat) — the Hollow Attendant
+- File:        `res://assets/monster/zombie_hazmat.glb`
+- Used as:     player‑facing monster model + animations (Idle / Walk / EnemySpotted / Skill)
+- Author:      _TODO — fill from the Sketchfab model page_
+- Source:      _TODO — Sketchfab URL_
+- Licence:     _TODO — verify (CC‑BY / CC0 / …); add attribution to Credits if CC‑BY_
+
+### Hospital asset pack
+- File:        `res://assets/environment/hospital_pack.glb`
+- Used as:     modular décor (couch, chairs, lockers, pipes, drip stands, trays, shelves)
+- Author:      _TODO — fill from the Sketchfab model page_
+- Source:      _TODO — Sketchfab URL_
+- Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
+
 ## If you add external assets
 
 When you replace the procedural fallbacks with downloaded assets (see

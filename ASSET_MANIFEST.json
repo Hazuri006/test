@@ -49,6 +49,27 @@
       "local_path": "res://icon.svg"
     }
   ],
+  "bundled_external": [
+    {
+      "name": "Zombie HazMat (the Hollow Attendant)",
+      "category": "monster",
+      "author": "TODO - verify on source page",
+      "source": "TODO - Sketchfab URL (user-supplied GLB)",
+      "license": "TODO - verify before distribution",
+      "attribution_required": true,
+      "animations": ["Zombie_Idle", "Zombie_Walk_Root", "Zombie_EnemySpotted", "Zombie_Skill"],
+      "local_path": "res://assets/monster/zombie_hazmat.glb"
+    },
+    {
+      "name": "Hospital asset pack (modular props)",
+      "category": "environment",
+      "author": "TODO - verify on source page",
+      "source": "TODO - Sketchfab URL (user-supplied GLB)",
+      "license": "TODO - verify before distribution",
+      "attribution_required": true,
+      "local_path": "res://assets/environment/hospital_pack.glb"
+    }
+  ],
   "recommended_external": [
     {
       "name": "Hospital / concrete / tile PBR textures",

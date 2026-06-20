@@ -35,8 +35,34 @@ func _build_level() -> void:
 	_build_security()
 	_build_archive()
 	_build_storage()
+	_dress_with_pack()
 	_build_monster()
 	_connect_seal_tracker()
+
+## Decorates the level with pieces from the imported hospital asset pack (visual
+## only; the blockout keeps collision/navigation). Skipped cleanly if the pack
+## is not installed.
+func _dress_with_pack() -> void:
+	if not HospitalAssets.available():
+		return
+	# Reception waiting area.
+	HospitalAssets.spawn(props, "SM_Couch", Vector3(5, FLOOR_Y, 3), 90.0)
+	HospitalAssets.spawn(props, "SM_Chair2", Vector3(3, FLOOR_Y, 4), 0.0)
+	HospitalAssets.spawn(props, "SM_Chair2", Vector3(3, FLOOR_Y, 5), 0.0)
+	HospitalAssets.spawn(props, "SM_TrashContainer", Vector3(6, FLOOR_Y, 6), 0.0)
+	HospitalAssets.spawn(props, "SM_Drip", Vector3(-6, FLOOR_Y, 2), 0.0)
+	# Corridor: wall lockers + ceiling pipe runs.
+	for z: float in [-7.0, -12.0, -18.0, -25.0]:
+		HospitalAssets.spawn(props, "SM_Locker", Vector3(-1.7, FLOOR_Y + 0.9, z), 90.0)
+	HospitalAssets.spawn(props, "SM_PipeBig1", Vector3(1.7, FLOOR_Y + H - 0.4, -10), 0.0)
+	HospitalAssets.spawn(props, "SM_PipeBig2", Vector3(1.7, FLOOR_Y + H - 0.4, -20), 0.0)
+	HospitalAssets.spawn(props, "SM_PipeSmall1", Vector3(-1.7, FLOOR_Y + H - 0.6, -16), 0.0)
+	# Treatment + ward + archive dressing.
+	HospitalAssets.spawn(props, "SM_Drip", Vector3(-11, FLOOR_Y, -7), 0.0)
+	HospitalAssets.spawn(props, "SM_Shelf1", Vector3(-12, FLOOR_Y + 1.0, -11), 90.0)
+	HospitalAssets.spawn(props, "SM_Drip", Vector3(11, FLOOR_Y, -11), 0.0)
+	HospitalAssets.spawn(props, "SM_Tray2", Vector3(9, FLOOR_Y + 0.78, -7), 0.0)
+	HospitalAssets.spawn(props, "SM_Shelf2", Vector3(12, FLOOR_Y + 1.0, -25), -90.0)
 
 func _build_walls() -> void:
 	var wm: StandardMaterial3D = MaterialLibrary.peeling_paint()
