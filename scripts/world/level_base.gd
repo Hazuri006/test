@@ -138,13 +138,14 @@ func _configure_environment(_env: Environment) -> void:
 
 func _bake_navigation() -> void:
 	var nav: NavigationMesh = NavigationMesh.new()
-	nav.agent_radius = 0.4
-	nav.agent_height = 1.7
-	nav.agent_max_climb = 0.4
-	nav.agent_max_slope = 50.0
-	# Match the default navigation map cell size/height to avoid rasterization warnings.
+	# Match the default nav map cell size/height (0.25) and keep agent dimensions as
+	# exact cell multiples so no precision warnings are emitted.
 	nav.cell_size = 0.25
 	nav.cell_height = 0.25
+	nav.agent_radius = 0.5
+	nav.agent_height = 1.75
+	nav.agent_max_climb = 0.5
+	nav.agent_max_slope = 50.0
 	nav.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
 	nav.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
 	nav_region.navigation_mesh = nav
