@@ -37,6 +37,12 @@ APlanet::APlanet()
 	}
 }
 
+// Defined out-of-line (not in the header) so the TUniquePtr<FPlanetQuadTreeNode>
+// members are destroyed in this translation unit, where the node type is complete
+// (PlanetQuadTreeNode.h is included above). This avoids C4150 "deletion of pointer
+// to incomplete type".
+APlanet::~APlanet() = default;
+
 void APlanet::BeginPlay()
 {
 	Super::BeginPlay();

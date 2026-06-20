@@ -6,6 +6,11 @@ public class StellarFrontier : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Source files include each other using paths relative to the module root
+		// (e.g. "Planets/Planet.h", "Flight/Spaceship.h"). Modern build settings do
+		// not add the module root to the include path automatically, so add it.
+		PublicIncludePaths.Add(ModuleDirectory);
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",

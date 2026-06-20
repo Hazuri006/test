@@ -28,6 +28,7 @@ class STELLARFRONTIER_API APlanet : public AActor
 
 public:
 	APlanet();
+	virtual ~APlanet();
 
 	virtual void Tick(float DeltaSeconds) override;
 
