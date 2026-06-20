@@ -21,7 +21,7 @@ func _build_level() -> void:
 
 	WorldBuilder.add_floor(geo, Vector3(0, FY, -6), Vector2(20, 20), GameTypes.SurfaceType.TILE, MaterialLibrary.wet_tile())
 	WorldBuilder.ceiling(geo, Vector3(0, 0, -6), Vector2(20, 20), FY + H, MaterialLibrary.ceiling())
-	var wm: StandardMaterial3D = MaterialLibrary.peeling_paint()
+	var wm: StandardMaterial3D = MaterialLibrary.building_wall()
 	WorldBuilder.wall_run_z(geo, -10, -16, 4, FY, H, [], wm)
 	WorldBuilder.wall_run_z(geo, 10, -16, 4, FY, H, [], wm)
 	WorldBuilder.wall_run_x(geo, 4, -10, 10, FY, H, [], wm)

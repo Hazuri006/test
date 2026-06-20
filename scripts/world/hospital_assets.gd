@@ -11,6 +11,7 @@ const PACK_PATH: String = "res://assets/environment/hospital_pack.glb"
 
 static var _template: Node = null
 static var _pieces: Dictionary = {}
+static var _materials: Dictionary = {}
 static var _checked: bool = false
 
 static func available() -> bool:
@@ -49,6 +50,20 @@ static func spawn(parent: Node, piece: String, pos: Vector3, yaw_deg: float = 0.
 	holder.add_child(dup)
 	parent.add_child(holder)
 	return holder
+
+## Returns the (textured) material of a named pack piece's first mesh, or null.
+## Used to skin the procedural building geometry with the pack's real textures.
+static func get_material(piece: String) -> Material:
+	_ensure()
+	if _materials.has(piece):
+		return _materials[piece] as Material
+	var mat: Material = null
+	if _pieces.has(piece):
+		var meshes: Array[Node] = (_pieces[piece] as Node).find_children("*", "MeshInstance3D", true, false)
+		if not meshes.is_empty():
+			mat = (meshes[0] as MeshInstance3D).get_active_material(0)
+	_materials[piece] = mat
+	return mat
 
 ## Spawns the first available piece whose name starts with any of `prefixes`.
 static func spawn_any(parent: Node, prefixes: Array, pos: Vector3, yaw_deg: float = 0.0, scale: float = 1.0) -> Node3D:

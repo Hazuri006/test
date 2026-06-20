@@ -129,14 +129,30 @@ func _setup_model() -> void:
 				_anim.playback_default_blend_time = 0.2
 				_ensure_loop(ANIM_IDLE)
 				_ensure_loop(ANIM_WALK)
+				# Neutralise the Mixamo hip root motion so the walk plays in place
+				# (the NavigationAgent drives the actual movement) instead of sliding.
+				_anim.root_motion_track = _find_root_motion_path()
 				_play_anim(ANIM_IDLE)
-			GameLog.debug("Monster: loaded GLB model (anim=%s)." % str(_anim != null))
+			GameLog.debug("Monster: loaded GLB model (anim=%s, root_motion=%s)." % [str(_anim != null), str(_anim.root_motion_track) if _anim != null else "-"])
 			return
 	_build_fallback_body()
 
 func _ensure_loop(anim_name: String) -> void:
 	if _anim != null and _anim.has_animation(anim_name):
 		_anim.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
+
+## Finds the skeleton's hip position track (Mixamo root) to use as the root-motion
+## track, which the AnimationPlayer then extracts instead of applying.
+func _find_root_motion_path() -> NodePath:
+	if _anim == null or not _anim.has_animation(ANIM_WALK):
+		return NodePath()
+	var a: Animation = _anim.get_animation(ANIM_WALK)
+	for t: int in range(a.get_track_count()):
+		if a.track_get_type(t) == Animation.TYPE_POSITION_3D:
+			var p: String = str(a.track_get_path(t))
+			if p.contains("Hips"):
+				return a.track_get_path(t)
+	return NodePath()
 
 ## Procedural fallback humanoid (tall, thin, overlong arms, pale masked head).
 func _build_fallback_body() -> void:

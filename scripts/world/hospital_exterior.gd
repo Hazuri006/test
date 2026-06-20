@@ -42,16 +42,20 @@ func _build_level() -> void:
 func _scatter_trees() -> void:
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 1986
-	for i: int in range(46):
+	for i: int in range(56):
 		var side: float = 1.0 if rng.randf() > 0.5 else -1.0
-		var x: float = side * rng.randf_range(5.0, 22.0)
-		var z: float = rng.randf_range(-10.0, 30.0)
-		WorldBuilder.tree(props, Vector3(x, 0, z), rng.randf_range(6.0, 10.0))
-	for i: int in range(10):
-		WorldBuilder.rock(geo, Vector3(rng.randf_range(-18, 18), 0, rng.randf_range(-6, 28)), rng.randf_range(0.6, 1.6))
+		var x: float = side * rng.randf_range(5.0, 23.0)
+		var z: float = rng.randf_range(-12.0, 32.0)
+		WorldBuilder.tree(props, Vector3(x, 0, z), rng.randf_range(6.0, 11.0))
+	# Undergrowth bushes for forest density.
+	for i: int in range(34):
+		var side2: float = 1.0 if rng.randf() > 0.5 else -1.0
+		WorldBuilder.bush(props, Vector3(side2 * rng.randf_range(4.0, 24.0), 0, rng.randf_range(-12.0, 32.0)), rng.randf_range(0.8, 1.6))
+	for i: int in range(12):
+		WorldBuilder.rock(geo, Vector3(rng.randf_range(-18, 18), 0, rng.randf_range(-6, 28)), rng.randf_range(0.6, 1.8))
 
 func _build_facade() -> void:
-	var wall_mat: StandardMaterial3D = MaterialLibrary.dirty_concrete()
+	var wall_mat: StandardMaterial3D = MaterialLibrary.building_wall()
 	# Main facade with a central gate gap, plus a window strip where a figure waits.
 	WorldBuilder.wall(geo, Vector3(-16, 0, -6), Vector3(-2.2, 0, -6), 6.0, 0.5, wall_mat)
 	WorldBuilder.wall(geo, Vector3(2.2, 0, -6), Vector3(16, 0, -6), 6.0, 0.5, wall_mat)

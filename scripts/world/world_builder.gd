@@ -242,12 +242,74 @@ static func pipe(parent: Node, from: Vector3, to: Vector3, radius: float = 0.08)
 static func tree(parent: Node, pos: Vector3, height: float = 8.0) -> Node3D:
 	var root: Node3D = Node3D.new()
 	root.position = pos
+	root.rotation = Vector3(randf_range(-0.04, 0.04), randf_range(0.0, TAU), randf_range(-0.04, 0.04))
 	parent.add_child(root)
-	static_box(root, Vector3(0, height * 0.5, 0), Vector3(0.5, height, 0.5), MaterialLibrary.bark())
+
+	var trunk_h: float = height * 0.55
+	# Tapered trunk with a cylinder collider so you cannot walk through it.
+	var body: StaticBody3D = StaticBody3D.new()
+	body.collision_layer = GameTypes.LAYER_WORLD
+	body.collision_mask = 0
+	root.add_child(body)
+	var trunk: CylinderMesh = CylinderMesh.new()
+	trunk.bottom_radius = 0.34
+	trunk.top_radius = 0.16
+	trunk.height = trunk_h
+	var tmi: MeshInstance3D = MeshInstance3D.new()
+	tmi.mesh = trunk
+	tmi.material_override = MaterialLibrary.bark()
+	tmi.position = Vector3(0, trunk_h * 0.5, 0)
+	body.add_child(tmi)
+	var col: CollisionShape3D = CollisionShape3D.new()
+	var cyl: CylinderShape3D = CylinderShape3D.new()
+	cyl.radius = 0.3
+	cyl.height = trunk_h
+	col.shape = cyl
+	col.position = Vector3(0, trunk_h * 0.5, 0)
+	body.add_child(col)
+
+	# Layered conical canopy with per-tree colour variation.
+	var tint: StandardMaterial3D = _foliage_tint(randi() % 4)
+	var layers: int = 4
+	for i: int in range(layers):
+		var y: float = trunk_h * 0.8 + i * (height * 0.13)
+		var r: float = (height * 0.34) * (1.0 - i * 0.2)
+		var cone: CylinderMesh = CylinderMesh.new()
+		cone.top_radius = 0.03
+		cone.bottom_radius = r
+		cone.height = height * 0.32
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = cone
+		mi.material_override = tint
+		mi.position = Vector3(randf_range(-0.1, 0.1), y, randf_range(-0.1, 0.1))
+		root.add_child(mi)
+	return root
+
+static func _foliage_tint(variant: int) -> StandardMaterial3D:
+	var greens: Array[Color] = [
+		Color(0.06, 0.11, 0.05), Color(0.05, 0.09, 0.045),
+		Color(0.08, 0.12, 0.06), Color(0.045, 0.08, 0.05),
+	]
+	var c: Color = greens[clampi(variant, 0, greens.size() - 1)]
+	var mat: StandardMaterial3D = MaterialLibrary.get_material("foliage_%d" % variant, c, 0.9, 0.0, true)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return mat
+
+static func bush(parent: Node, pos: Vector3, size: float = 1.0) -> Node3D:
+	var root: Node3D = Node3D.new()
+	root.position = pos
+	root.rotation.y = randf_range(0.0, TAU)
+	parent.add_child(root)
+	var tint: StandardMaterial3D = _foliage_tint(randi() % 4)
 	for i: int in range(3):
-		var y: float = height * (0.55 + i * 0.15)
-		var s: float = 4.0 - i * 0.9
-		visual_box(root, Vector3(0, y, 0), Vector3(s, 1.6, s), MaterialLibrary.foliage())
+		var s: SphereMesh = SphereMesh.new()
+		s.radius = size * randf_range(0.4, 0.6)
+		s.height = s.radius * 2.0
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = s
+		mi.material_override = tint
+		mi.position = Vector3(randf_range(-0.3, 0.3), size * 0.3, randf_range(-0.3, 0.3))
+		root.add_child(mi)
 	return root
 
 static func rock(parent: Node, pos: Vector3, scale: float = 1.0) -> StaticBody3D:

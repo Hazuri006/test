@@ -28,7 +28,7 @@ func _build_level() -> void:
 	WorldBuilder.add_floor(geo, Vector3(0, FY, -10), Vector2(28, 32), GameTypes.SurfaceType.CONCRETE, MaterialLibrary.wet_tile())
 	WorldBuilder.ceiling(geo, Vector3(0, 0, -10), Vector2(28, 32), FY + H, MaterialLibrary.dirty_concrete())
 
-	var wm: StandardMaterial3D = MaterialLibrary.dirty_concrete()
+	var wm: StandardMaterial3D = MaterialLibrary.building_wall()
 	# Perimeter.
 	WorldBuilder.wall_run_z(geo, -14, -26, 6, FY, H, [], wm)
 	WorldBuilder.wall_run_z(geo, 14, -26, 6, FY, H, [], wm)

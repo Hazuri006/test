@@ -80,6 +80,9 @@ func _maybe_run_test_hooks() -> void:
 	elif args.has("--test-save"):
 		await get_tree().process_frame
 		_run_save_test()
+	elif args.has("--test-monster"):
+		await get_tree().process_frame
+		_run_monster_test()
 	else:
 		for arg: String in args:
 			if arg.begins_with("--test-level="):
@@ -108,6 +111,25 @@ func _run_save_test() -> void:
 	var ok_flag: bool = GameManager.get_flag_bool("power_on")
 	var ok_ev: bool = GameManager.has_evidence("voss_journal")
 	GameLog.info("SAVE TEST RESULT: inventory=%s quest=%s flag=%s evidence=%s level=%s" % [str(ok_inv), str(ok_quest), str(ok_flag), str(ok_ev), GameManager.current_level_id])
+
+## Confirms the monster actually navigates: measures how far it moves while active.
+func _run_monster_test() -> void:
+	GameManager.new_game(GameTypes.Difficulty.NORMAL)
+	await get_tree().create_timer(1.2).timeout
+	GameManager.set_flag("power_on", true)
+	GameManager.set_flag("lockdown_cleared", true)
+	GameManager.set_flag("ritual_solved", true)
+	await GameManager.load_level("lower", "start")
+	await get_tree().create_timer(2.0).timeout
+	var monsters: Array[Node] = get_tree().get_nodes_in_group("monster")
+	if monsters.is_empty():
+		GameLog.info("MONSTER TEST: no monster spawned!")
+		return
+	var m: Node3D = monsters[0] as Node3D
+	var p0: Vector3 = m.global_position
+	await get_tree().create_timer(3.0).timeout
+	var p1: Vector3 = m.global_position
+	GameLog.info("MONSTER TEST: moved %.2f m over 3s — %s" % [p0.distance_to(p1), str(m.call("get_debug_summary"))])
 
 ## Loads a named level in isolation (sets common gating flags) to validate it builds.
 func _load_level_test(level_id: String) -> void:

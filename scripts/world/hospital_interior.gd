@@ -65,7 +65,7 @@ func _dress_with_pack() -> void:
 	HospitalAssets.spawn(props, "SM_Shelf2", Vector3(12, FLOOR_Y + 1.0, -25), -90.0)
 
 func _build_walls() -> void:
-	var wm: StandardMaterial3D = MaterialLibrary.peeling_paint()
+	var wm: StandardMaterial3D = MaterialLibrary.building_wall()
 	# Perimeter (x -16..16, z -34..10).
 	_wall_x(-16, -34, 10, [], wm)
 	_wall_x(16, -34, 10, [], wm)

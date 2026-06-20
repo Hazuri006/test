@@ -10,6 +10,7 @@ extends RefCounted
 
 static var _cache: Dictionary = {}
 static var _detail_normal: Texture2D = null
+static var _detail_roughness: Texture2D = null
 
 ## Lazily builds (once) a tiling procedural normal map used as a detail normal on
 ## large surfaces so flat boxes read as rough plaster/concrete.
@@ -30,6 +31,23 @@ static func _get_detail_normal() -> Texture2D:
 	_detail_normal = tex
 	return _detail_normal
 
+## Lazily builds a tiling roughness/grime map so surfaces have varying gloss
+## (wet patches, worn spots) instead of a uniform sheen.
+static func _get_detail_roughness() -> Texture2D:
+	if _detail_roughness != null:
+		return _detail_roughness
+	var noise: FastNoiseLite = FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_CELLULAR
+	noise.frequency = 0.03
+	noise.fractal_octaves = 3
+	var tex: NoiseTexture2D = NoiseTexture2D.new()
+	tex.width = 256
+	tex.height = 256
+	tex.seamless = true
+	tex.noise = noise
+	_detail_roughness = tex
+	return _detail_roughness
+
 ## Core builder. Returns a cached material for `key`; creates it from the supplied
 ## parameters on first request. All later requests with the same key reuse it.
 static func get_material(
@@ -47,11 +65,33 @@ static func get_material(
 	mat.metallic_specular = 0.5
 	if use_detail:
 		mat.normal_enabled = true
-		mat.normal_scale = 0.6
+		mat.normal_scale = 0.7
 		mat.normal_texture = _get_detail_normal()
+		mat.roughness_texture = _get_detail_roughness()
+		mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
 		mat.uv1_scale = Vector3(0.35, 0.35, 0.35)
+		mat.ao_enabled = false
 	_cache[key] = mat
+	return mat
+
+## The building wall material: reuses the imported hospital pack's textured wall
+## material (triplanar‑projected onto our boxes) for realism, or a procedural
+## fallback if the pack is unavailable.
+static func building_wall() -> StandardMaterial3D:
+	if _cache.has("building_wall"):
+		return _cache["building_wall"] as StandardMaterial3D
+	var src: Material = HospitalAssets.get_material("SM_Wall3_010")
+	var mat: StandardMaterial3D
+	if src is StandardMaterial3D:
+		mat = (src as StandardMaterial3D).duplicate() as StandardMaterial3D
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+		mat.uv1_scale = Vector3(0.5, 0.5, 0.5)
+	else:
+		mat = peeling_paint()
+	_cache["building_wall"] = mat
 	return mat
 
 ## Builds (and caches) an unshaded/emissive material for screens, signage and lamps.
