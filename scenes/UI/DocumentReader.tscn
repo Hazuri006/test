@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://lwdocreader0001"]
+
+[ext_resource type="Script" path="res://scripts/ui/document_reader.gd" id="1_s"]
+
+[node name="DocumentReader" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+script = ExtResource("1_s")

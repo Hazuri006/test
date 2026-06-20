@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MonsterConfig" load_steps=2 format=3 uid="uid://lwmonstercfg001"]
+
+[ext_resource type="Script" path="res://scripts/data/monster_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+patrol_speed = 1.4
+search_speed = 2.1
+stalk_speed = 1.9
+chase_speed = 3.6
+turn_speed = 6.0
+vision_range = 16.0
+vision_angle_deg = 62.0
+vision_close_range = 2.6
+eye_height = 1.75
+hearing_range = 18.0
+hearing_sensitivity = 1.0
+detection_gain_rate = 1.1
+detection_decay_rate = 0.45
+chase_threshold = 1.0
+suspicion_threshold = 0.45
+attack_range = 1.9
+attack_damage = 100.0
+attack_windup = 0.55
+attack_cooldown = 1.5
+chase_give_up_time = 7.0
+search_duration = 12.0
+can_open_doors = true
+locker_check_chance = 0.5
+base_aggression = 1.0

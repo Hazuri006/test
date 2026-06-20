@@ -159,7 +159,26 @@ func apply_all() -> void:
 	apply_audio()
 	apply_window()
 	apply_graphics()
+	apply_keybinds()
 	settings_applied.emit()
+
+## Reapplies any persisted key rebinds (stored as controls/key_<action> = keycode).
+func apply_keybinds() -> void:
+	var controls: Dictionary = _values.get("controls", {})
+	for key: Variant in controls.keys():
+		var key_str: String = str(key)
+		if not key_str.begins_with("key_"):
+			continue
+		var action: String = key_str.substr(4)
+		if not InputMap.has_action(action):
+			continue
+		var keycode: int = int(controls[key])
+		if keycode <= 0:
+			continue
+		InputMap.action_erase_events(action)
+		var ev: InputEventKey = InputEventKey.new()
+		ev.physical_keycode = keycode as Key
+		InputMap.action_add_event(action, ev)
 
 func apply_audio() -> void:
 	for key: String in AUDIO_KEYS:

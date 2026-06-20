@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="DifficultyConfig" load_steps=2 format=3 uid="uid://lwdiffstory001"]
+
+[ext_resource type="Script" path="res://scripts/data/difficulty_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "story"
+display_name = "Story"
+description = "For players here to explore the story."
+monster_aggression_mult = 0.7
+detection_speed_mult = 0.7
+battery_drain_mult = 0.8
+player_damage_mult = 0.5
+show_detection_indicator = true
+show_objective_hints = true
+starting_battery = 1.0

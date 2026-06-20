@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://lwlevellowerward001"]
+
+[ext_resource type="Script" path="res://scripts/world/lower_ward.gd" id="1_l"]
+
+[node name="LowerWard" type="Node3D"]
+script = ExtResource("1_l")

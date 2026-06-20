@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://lwlevelinterior1"]
+
+[ext_resource type="Script" path="res://scripts/world/hospital_interior.gd" id="1_int"]
+
+[node name="HospitalInterior" type="Node3D"]
+script = ExtResource("1_int")

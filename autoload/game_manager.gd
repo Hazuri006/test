@@ -12,6 +12,8 @@ signal player_spawned(player: Node)
 signal toast_requested(text: String)
 signal subtitle_requested(text: String, duration: float)
 signal objective_banner_requested(text: String)
+signal detection_changed(value: float)
+signal monster_state_changed(state_name: String)
 
 const PLAYER_SCENE: String = "res://scenes/player/Player.tscn"
 const LEVEL_SCENES: Dictionary = {
@@ -26,6 +28,13 @@ const UI_PAUSE: String = "res://scenes/UI/PauseMenu.tscn"
 const UI_HUD: String = "res://scenes/UI/HUD.tscn"
 const UI_DEATH: String = "res://scenes/UI/DeathScreen.tscn"
 const UI_ENDING: String = "res://scenes/UI/EndingScreen.tscn"
+const UI_DOCUMENT: String = "res://scenes/UI/DocumentReader.tscn"
+const UI_AUDIOLOG: String = "res://scenes/UI/AudioLogPlayer.tscn"
+const UI_KEYPAD: String = "res://scenes/UI/KeypadUI.tscn"
+const UI_CAMERA: String = "res://scenes/UI/CameraFeedUI.tscn"
+const UI_ENDING_CHOICE: String = "res://scenes/UI/EndingChoiceUI.tscn"
+const UI_INVENTORY: String = "res://scenes/UI/InventoryUI.tscn"
+const UI_JOURNAL: String = "res://scenes/UI/QuestJournal.tscn"
 
 ## Evidence required to unlock the Containment (Ending C) procedure.
 const REQUIRED_EVIDENCE: PackedStringArray = [
@@ -64,6 +73,7 @@ var _current_level: Node3D
 var _player: Node3D
 var _hud: Control
 var _active_menu: Control
+var _overlay: Control
 var _saved_player_state: Dictionary = {}
 
 func _ready() -> void:
@@ -156,8 +166,8 @@ func new_game(difficulty: int) -> void:
 	checkpoint_spawn_id = "start"
 	_close_menu()
 	await load_level("exterior", "start")
-	# Starting kit.
-	inventory.add_item("flashlight", 1)
+	# The flashlight is found in the maintenance building (Quest 1). Story mode
+	# starts with a couple of spare batteries to soften the early game.
 	if difficulty == GameTypes.Difficulty.STORY:
 		inventory.add_item("flashlight_battery", 2)
 
@@ -175,6 +185,7 @@ func _reset_run_state() -> void:
 func goto_main_menu() -> void:
 	_set_state(GameTypes.GameState.MAIN_MENU)
 	get_tree().paused = false
+	close_overlay()
 	_clear_world()
 	_destroy_hud()
 	set_mouse_captured(false)
@@ -192,6 +203,7 @@ func load_level(level_id: String, spawn_id: String) -> void:
 	if not ResourceLoader.exists(path):
 		GameLog.error("load_level: missing scene '%s'" % path)
 		return
+	close_overlay()
 	_set_state(GameTypes.GameState.LOADING)
 	await _do_fade(1.0, 0.35)
 
@@ -272,6 +284,91 @@ func _close_menu() -> void:
 		_active_menu.queue_free()
 	_active_menu = null
 
+# --- In-game overlays (document/audio reader, keypad, inventory, journal) -----
+# Overlays release the mouse (which gates the player) but keep the world running.
+
+func has_overlay() -> bool:
+	return is_instance_valid(_overlay)
+
+func _open_overlay(path: String) -> Control:
+	if has_overlay():
+		close_overlay()
+	if not ResourceLoader.exists(path):
+		GameLog.error("Overlay scene missing: %s" % path)
+		return null
+	var packed: PackedScene = ResourceLoader.load(path) as PackedScene
+	var overlay: Control = packed.instantiate() as Control
+	_menu_layer.add_child(overlay)
+	_overlay = overlay
+	set_mouse_captured(false)
+	return overlay
+
+func close_overlay() -> void:
+	if is_instance_valid(_overlay):
+		_overlay.queue_free()
+	_overlay = null
+	if state == GameTypes.GameState.PLAYING:
+		set_mouse_captured(true)
+
+func show_document(doc_id: String) -> void:
+	var doc: DocumentData = DocumentDatabase.get_doc(doc_id)
+	if doc == null:
+		GameLog.warn("show_document: unknown id '%s'" % doc_id)
+		return
+	unlock_document(doc_id)
+	if doc.evidence_id != "":
+		add_evidence(doc.evidence_id)
+	var overlay: Control = _open_overlay(UI_DOCUMENT)
+	if overlay != null and overlay.has_method("show_document"):
+		overlay.call("show_document", doc)
+
+func show_audio_log(log_id: String) -> void:
+	var log_data: AudioLogData = AudioLogDatabase.get_log(log_id)
+	if log_data == null:
+		GameLog.warn("show_audio_log: unknown id '%s'" % log_id)
+		return
+	unlock_audio_log(log_id)
+	if log_data.evidence_id != "":
+		add_evidence(log_data.evidence_id)
+	var overlay: Control = _open_overlay(UI_AUDIOLOG)
+	if overlay != null and overlay.has_method("play_log"):
+		overlay.call("play_log", log_data)
+
+## Opens the keypad UI. `on_success` is invoked when the correct code is entered.
+func open_keypad(correct_code: String, on_success: Callable, hint: String = "") -> void:
+	var overlay: Control = _open_overlay(UI_KEYPAD)
+	if overlay != null and overlay.has_method("setup"):
+		overlay.call("setup", correct_code, on_success, hint)
+
+## Opens the CCTV viewer with the supplied feeds; on_reveal fires with the code.
+func open_camera_feed(feeds: Array, on_reveal: Callable) -> void:
+	var overlay: Control = _open_overlay(UI_CAMERA)
+	if overlay != null and overlay.has_method("setup"):
+		overlay.call("setup", feeds, on_reveal)
+
+## Opens the final containment-device choice. on_choice receives "destroy",
+## "activate" or "contain".
+func open_ending_choice(on_choice: Callable) -> void:
+	var overlay: Control = _open_overlay(UI_ENDING_CHOICE)
+	if overlay != null and overlay.has_method("setup"):
+		overlay.call("setup", can_contain(), on_choice)
+
+func open_inventory() -> void:
+	if state != GameTypes.GameState.PLAYING:
+		return
+	if has_overlay():
+		close_overlay()
+		return
+	_open_overlay(UI_INVENTORY)
+
+func open_journal() -> void:
+	if state != GameTypes.GameState.PLAYING:
+		return
+	if has_overlay():
+		close_overlay()
+		return
+	_open_overlay(UI_JOURNAL)
+
 # --- Pause -------------------------------------------------------------------
 
 func toggle_pause() -> void:
@@ -282,6 +379,9 @@ func toggle_pause() -> void:
 
 func pause_game() -> void:
 	if state != GameTypes.GameState.PLAYING:
+		return
+	if has_overlay():
+		close_overlay()
 		return
 	_set_state(GameTypes.GameState.PAUSED)
 	get_tree().paused = true
@@ -348,6 +448,14 @@ func set_mouse_captured(captured: bool) -> void:
 
 func notify(text: String) -> void:
 	toast_requested.emit(text)
+
+## Forwarded by the monster so the HUD/overlay can show detection and AI state
+## without coupling directly to the monster instance.
+func report_detection(value: float) -> void:
+	detection_changed.emit(value)
+
+func report_monster_state(state_name: String) -> void:
+	monster_state_changed.emit(state_name)
 
 func show_subtitle(text: String, duration: float = 4.0) -> void:
 	subtitle_requested.emit(text, duration)

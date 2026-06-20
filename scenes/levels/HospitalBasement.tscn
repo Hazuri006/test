@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://lwlevelbasement0001"]
+
+[ext_resource type="Script" path="res://scripts/world/hospital_basement.gd" id="1_l"]
+
+[node name="HospitalBasement" type="Node3D"]
+script = ExtResource("1_l")
