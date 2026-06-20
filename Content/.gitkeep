@@ -1,0 +1,7 @@
+# This folder holds Unreal art assets (.uasset / .umap), which are created in the
+# editor and are binary. They are intentionally NOT generated here — see
+# docs/GETTING_STARTED.md for the assets to create:
+#   Content/Input/   IA_* Input Actions + IMC_Flight
+#   Content/Maps/    L_SolarSystem
+#   Content/Blueprints/  BP_Spaceship, BP_Planet
+#   Content/Materials/   M_PlanetSurface (triplanar)

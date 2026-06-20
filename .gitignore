@@ -1,0 +1,33 @@
+# Unreal Engine generated folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+.idea/
+
+# Compiled solution / project files (regenerated from .uproject)
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+*.VC.db
+*.VC.opendb
+*.sdf
+*.opensdf
+
+# Build artifacts
+*.o
+*.obj
+*.pdb
+*.exp
+*.lib
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# NOTE: Content/ is tracked, but real .uasset/.umap binaries are created in-editor.
+# Keep this in mind when cloning: open the project and build the C++ first.
