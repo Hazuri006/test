@@ -19,6 +19,8 @@ static func _build() -> void:
 		"[REC] Okay. Okay, it's recording. I — I fell through the wall. The actual wall, I leaned on it and I fell THROUGH. [breath] If anyone finds this tape: it's all yellow. Rooms and rooms and rooms, lights buzzing, and the carpet's wet. I'm going to keep filming. I'm going to find a way out. [static]")
 	_add("log_hz_survivor", "Found Dictaphone", "M.E.G. Survivor", 17.0, "",
 		"[click] —if you're hearing this you made it to the Habitable Zone, congratulations, you're not dead yet. The freight door's the only way I know that goes anywhere but deeper. Three keys. [pause] We had four of us. We have three keys. [long pause] It got close to Davies. That's all it needs. It just needs to get close. Don't let it. Keep to the light. [click]")
+	_add("log_hz_entity", "Tape Marked 'IT'", "M.E.G. Researcher", 18.0, "",
+		"[hiss] Observation, day forty. The entity is blind to distance. At range it drifts, almost idle. But cross some threshold — six, seven metres — and it commits. Total. It does not tire and it does not lose the line once it has you. [pause] We think it hunts the way a memory hunts: it doesn't chase you, it chases the fact of you. The only counter is to never let it know you're close. [hiss]")
 
 	_add("log_lena_intro", "Anonymous Recording", "Lena Morel", 14.0, "",
 		"[static] Eli, it's me. I know how this sounds. I'm inside Saint Veyra and I can't— [crackle] —they're going to do it again, the final extraction. If anyone finds this: do not let them open the lower ward. Please. Do not let them open it. [static]")

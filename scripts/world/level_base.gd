@@ -10,6 +10,11 @@ extends Node3D
 @export var music_track: String = ""
 
 var nav_region: NavigationRegion3D
+## When true, the navmesh is baked from MeshInstance3D geometry (best for imported
+## GLB levels) instead of from generated static colliders.
+var nav_parse_mesh_instances: bool = false
+## When true, skip navmesh baking entirely (for navmesh-free / direct-steering levels).
+var nav_skip_bake: bool = false
 var geo: Node3D            # geometry parent (baked into the navmesh)
 var props: Node3D          # decorative props (not baked)
 var dynamic: Node3D        # interactables, spawns, monster
@@ -76,6 +81,8 @@ func spawn_monster(pos: Vector3, yaw_deg: float, patrol: Array[Vector3] = [], ac
 		monster.call("set_proximity_aggro", float(opts["proximity"]))
 	if opts.has("aggression") and monster.has_method("set_aggression"):
 		monster.call("set_aggression", float(opts["aggression"]))
+	if opts.has("navless"):
+		monster.set("navless", bool(opts["navless"]))
 	if active and monster.has_method("wake"):
 		monster.call("wake")
 	return monster
@@ -150,6 +157,8 @@ func _configure_environment(_env: Environment) -> void:
 # --- Navigation --------------------------------------------------------------
 
 func _bake_navigation() -> void:
+	if nav_skip_bake:
+		return
 	var nav: NavigationMesh = NavigationMesh.new()
 	# Match the default nav map cell size/height (0.25) and keep agent dimensions as
 	# exact cell multiples so no precision warnings are emitted.
@@ -159,7 +168,12 @@ func _bake_navigation() -> void:
 	nav.agent_height = 1.75
 	nav.agent_max_climb = 0.5
 	nav.agent_max_slope = 50.0
-	nav.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	# Imported GLB levels bake better from their visual meshes than from dense
+	# generated colliders, so allow per-level selection of the parse source.
+	if nav_parse_mesh_instances:
+		nav.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_MESH_INSTANCES
+	else:
+		nav.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
 	nav.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
 	nav_region.navigation_mesh = nav
 	# Bake on the next idle frame so all geometry is in the tree.

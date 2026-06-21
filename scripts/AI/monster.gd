@@ -43,6 +43,10 @@ var detection: float = 0.0
 var aggression: float = 1.0
 ## Instant-chase radius (0 = disabled). Initialised from config; settable per-spawn.
 var proximity_aggro_range: float = 0.0
+## Navmesh-free mode: steer directly toward the target (for GLB levels that don't
+## bake a navmesh). Collision sliding handles obstacles.
+var navless: bool = false
+var _nav_target: Vector3 = Vector3.ZERO
 
 var _player: Player
 var _last_known_pos: Vector3 = Vector3.ZERO
@@ -395,8 +399,9 @@ func _state_patrol(delta: float) -> void:
 	var target: Vector3 = _current_patrol_point()
 	_set_nav_target(target)
 	_move_along_path(delta, config.patrol_speed)
-	# Advance when reached, or when the point is unreachable (path finished short).
-	if global_position.distance_to(target) < 1.4 or (agent.is_navigation_finished() and _state_time > 1.0):
+	# Advance when reached, when the path finishes short, or after a timeout (so an
+	# unreachable point — common in navless mode behind a wall — never stalls patrol).
+	if global_position.distance_to(target) < 1.4 or (_nav_finished() and _state_time > 1.0) or _state_time > 6.0:
 		_patrol_index = (_patrol_index + 1) % patrol_points.size()
 		_state_time = 0.0
 	# Occasional ambient breath.
@@ -417,13 +422,13 @@ func _state_suspicious(delta: float) -> void:
 func _state_goto(delta: float, target: Vector3, on_arrive: int) -> void:
 	_set_nav_target(target)
 	_move_along_path(delta, config.search_speed)
-	if global_position.distance_to(target) < 1.3 or agent.is_navigation_finished():
+	if global_position.distance_to(target) < 1.3 or _nav_finished():
 		_set_state(on_arrive)
 
 func _state_search(delta: float) -> void:
 	_search_timer -= delta
 	# Wander around the last known position.
-	if agent.is_navigation_finished():
+	if _nav_finished():
 		var offset: Vector3 = Vector3(randf_range(-3, 3), 0, randf_range(-3, 3))
 		_set_nav_target(_last_known_pos + offset)
 	_move_along_path(delta, config.search_speed)
@@ -476,17 +481,30 @@ func _state_attack(delta: float) -> void:
 # --- Navigation helpers ------------------------------------------------------
 
 func _set_nav_target(target: Vector3) -> void:
+	_nav_target = target
+	if navless:
+		return
 	_repath_timer -= get_physics_process_delta_time()
 	if _repath_timer <= 0.0 or agent.target_position.distance_to(target) > 1.0:
 		agent.target_position = target
 		_repath_timer = 0.4
 
+func _nav_finished() -> bool:
+	if navless:
+		return Vector2(_nav_target.x - global_position.x, _nav_target.z - global_position.z).length() < 1.0
+	return agent.is_navigation_finished()
+
+func _nav_next_point() -> Vector3:
+	if navless:
+		return _nav_target
+	return agent.get_next_path_position()
+
 func _move_along_path(delta: float, speed: float) -> void:
-	if agent.is_navigation_finished():
+	if _nav_finished():
 		velocity.x = 0.0
 		velocity.z = 0.0
 		return
-	var next: Vector3 = agent.get_next_path_position()
+	var next: Vector3 = _nav_next_point()
 	var dir: Vector3 = (next - global_position)
 	dir.y = 0.0
 	if dir.length() < 0.05:
@@ -607,10 +625,10 @@ func _update_debug() -> void:
 	var im: ImmediateMesh = ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	# Path
-	if not agent.is_navigation_finished():
+	if not _nav_finished():
 		im.surface_set_color(Color.YELLOW)
 		im.surface_add_vertex(Vector3(0, 1, 0))
-		im.surface_add_vertex(to_local(agent.get_next_path_position()) + Vector3(0, 1, 0))
+		im.surface_add_vertex(to_local(_nav_next_point()) + Vector3(0, 1, 0))
 	# Last known
 	im.surface_set_color(Color.RED)
 	im.surface_add_vertex(Vector3(0, 1, 0))

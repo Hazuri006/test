@@ -10,14 +10,17 @@ func _ready() -> void:
 	# The GLB is authored at ~2 units; scale it up to a walkable level and lift its
 	# floor (local y ≈ -1) to world y ≈ 0.
 	glb_scale = 12.0
+	# Lift the GLB so its visual floor (AABB bottom, local y ≈ -1) sits at world y = 0,
+	# exactly where the procedural walkable floor is — so you read as standing inside it.
 	glb_offset_y = 12.0
 	glb_collision = false
-	spawn_height = 5.0
-	# The dense GLB does not bake a navmesh on its own, so lay a flat walkable floor
-	# under it (its walls still carve / block). This guarantees a playable maze.
-	nav_floor_size = 34.0
+	spawn_height = 4.0
+	# This GLB has no walkable floor/navmesh of its own, so it is the visual
+	# environment while a flat procedural floor (at its floor level) + a perimeter
+	# matching its footprint provide the actual, reliable walking surface and chase.
+	nav_floor_size = 30.0
 	nav_floor_y = 0.0
-	nav_floor_carpet = Color(0.20, 0.20, 0.22)
+	nav_floor_carpet = Color(0.18, 0.18, 0.20)
 
 	marker_item = "level_key"
 	marker_count = 3
@@ -51,50 +54,49 @@ func _configure_environment(env: Environment) -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.4
 
-## Procedural warehouse shell + cover around the GLB (which is visual-only). Gives
-## the chase real walls to break line-of-sight and crates to dodge behind.
+## Collision perimeter (matched to the GLB's footprint so you are contained inside
+## the visual environment) + crate cover for the chase.
 func _build_extra_geometry() -> void:
 	var wm: StandardMaterial3D = MaterialLibrary.building_wall()
 	var hh: float = 6.0
-	var b: float = 16.0
+	var b: float = 14.0
 	WorldBuilder.wall_run_z(geo, -b, -b, b, 0.0, hh, [], wm)
 	WorldBuilder.wall_run_z(geo, b, -b, b, 0.0, hh, [], wm)
 	WorldBuilder.wall_run_x(geo, -b, -b, b, 0.0, hh, [], wm)
 	WorldBuilder.wall_run_x(geo, b, -b, b, 0.0, hh, [], wm)
-	# Ceiling + crates are visual/physical only (in props, so they don't create
-	# walkable navmesh on top — which would float the placed items).
-	WorldBuilder.ceiling(props, Vector3(0, 0, 0), Vector2(2 * b, 2 * b), hh, MaterialLibrary.dirty_concrete())
+	# Crates for cover — in props so their tops do not become walkable navmesh.
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 1717
-	for i: int in range(14):
-		var x: float = rng.randf_range(-13, 13)
-		var z: float = rng.randf_range(-13, 13)
+	for i: int in range(12):
+		var x: float = rng.randf_range(-11, 11)
+		var z: float = rng.randf_range(-11, 11)
 		if Vector2(x, z).length() < 4.0:
 			continue
-		var hgt: float = rng.randf_range(1.2, 2.4)
+		var hgt: float = rng.randf_range(1.2, 2.2)
 		WorldBuilder.static_box(props, Vector3(x, hgt * 0.5, z), Vector3(rng.randf_range(1.2, 2.0), hgt, rng.randf_range(1.2, 2.0)), MaterialLibrary.painted_metal())
-	for z: float in [-14.0, 0.0, 14.0]:
-		WorldBuilder.pipe(props, Vector3(-20, hh - 0.6, z), Vector3(20, hh - 0.6, z), 0.15)
 
 func on_level_ready(spawn_id: String) -> void:
 	EventManager.tension = 0.7
 	super.on_level_ready(spawn_id)
+	await get_tree().create_timer(7.0).timeout
+	GameManager.show_subtitle("Crates. A dead torch. Almond-water cartons. People sheltered here — the M.E.G.", 5.0)
+	await get_tree().create_timer(6.0).timeout
+	GameManager.show_subtitle("Three level keys open the freight door. And something tall shares the dark with you.", 6.0)
 
-## Dim, sparse industrial lighting over the larger footprint (overrides the bright grid).
+## Sparse industrial fill lights inside the GLB (ambient carries most of the look,
+## since the GLB's interior height is unknown).
 func _build_lights() -> void:
-	var lamp_mat: StandardMaterial3D = MaterialLibrary.get_emissive("hz_lamp", Color(0.8, 0.85, 1.0), 1.6)
-	for x in range(-24, 30, 9):
-		for z in range(-26, 32, 9):
-			var pos: Vector3 = Vector3(float(x), glb_offset_y + 6.0, float(z))
-			WorldBuilder.visual_box(props, pos + Vector3(0, 0.2, 0), Vector3(1.2, 0.1, 0.5), lamp_mat)
-			var light: OmniLight3D = WorldBuilder.omni(props, pos, Color(0.75, 0.8, 0.95), 1.4, 11.0, false)
-			light.set_meta("base_energy", 1.4)
-			if randf() < 0.4:
+	for x in range(-12, 14, 6):
+		for z in range(-12, 14, 6):
+			var light: OmniLight3D = WorldBuilder.omni(props, Vector3(float(x), 3.5, float(z)), Color(0.78, 0.82, 0.95), 1.3, 9.0, false)
+			light.set_meta("base_energy", 1.3)
+			if randf() < 0.35:
 				register_flicker_light(light)
 
 func _build_story() -> void:
 	_add_doc("doc_hz_meg", _story_nodes)
 	_add_audio("log_hz_survivor", _story_nodes)
+	_add_doc("doc_hz_freight", _story_nodes)
 
 func _build_easter_eggs() -> void:
 	# M.E.G. supply cache.
@@ -105,8 +107,10 @@ func _build_easter_eggs() -> void:
 	water.custom_label = "Take the almond water crate"
 	dynamic.add_child(water)
 	_egg_nodes.append(water)
-	# A reference to the deeper levels.
 	_add_doc("doc_hz_graffiti", _egg_nodes)
+	_add_audio("log_hz_entity", _egg_nodes)
+	# The Lena thread — ties the Backrooms to the Saint Veyra campaign.
+	_add_doc("doc_hz_lena", _egg_nodes)
 
 func _add_doc(doc_id: String, into: Array[Node3D]) -> void:
 	var d: DocumentPickup = DocumentPickup.new()

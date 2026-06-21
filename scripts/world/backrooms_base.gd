@@ -40,6 +40,10 @@ var monster_scale: float = 1.12
 var monster_yaw: float = PI
 var monster_proximity: float = 6.5
 var monster_aggression: float = 1.3
+## Navmesh-free level: the GLB is the walkable environment (player walks on its
+## collision); entities are placed by raycasting to the floor and the entity steers
+## directly toward the player. Use when the GLB does not bake a navmesh.
+var navless_level: bool = false
 
 # --- Runtime -----------------------------------------------------------------
 var _markers: Array[Node3D] = []
@@ -123,6 +127,7 @@ func _build_monster() -> void:
 		"model_yaw_offset": monster_yaw,
 		"proximity": monster_proximity,
 		"aggression": monster_aggression * GameManager.difficulty_config.monster_aggression_mult,
+		"navless": navless_level,
 	})
 
 # --- Lifecycle ---------------------------------------------------------------
@@ -134,8 +139,12 @@ func on_level_ready(_spawn_id: String) -> void:
 	if intro_step != "":
 		QuestManager.complete_step(marker_quest, intro_step)
 	if not _placed:
-		await get_tree().create_timer(1.2).timeout
-		_place_on_navmesh()
+		if navless_level:
+			await get_tree().create_timer(0.4).timeout
+			_place_navless()
+		else:
+			await get_tree().create_timer(1.2).timeout
+			_place_on_navmesh()
 
 func _place_on_navmesh() -> void:
 	_placed = true
@@ -161,6 +170,56 @@ func _place_on_navmesh() -> void:
 	if _monster != null and _monster is Node3D:
 		(_monster as Node3D).global_position = _floor_snap(_sample(map, origin, 16.0)) + Vector3(0, 0.3, 0)
 	GameLog.info("%s: placed entities on navmesh (origin=%s)." % [level_id, str(origin.snapped(Vector3.ONE))])
+
+## Placement for navmesh-free (GLB-as-environment) levels: raycast down to the GLB
+## floor to scatter the player / story / markers / exit / entity.
+func _place_navless() -> void:
+	_placed = true
+	var origin: Vector3 = _find_floor_point(Vector3(0, glb_offset_y, 0), 0.0)
+	var player: Node3D = GameManager.get_player()
+	if player != null:
+		player.global_position = origin + Vector3(0, 0.6, 0)
+	for i: int in range(_story_nodes.size()):
+		if is_instance_valid(_story_nodes[i]):
+			_story_nodes[i].global_position = _find_floor_point(origin, 2.2 + i * 0.8) + Vector3(0, 0.4, 0)
+	for marker: Node3D in _markers:
+		if is_instance_valid(marker):
+			marker.global_position = _find_floor_point(origin, 8.0) + Vector3(0, 0.5, 0)
+	for egg: Node3D in _egg_nodes:
+		if is_instance_valid(egg):
+			egg.global_position = _find_floor_point(origin, 5.0) + Vector3(0, 0.4, 0)
+	if is_instance_valid(_exit):
+		_exit.global_position = _find_floor_point(origin, 11.0)
+	if _monster != null and _monster is Node3D:
+		(_monster as Node3D).global_position = _find_floor_point(origin, 13.0) + Vector3(0, 0.3, 0)
+	GameLog.info("%s: navless placement (player origin=%s)." % [level_id, str(origin.snapped(Vector3.ONE))])
+
+## Raycasts straight down through the GLB's vertical extent to find a floor under an
+## XZ position. Tries several angles at `radius` around `centre`; returns `centre`'s
+## floor if none hit.
+func _find_floor_point(centre: Vector3, radius: float) -> Vector3:
+	if radius <= 0.0:
+		var c: Vector3 = _raycast_floor_xz(centre.x, centre.z)
+		return c if c.is_finite() else centre
+	for i: int in range(16):
+		var ang: float = float(i) * (TAU / 16.0)
+		var r: float = radius * randf_range(0.7, 1.25)
+		var p: Vector3 = _raycast_floor_xz(centre.x + cos(ang) * r, centre.z + sin(ang) * r)
+		if p.is_finite():
+			return p
+	return centre
+
+func _raycast_floor_xz(x: float, z: float) -> Vector3:
+	# The GLB floor sits near (offset - scale); start just above it (inside the
+	# interior, below any ceiling) so we find the floor, not the model's top.
+	var floor_y: float = glb_offset_y - glb_scale
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
+		Vector3(x, floor_y + 6.0, z), Vector3(x, floor_y - 6.0, z), GameTypes.LAYER_WORLD)
+	var hit: Dictionary = space.intersect_ray(query)
+	if hit.has("position"):
+		return hit["position"]
+	return Vector3(INF, INF, INF)
 
 ## Raycasts down to the solid floor under `pos` so placed items never float on a
 ## crate top or hover above the ground. Falls back to `pos` if nothing is hit.
