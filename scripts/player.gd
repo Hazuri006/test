@@ -72,31 +72,40 @@ func setup(display_name: String) -> void:
 	nameplate.text = display_name
 
 func _fit_model_height() -> void:
-	# The raw model is ~1.52 units tall; scale ModelRoot so the survivor reads ~1.8 m.
+	# Scale ModelRoot so the survivor reads ~target_height, measured in ModelRoot's own
+	# space (so nested model scales are handled) and ground the feet at the body origin.
+	var inv := model_root.global_transform.affine_inverse()
 	var aabb := AABB()
 	var first := true
 	for m in model_root.find_children("*", "MeshInstance3D", true, false):
-		var a: AABB = (m as MeshInstance3D).get_aabb()
-		a = (m as MeshInstance3D).transform * a
+		var mi := m as MeshInstance3D
+		var a := (inv * mi.global_transform) * mi.get_aabb()
 		if first:
 			aabb = a
 			first = false
 		else:
 			aabb = aabb.merge(a)
-	if not first and aabb.size.y > 0.01:
-		var s := target_height / aabb.size.y
-		model_root.scale = Vector3(s, s, s)
+	if first or aabb.size.y < 0.01:
+		return
+	var s := target_height / aabb.size.y
+	model_root.scale = Vector3(s, s, s)
+	model_root.position.y = -aabb.position.y * s
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if event.is_action_pressed("flashlight"):
+		flashlight.visible = not flashlight.visible
+	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _input(event: InputEvent) -> void:
+	# Mouse look lives in _input so it is never swallowed by the GUI layer.
+	if not is_multiplayer_authority() or Game.state != Game.State.PLAYING:
+		return
+	if event is InputEventMouseMotion:
 		cam_yaw -= event.relative.x * mouse_sensitivity
 		cam_pitch = clampf(cam_pitch - event.relative.y * mouse_sensitivity, -1.2, 0.5)
-	elif event.is_action_pressed("flashlight"):
-		flashlight.visible = not flashlight.visible
-	elif event.is_action_pressed("interact") and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _physics_process(delta: float) -> void:
 	if is_multiplayer_authority():

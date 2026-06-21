@@ -1,7 +1,7 @@
 extends CharacterBody3D
 ## The entity. Server-authoritative pursuit AI driven by the navigation mesh.
 ## States: PATROL (wander) -> CHASE (saw / heard a survivor) -> ATTACK (caught one).
-## Plays the hazmat model's baked-in mocap clip, sped up while hunting.
+## Plays a striding locomotion clip, sped up while hunting.
 
 enum State { PATROL, CHASE, ATTACK }
 
@@ -32,11 +32,9 @@ func _ready() -> void:
 	add_to_group("monster")
 	anim = model_root.find_child("AnimationPlayer", true, false)
 	if anim:
-		var list := anim.get_animation_list()
-		if list.size() > 0:
-			clip_name = list[0]
-			var a := anim.get_animation(clip_name)
-			a.loop_mode = Animation.LOOP_LINEAR
+		clip_name = _pick_clip(anim.get_animation_list())
+		if clip_name != "":
+			anim.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
 			anim.play(clip_name)
 	_fit_model_height(target_height)
 	agent.path_desired_distance = 0.6
@@ -57,20 +55,28 @@ func _configure_sync() -> void:
 		cfg.property_set_replication_mode(np, SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
 	sync.replication_config = cfg
 
+func _pick_clip(list: PackedStringArray) -> String:
+	# Prefer a striding locomotion clip for the hunt.
+	for pref in ["Run", "Walk", "mixamo_com", "mixamo.com"]:
+		if list.has(pref):
+			return pref
+	return list[0] if list.size() > 0 else ""
+
 func _fit_model_height(h: float) -> void:
+	# Measure in ModelRoot space so nested model scales are handled, then ground the feet.
+	var inv := model_root.global_transform.affine_inverse()
 	var aabb := AABB()
 	var first := true
 	for m in model_root.find_children("*", "MeshInstance3D", true, false):
-		var a: AABB = (m as MeshInstance3D).global_transform * (m as MeshInstance3D).get_aabb()
+		var mi := m as MeshInstance3D
+		var a := (inv * mi.global_transform) * mi.get_aabb()
 		if first: aabb = a; first = false
 		else: aabb = aabb.merge(a)
 	if first or aabb.size.y < 0.01:
 		return
 	var s := h / aabb.size.y
-	model_root.scale *= s
-	# Re-measure to ground the feet at the body origin.
-	var low := aabb.position.y * s
-	model_root.position.y -= low
+	model_root.scale = Vector3(s, s, s)
+	model_root.position.y = -aabb.position.y * s
 
 func set_active(v: bool) -> void:
 	active = v

@@ -11,29 +11,29 @@ friends — before it finds you.
 
 Three supplied GLB models drive the whole game:
 
-| Model | File | Role | Animation |
-|-------|------|------|-----------|
-| **Captain Clark** | `assets/models/player.glb` | The playable survivor (third person) | Rigged Mixamo skeleton — see note below |
-| **Hazmat Entity** | `assets/models/monster.glb` | The monster that hunts you | Ships with a real mocap loop (`mixamo.com`) |
+| Model | File | Role | Rig |
+|-------|------|------|-----|
+| **Hazmat survivor** | `assets/models/player.glb` | The playable survivor (third person) | Rigify (`spine_01`, `thigh.L`, ...) |
+| **Captain Clark** | `assets/models/monster.glb` | The entity that hunts you | Mixamo (`mixamorig:*`) |
 | **Backrooms** | `assets/models/environment.glb` | The level — walls, ceilings, lamps, carpet, exit | Static |
 
 ### A note on the animations
 
-The hazmat **entity** already contained a captured Mixamo locomotion clip, so it is
-played directly (sped up while hunting, slowed while wandering).
-
-The supplied **player** model was *rigged but shipped with zero animation clips*. So a
-small build tool — [`tools/build_player_anim.py`](tools/build_player_anim.py) — authors a
-full locomotion set (**Idle / Walk / Run / Jump / Fall**) directly onto Captain Clark's
-Mixamo skeleton and injects them into `player.glb`. Because the project is built
+Both characters needed a full locomotion set, but the supplied models didn't have one
+ready to use (Captain Clark shipped with *no* clips at all; the hazmat had only a single
+exaggerated mocap loop). So a small build tool —
+[`tools/build_char_anim.py`](tools/build_char_anim.py) — authors **Idle / Walk / Run /
+Jump / Fall** directly onto each skeleton. It auto-detects the rig (Mixamo *or* Rigify)
+and uses "aim-based" posing that adapts to either rest pose. Because the project is built
 head-less, every generated clip is **validated with forward kinematics** (feet stay below
-the hips, the stride alternates, knees flex upward) before it is written — no clip ships
-without passing those anatomical checks.
+the hips, the stride alternates, knees flex upward, hands stay below the shoulders) before
+it is written — no clip ships without passing those anatomical checks.
 
-Regenerate the player clips at any time with:
+Regenerate the clips at any time (rig auto-detected):
 
 ```bash
-python3 tools/build_player_anim.py <source_clark.glb> assets/models/player.glb
+python3 tools/build_char_anim.py <hazmat.glb>  assets/models/player.glb
+python3 tools/build_char_anim.py <clark.glb>   assets/models/monster.glb
 ```
 
 ---
@@ -114,7 +114,7 @@ scripts/
   ambient_audio.gd         procedural fluorescent hum (no audio asset needed)
   hud.gd / main_menu.gd
 shaders/post_process.gdshader
-tools/build_player_anim.py FK-validated animation baker for the player model
+tools/build_char_anim.py   FK-validated animation baker (Mixamo + Rigify rigs)
 ```
 
 ## Requirements

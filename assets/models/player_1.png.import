@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://khmtr45il58p"
-path="res://.godot/imported/monster_2.png-97933a6222138bc6a735220ea2056553.ctex"
+uid="uid://dbj47xtgypedq"
+path="res://.godot/imported/player_1.png-9b54dadbb7461c3482ccf75eb4a5de1d.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "0ef845bd2c8cc905dde11131d736cda1"
+"md5": "5ba3af90157f60788c34398588455cdb"
 }
 
 [deps]
 
-source_file="res://assets/models/monster_2.png"
-dest_files=["res://.godot/imported/monster_2.png-97933a6222138bc6a735220ea2056553.ctex"]
+source_file="res://assets/models/player_1.png"
+dest_files=["res://.godot/imported/player_1.png-9b54dadbb7461c3482ccf75eb4a5de1d.ctex"]
 
 [params]
 
