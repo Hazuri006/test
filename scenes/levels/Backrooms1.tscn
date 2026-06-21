@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://lwbackrooms1l001"]
+
+[ext_resource type="Script" path="res://scripts/world/backrooms_l1.gd" id="1_b1"]
+
+[node name="Backrooms1" type="Node3D"]
+script = ExtResource("1_b1")

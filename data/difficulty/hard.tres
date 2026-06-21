@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="DifficultyConfig" load_steps=2 format=3 uid="uid://lwdiffhard001"]
+
+[ext_resource type="Script" path="res://scripts/data/difficulty_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "hard"
+display_name = "Hard"
+description = "Sharper senses, scarcer power."
+monster_aggression_mult = 1.25
+detection_speed_mult = 1.2
+battery_drain_mult = 1.25
+player_damage_mult = 1.0
+show_detection_indicator = true
+show_objective_hints = true
+starting_battery = 0.85
