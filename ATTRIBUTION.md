@@ -45,9 +45,23 @@ verify each model's page and licence before distributing.
 - Source:      _TODO — Sketchfab URL_
 - Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
 
-### Backrooms maze
+### Backrooms maze (Level 0)
 - File:        `res://assets/environment/backrooms.glb`
-- Used as:     the entire Backrooms level environment (with generated collision)
+- Used as:     the Level 0 environment (with generated collision + baked navmesh)
+- Author:      _TODO — fill from the Sketchfab model page_
+- Source:      _TODO — Sketchfab URL_
+- Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
+
+### Backrooms Level 1 — Habitable Zone
+- File:        `res://assets/environment/backrooms_l1.glb`
+- Used as:     the Level 1 environment (visual; a procedural shell provides navigation)
+- Author:      _TODO — fill from the Sketchfab model page_
+- Source:      _TODO — Sketchfab URL_
+- Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
+
+### Rigged zombie (Level 1 entity)
+- File:        `res://assets/monster/zombie_rigged.glb`
+- Used as:     the Level 1 entity model + animations (Idle / Walk1 / Attack1)
 - Author:      _TODO — fill from the Sketchfab model page_
 - Source:      _TODO — Sketchfab URL_
 - Licence:     _TODO — verify; add attribution to Credits if CC‑BY_

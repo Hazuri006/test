@@ -52,17 +52,30 @@ func on_level_ready(_spawn_id: String) -> void:
 
 const MONSTER_SCENE: String = "res://scenes/enemies/Monster.tscn"
 
-## Instances the Hollow Attendant into the level. Returns the monster (or null).
-func spawn_monster(pos: Vector3, yaw_deg: float, patrol: Array[Vector3] = [], active: bool = false) -> Node:
+## Instances a monster into the level. `opts` may override the model and behaviour:
+## { "model_path", "model_scale", "model_yaw_offset", "proximity", "aggression" }.
+## Returns the monster (or null).
+func spawn_monster(pos: Vector3, yaw_deg: float, patrol: Array[Vector3] = [], active: bool = false, opts: Dictionary = {}) -> Node:
 	if not ResourceLoader.exists(MONSTER_SCENE):
 		return null
 	var packed: PackedScene = ResourceLoader.load(MONSTER_SCENE) as PackedScene
 	var monster: Node3D = packed.instantiate() as Node3D
+	# Model config must be set BEFORE _ready (it builds the body there).
+	if opts.has("model_path"):
+		monster.set("model_path", str(opts["model_path"]))
+	if opts.has("model_scale"):
+		monster.set("model_scale", float(opts["model_scale"]))
+	if opts.has("model_yaw_offset"):
+		monster.set("model_yaw_offset", float(opts["model_yaw_offset"]))
 	dynamic.add_child(monster)
 	monster.global_position = pos
 	monster.rotation.y = deg_to_rad(yaw_deg)
 	if monster.has_method("set_patrol_points") and not patrol.is_empty():
 		monster.call("set_patrol_points", patrol)
+	if opts.has("proximity") and monster.has_method("set_proximity_aggro"):
+		monster.call("set_proximity_aggro", float(opts["proximity"]))
+	if opts.has("aggression") and monster.has_method("set_aggression"):
+		monster.call("set_aggression", float(opts["aggression"]))
 	if active and monster.has_method("wake"):
 		monster.call("wake")
 	return monster

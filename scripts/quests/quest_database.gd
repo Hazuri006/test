@@ -16,12 +16,19 @@ static func _ensure_initialised() -> void:
 
 static func _build() -> void:
 	# Backrooms escape (the default campaign after the no-clip).
-	_add("qb_escape", "Escape the Backrooms",
+	_add("qb_escape", "Escape Level 0",
 		"You no-clipped through a wall and fell out of reality into the yellow rooms. The hum never stops. Something else is in here with you. Find a way out.",
 		[
 			["no_clip", "Get your bearings in the rooms", false],
 			["find_sigils", "Find the three exit sigils", false],
-			["reach_exit", "Reach the exit and no-clip back out", false],
+			["reach_exit", "Reach the exit and drop deeper", false],
+		], "qb_level1")
+	_add("qb_level1", "Through the Habitable Zone",
+		"The exit didn't take you home — it took you down. Level 1: a vast industrial maze, the M.E.G.'s old territory. A second thing walks here, and it does not lose interest. Find the freight door.",
+		[
+			["arrive", "Pick yourself up off the concrete", false],
+			["find_keys", "Find the three M.E.G. level keys", false],
+			["reach_deep_exit", "Reach the freight door and get out", false],
 		], "")
 
 	_add("q1_enter", "Enter the Hospital",

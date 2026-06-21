@@ -18,6 +18,7 @@ signal monster_state_changed(state_name: String)
 const PLAYER_SCENE: String = "res://scenes/player/Player.tscn"
 const LEVEL_SCENES: Dictionary = {
 	"backrooms": "res://scenes/levels/Backrooms.tscn",
+	"backrooms_l1": "res://scenes/levels/Backrooms1.tscn",
 	"exterior": "res://scenes/levels/HospitalExterior.tscn",
 	"interior": "res://scenes/levels/HospitalInterior.tscn",
 	"basement": "res://scenes/levels/HospitalBasement.tscn",

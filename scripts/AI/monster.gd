@@ -16,10 +16,12 @@ signal state_changed(state: int)
 ## forward (-Z). Flip to 0.0 if the model walks backward.
 @export var model_yaw_offset: float = PI
 
-const ANIM_IDLE: String = "Zombie_Idle"
-const ANIM_WALK: String = "Zombie_Walk_Root"
-const ANIM_SPOTTED: String = "Zombie_EnemySpotted"
-const ANIM_ATTACK: String = "Zombie_Skill"
+# Animation clip names — auto-detected from the loaded model by keyword, with these
+# as sensible defaults/fallbacks.
+var _anim_idle: String = "Idle"
+var _anim_walk: String = "Walk"
+var _anim_spotted: String = ""
+var _anim_attack: String = "Attack"
 
 var _anim: AnimationPlayer
 var _current_anim: String = ""
@@ -130,13 +132,14 @@ func _setup_model() -> void:
 			_anim = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 			if _anim != null:
 				_anim.playback_default_blend_time = 0.2
-				_ensure_loop(ANIM_IDLE)
-				_ensure_loop(ANIM_WALK)
-				# Neutralise the Mixamo hip root motion so the walk plays in place
-				# (the NavigationAgent drives the actual movement) instead of sliding.
+				_map_animations()
+				_ensure_loop(_anim_idle)
+				_ensure_loop(_anim_walk)
+				# Neutralise any hip/root motion so the walk plays in place (the
+				# NavigationAgent drives the actual movement) instead of sliding.
 				_anim.root_motion_track = _find_root_motion_path()
-				_play_anim(ANIM_IDLE)
-			GameLog.debug("Monster: loaded GLB model (anim=%s, root_motion=%s)." % [str(_anim != null), str(_anim.root_motion_track) if _anim != null else "-"])
+				_play_anim(_anim_idle)
+			GameLog.debug("Monster: loaded GLB (idle=%s walk=%s attack=%s spotted=%s)." % [_anim_idle, _anim_walk, _anim_attack, _anim_spotted])
 			return
 	_build_fallback_body()
 
@@ -144,16 +147,34 @@ func _ensure_loop(anim_name: String) -> void:
 	if _anim != null and _anim.has_animation(anim_name):
 		_anim.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
 
-## Finds the skeleton's hip position track (Mixamo root) to use as the root-motion
-## track, which the AnimationPlayer then extracts instead of applying.
+## Maps idle/walk/attack/spotted clips from whatever the loaded model provides, by
+## keyword, so any rigged humanoid (Mixamo or otherwise) animates correctly.
+func _map_animations() -> void:
+	var list: PackedStringArray = _anim.get_animation_list()
+	if list.is_empty():
+		return
+	_anim_idle = _pick(list, ["idle", "stand", "breath"], list[0])
+	_anim_walk = _pick(list, ["walk", "run", "move", "chase"], _anim_idle)
+	_anim_attack = _pick(list, ["attack", "skill", "hit", "bite", "strike", "swipe"], _anim_walk)
+	_anim_spotted = _pick(list, ["spot", "scream", "alert", "roar", "aggro", "notice"], "")
+
+func _pick(list: PackedStringArray, keywords: Array, fallback: String) -> String:
+	for kw: Variant in keywords:
+		for name_in: String in list:
+			if name_in.to_lower().contains(str(kw)):
+				return name_in
+	return fallback
+
+## Finds a hip/root/pelvis position track to extract as root motion (so a walk that
+## translates the body plays in place instead). Returns an empty path if none.
 func _find_root_motion_path() -> NodePath:
-	if _anim == null or not _anim.has_animation(ANIM_WALK):
+	if _anim == null or not _anim.has_animation(_anim_walk):
 		return NodePath()
-	var a: Animation = _anim.get_animation(ANIM_WALK)
+	var a: Animation = _anim.get_animation(_anim_walk)
 	for t: int in range(a.get_track_count()):
 		if a.track_get_type(t) == Animation.TYPE_POSITION_3D:
-			var p: String = str(a.track_get_path(t))
-			if p.contains("Hips"):
+			var p: String = str(a.track_get_path(t)).to_lower()
+			if p.contains("hips") or p.contains("pelvis") or p.ends_with(":root") or p.contains("bip001"):
 				return a.track_get_path(t)
 	return NodePath()
 
@@ -329,11 +350,11 @@ func _set_state(new_state: int) -> void:
 			_set_nav_target(_last_known_pos)
 		GameTypes.MonsterState.CHASE:
 			AudioManager.play_at("sting", global_position, -8.0)
-			_play_oneshot(ANIM_SPOTTED, 0.8)
+			_play_oneshot(_anim_spotted, 0.8)
 		GameTypes.MonsterState.ATTACK:
 			_attack_timer = 0.0
 			_attack_phase = 0
-			_play_oneshot(ANIM_ATTACK, config.attack_windup + 0.2)
+			_play_oneshot(_anim_attack, config.attack_windup + 0.2)
 		GameTypes.MonsterState.STUNNED:
 			velocity = Vector3.ZERO
 
@@ -530,11 +551,11 @@ func _update_glb_animation(delta: float) -> void:
 		return
 	var speed: float = Vector2(velocity.x, velocity.z).length()
 	if state == GameTypes.MonsterState.ATTACK:
-		_play_anim(ANIM_ATTACK)
+		_play_anim(_anim_attack)
 	elif speed > 0.25:
-		_play_anim(ANIM_WALK)
+		_play_anim(_anim_walk)
 	else:
-		_play_anim(ANIM_IDLE)
+		_play_anim(_anim_idle)
 	# Faster gait while hunting.
 	_anim.speed_scale = 1.5 if state == GameTypes.MonsterState.CHASE else 1.0
 

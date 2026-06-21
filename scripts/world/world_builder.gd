@@ -140,7 +140,7 @@ static func wall_run_x(parent: Node, z: float, x0: float, x1: float, floor_y: fl
 ## contains (so the player/monster collide and the navmesh bakes from it). Tags the
 ## colliders with a surface type for footstep audio. Returns the instanced root or
 ## null if the scene is missing.
-static func add_glb(parent: Node, scene_path: String, pos: Vector3 = Vector3.ZERO, scale: float = 1.0, surface: int = GameTypes.SurfaceType.CARPET) -> Node3D:
+static func add_glb(parent: Node, scene_path: String, pos: Vector3 = Vector3.ZERO, scale: float = 1.0, surface: int = GameTypes.SurfaceType.CARPET, with_collision: bool = true) -> Node3D:
 	if not ResourceLoader.exists(scene_path):
 		return null
 	var packed: PackedScene = ResourceLoader.load(scene_path) as PackedScene
@@ -150,7 +150,8 @@ static func add_glb(parent: Node, scene_path: String, pos: Vector3 = Vector3.ZER
 	inst.position = pos
 	inst.scale = Vector3(scale, scale, scale)
 	parent.add_child(inst)
-	_add_trimesh_recursive(inst, surface)
+	if with_collision:
+		_add_trimesh_recursive(inst, surface)
 	return inst
 
 static func _add_trimesh_recursive(node: Node, surface: int) -> void:

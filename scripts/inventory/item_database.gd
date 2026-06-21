@@ -39,6 +39,7 @@ static func _define() -> void:
 	# --- Backrooms ---
 	_add("exit_sigil", "Exit Sigil", "A scrawled symbol on a torn page. Three of them mark the way out.", c.QUEST, {"stack": 3, "quest": true, "color": Color(0.9, 0.85, 0.3)})
 	_add("almond_water", "Almond Water", "A carton of off-tasting almond water. Steadies the mind.", c.MEDICAL, {"stack": 5, "consumable": true, "color": Color(0.85, 0.8, 0.6), "use": "You drink the almond water. The walls feel a little less wrong."})
+	_add("level_key", "Level Key", "A heavy industrial keycard stamped 'M.E.G.'. Three open the freight door.", c.QUEST, {"stack": 3, "quest": true, "color": Color(0.3, 0.7, 0.9)})
 
 static func _add(id: String, display_name: String, description: String, category: GameTypes.ItemCategory, opts: Dictionary = {}) -> void:
 	var item: ItemData = ItemData.new()

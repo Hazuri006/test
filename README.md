@@ -3,10 +3,15 @@
 A first‑person survival‑horror prototype built in **Godot 4.6.x**.
 
 **Default campaign — THE BACKROOMS.** You no‑clipped through a wall and fell out of
-reality into the endless yellow rooms: buzzing fluorescent lights, damp carpet, a
-hum that never stops, and an entity that **hunts you the moment you get close**.
-Filmed through an **old camcorder (VHS filter)**, find the three exit sigils and
-no‑clip back out. The whole environment is a real imported **GLB maze**.
+reality into the endless yellow rooms. Filmed through an **old camcorder (VHS
+filter)**, survive two levels, each with its own entity that **hunts you the moment
+you get close**:
+
+- **Level 0 — The Lobby:** the iconic mono‑yellow rooms (imported GLB maze). Find the
+  three exit sigils and drop deeper.
+- **Level 1 — Habitable Zone:** a dim industrial maze with the M.E.G.'s old outposts
+  (second imported GLB + a different rigged entity). Find three level keys and reach
+  the freight door.
 
 > A second, fuller campaign — *Saint Veyra Hospital* (Elias Morel, his missing
 > sister Lena, Doctor Voss's experiments and *The Hollow Attendant*, 5 quests + 3

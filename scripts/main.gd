@@ -119,8 +119,8 @@ func _run_monster_test() -> void:
 	GameManager.set_flag("power_on", true)
 	GameManager.set_flag("lockdown_cleared", true)
 	GameManager.set_flag("ritual_solved", true)
-	await GameManager.load_level("lower", "start")
-	await get_tree().create_timer(2.0).timeout
+	await GameManager.load_level("backrooms_l1", "start")
+	await get_tree().create_timer(2.5).timeout
 	var monsters: Array[Node] = get_tree().get_nodes_in_group("monster")
 	if monsters.is_empty():
 		GameLog.info("MONSTER TEST: no monster spawned!")
