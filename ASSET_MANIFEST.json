@@ -68,6 +68,15 @@
       "license": "TODO - verify before distribution",
       "attribution_required": true,
       "local_path": "res://assets/environment/hospital_pack.glb"
+    },
+    {
+      "name": "Backrooms maze (Original Backrooms)",
+      "category": "environment",
+      "author": "TODO - verify on source page",
+      "source": "TODO - Sketchfab URL (user-supplied GLB)",
+      "license": "TODO - verify before distribution",
+      "attribution_required": true,
+      "local_path": "res://assets/environment/backrooms.glb"
     }
   ],
   "recommended_external": [

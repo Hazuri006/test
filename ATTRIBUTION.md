@@ -45,6 +45,13 @@ verify each model's page and licence before distributing.
 - Source:      _TODO — Sketchfab URL_
 - Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
 
+### Backrooms maze
+- File:        `res://assets/environment/backrooms.glb`
+- Used as:     the entire Backrooms level environment (with generated collision)
+- Author:      _TODO — fill from the Sketchfab model page_
+- Source:      _TODO — Sketchfab URL_
+- Licence:     _TODO — verify; add attribution to Credits if CC‑BY_
+
 ## If you add external assets
 
 When you replace the procedural fallbacks with downloaded assets (see
