@@ -1,0 +1,14 @@
+# Godot 4 — imported asset cache (regenerated on import)
+.godot/
+
+# Build / export output
+/build/
+export_presets.cfg
+*.translation
+
+# Editor / OS noise
+.DS_Store
+*.tmp
+
+# Tooling
+__pycache__/
