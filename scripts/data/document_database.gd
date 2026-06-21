@@ -14,6 +14,12 @@ static func _ensure() -> void:
 	_load_overrides()
 
 static func _build() -> void:
+	# --- Backrooms ---
+	_add("doc_br_survival", "Survival Guide (water-stained)", "Someone before you", "—", "",
+		"IF YOU ARE READING THIS, YOU NOCLIPPED. Rules:\n\n1. Keep moving. The hum is normal. The buzzing lights are normal.\n2. Stay sane. Drink the almond water if you find it.\n3. You are NOT alone. If you get close to it, it WILL chase. Do not get close.\n4. There are sigils scrawled on the walls — three of them mark a way out. Collect them.\n5. The exit does not look like the rooms. It is dark. It is wrong. That is how you know it is the exit.\n\nGood luck. I never found mine.")
+	_add("doc_br_wanderer", "Torn Page", "M.", "—", "",
+		"day ?? — the wallpaper is the same in every direction and I have started to think it is breathing. I taped a sigil to my chest so I would not lose it again.\n\nday ?? — heard it tonight. close. you do not hear footsteps. you hear it stop breathing, and then yours is the only breath left.\n\nif you are reading this, take my sigils. get out. don't end up part of the wallpaper like the rest of us.")
+
 	_add("doc_intro_letter", "Folded Note", "Unknown", "Received 3 days ago", "",
 		"Elias —\n\nIf this reached you, then she did get a message out before the end. Saint Veyra was never a hospital. Not really.\n\nThe gate code is 1-9-8-6. Don't trust the lights. Don't trust the cameras.\n\nAnd whatever they tell you down there — do not let them open the lower ward.")
 

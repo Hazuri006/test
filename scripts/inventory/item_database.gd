@@ -36,6 +36,10 @@ static func _define() -> void:
 	_add("electrical_map", "Electrical Map", "A laminated schematic of the hospital's power grid.", c.DOCUMENT, {"quest": true, "color": Color(0.4, 0.6, 0.8), "use": "You study the electrical map.", "linked": "doc_electrical_map"})
 	_add("bolt_cutters", "Bolt Cutters", "Long-handled cutters. Strong enough for a rusted chain.", c.TOOL, {"quest": true, "color": Color(0.5, 0.2, 0.2)})
 
+	# --- Backrooms ---
+	_add("exit_sigil", "Exit Sigil", "A scrawled symbol on a torn page. Three of them mark the way out.", c.QUEST, {"stack": 3, "quest": true, "color": Color(0.9, 0.85, 0.3)})
+	_add("almond_water", "Almond Water", "A carton of off-tasting almond water. Steadies the mind.", c.MEDICAL, {"stack": 5, "consumable": true, "color": Color(0.85, 0.8, 0.6), "use": "You drink the almond water. The walls feel a little less wrong."})
+
 static func _add(id: String, display_name: String, description: String, category: GameTypes.ItemCategory, opts: Dictionary = {}) -> void:
 	var item: ItemData = ItemData.new()
 	item.id = id

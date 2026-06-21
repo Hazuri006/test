@@ -46,3 +46,6 @@ extends Resource
 @export var locker_check_chance: float = 0.5
 ## Base aggression multiplier; raised by quest progression at runtime.
 @export var base_aggression: float = 1.0
+## If > 0, the monster instantly chases when the player comes within this radius,
+## regardless of the vision cone ("it hunts you if you get close"). 0 = disabled.
+@export var proximity_aggro_range: float = 0.0

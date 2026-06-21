@@ -28,6 +28,13 @@ func _ready() -> void:
 
 func show_ending(ending: int) -> void:
 	var data: Dictionary = ENDINGS.get(ending, ENDINGS[GameTypes.Ending.RELEASE])
+	_present(str(data["title"]), str(data["body"]))
+
+## Presents an arbitrary ending (used by the Backrooms escape).
+func show_custom(title_text: String, body_text: String) -> void:
+	_present(title_text, body_text)
+
+func _present(title_text: String, body_text: String) -> void:
 	var margin: MarginContainer = MarginContainer.new()
 	UITheme.full_rect(margin)
 	margin.add_theme_constant_override("margin_left", 200)
@@ -40,7 +47,7 @@ func show_ending(ending: int) -> void:
 	vb.add_theme_constant_override("separation", 20)
 	margin.add_child(vb)
 
-	var title: Label = UITheme.title(str(data["title"]), 38)
+	var title: Label = UITheme.title(title_text, 38)
 	title.modulate.a = 0.0
 	vb.add_child(title)
 
@@ -50,7 +57,7 @@ func show_ending(ending: int) -> void:
 	body.add_theme_color_override("default_color", UITheme.TEXT)
 	body.add_theme_font_size_override("normal_font_size", 19)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.text = str(data["body"])
+	body.text = body_text
 	body.modulate.a = 0.0
 	vb.add_child(body)
 

@@ -1,12 +1,17 @@
 # THE LAST WARD
 
-A first‑person psychological survival‑horror prototype built in **Godot 4.6.x**.
+A first‑person survival‑horror prototype built in **Godot 4.6.x**.
 
-Elias Morel, an investigative journalist, follows his missing sister's last
-recording into the abandoned **Saint Veyra Hospital**. The entrance collapses
-behind him. Somewhere below, Doctor Voss's experiments made something out of the
-patients' fear — *The Hollow Attendant* — and it does not want the lower ward
-opened. Restore the power, decode the archive, descend, and decide how it ends.
+**Default campaign — THE BACKROOMS.** You no‑clipped through a wall and fell out of
+reality into the endless yellow rooms: buzzing fluorescent lights, damp carpet, a
+hum that never stops, and an entity that **hunts you the moment you get close**.
+Filmed through an **old camcorder (VHS filter)**, find the three exit sigils and
+no‑clip back out. The whole environment is a real imported **GLB maze**.
+
+> A second, fuller campaign — *Saint Veyra Hospital* (Elias Morel, his missing
+> sister Lena, Doctor Voss's experiments and *The Hollow Attendant*, 5 quests + 3
+> endings) — also ships in this build and is reachable from the debug console
+> (`tp exterior`). New Game drops you into the Backrooms.
 
 > This is a **playable prototype** with a complete vertical slice of every system
 > in the design brief. The monster is an animated **GLB model** (zombie HazMat) and

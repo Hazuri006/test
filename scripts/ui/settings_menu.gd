@@ -75,6 +75,7 @@ func _build_gameplay_tab() -> ScrollContainer:
 	_toggle(vb, "Subtitles", "gameplay", "subtitles")
 	_option(vb, "Subtitle Size", "gameplay", "subtitle_size", ["Small", "Normal", "Large"])
 	_toggle(vb, "Interaction Prompts", "gameplay", "interaction_prompts")
+	_toggle(vb, "Old-Camera (VHS) Filter", "gameplay", "vhs")
 	_toggle(vb, "Detection Indicator", "gameplay", "detection_indicator")
 	_toggle(vb, "Objective Hints", "gameplay", "objective_hints")
 	return s

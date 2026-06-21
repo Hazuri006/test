@@ -39,6 +39,8 @@ var state: int = GameTypes.MonsterState.DORMANT
 var _state_time: float = 0.0
 var detection: float = 0.0
 var aggression: float = 1.0
+## Instant-chase radius (0 = disabled). Initialised from config; settable per-spawn.
+var proximity_aggro_range: float = 0.0
 
 var _player: Player
 var _last_known_pos: Vector3 = Vector3.ZERO
@@ -63,6 +65,7 @@ func _ready() -> void:
 	_build_body()
 	_build_agent()
 	aggression = config.base_aggression * GameManager.difficulty_config.monster_aggression_mult
+	proximity_aggro_range = config.proximity_aggro_range
 	# Wake when the power comes on; some encounters force it directly.
 	if GameManager.get_flag_bool("power_on"):
 		_set_state(GameTypes.MonsterState.PATROL)
@@ -253,6 +256,14 @@ func _update_senses(delta: float) -> void:
 	else:
 		detection = maxf(0.0, detection - config.detection_decay_rate * delta)
 
+	# Proximity aggro: it hunts you the moment you get close, cone or not.
+	if proximity_aggro_range > 0.0 and not _player.is_hidden():
+		if global_position.distance_to(_player.global_position) <= proximity_aggro_range:
+			detection = maxf(detection, config.chase_threshold)
+			_last_known_pos = _player.global_position
+			_has_target = true
+			_chase_timer = 0.0
+
 	# Escalation based on the meter.
 	if detection >= config.chase_threshold and state != GameTypes.MonsterState.CHASE and state != GameTypes.MonsterState.ATTACK:
 		_set_state(GameTypes.MonsterState.CHASE)
@@ -363,8 +374,10 @@ func _state_patrol(delta: float) -> void:
 	var target: Vector3 = _current_patrol_point()
 	_set_nav_target(target)
 	_move_along_path(delta, config.patrol_speed)
-	if global_position.distance_to(target) < 1.4:
+	# Advance when reached, or when the point is unreachable (path finished short).
+	if global_position.distance_to(target) < 1.4 or (agent.is_navigation_finished() and _state_time > 1.0):
 		_patrol_index = (_patrol_index + 1) % patrol_points.size()
+		_state_time = 0.0
 	# Occasional ambient breath.
 	if _breath_player != null and not _breath_player.playing and randf() < 0.003:
 		_breath_player.play()
@@ -547,6 +560,9 @@ func wake() -> void:
 
 func set_aggression(value: float) -> void:
 	aggression = value
+
+func set_proximity_aggro(value: float) -> void:
+	proximity_aggro_range = value
 
 func stun(_duration: float = 3.0) -> void:
 	_set_state(GameTypes.MonsterState.STUNNED)

@@ -15,6 +15,15 @@ static func _ensure_initialised() -> void:
 	_build()
 
 static func _build() -> void:
+	# Backrooms escape (the default campaign after the no-clip).
+	_add("qb_escape", "Escape the Backrooms",
+		"You no-clipped through a wall and fell out of reality into the yellow rooms. The hum never stops. Something else is in here with you. Find a way out.",
+		[
+			["no_clip", "Get your bearings in the rooms", false],
+			["find_sigils", "Find the three exit sigils", false],
+			["reach_exit", "Reach the exit and no-clip back out", false],
+		], "")
+
 	_add("q1_enter", "Enter the Hospital",
 		"The storm sealed the road behind you. Find a way inside Saint Veyra before the night does.",
 		[

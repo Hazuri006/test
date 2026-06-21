@@ -32,6 +32,11 @@ func _ready() -> void:
 	_refresh_objective()
 
 func _build() -> void:
+	# Old-camera VHS post-process (drawn first so it sits behind the HUD text and
+	# processes the 3D view; HUD elements stay crisp on top).
+	var vhs_script: GDScript = load("res://scripts/ui/vhs_overlay.gd") as GDScript
+	add_child(vhs_script.new())
+
 	# Fear vignette (full screen, behind text).
 	_vignette = ColorRect.new()
 	UITheme.full_rect(_vignette)

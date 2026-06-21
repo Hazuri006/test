@@ -134,6 +134,42 @@ static func wall_run_x(parent: Node, z: float, x0: float, x1: float, floor_y: fl
 	if cursor < x1:
 		wall(parent, Vector3(cursor, floor_y, z), Vector3(x1, floor_y, z), height, 0.2, mat)
 
+# --- Imported GLB environments ----------------------------------------------
+
+## Instances a GLB scene and generates static trimesh collision for every mesh it
+## contains (so the player/monster collide and the navmesh bakes from it). Tags the
+## colliders with a surface type for footstep audio. Returns the instanced root or
+## null if the scene is missing.
+static func add_glb(parent: Node, scene_path: String, pos: Vector3 = Vector3.ZERO, scale: float = 1.0, surface: int = GameTypes.SurfaceType.CARPET) -> Node3D:
+	if not ResourceLoader.exists(scene_path):
+		return null
+	var packed: PackedScene = ResourceLoader.load(scene_path) as PackedScene
+	if packed == null:
+		return null
+	var inst: Node3D = packed.instantiate() as Node3D
+	inst.position = pos
+	inst.scale = Vector3(scale, scale, scale)
+	parent.add_child(inst)
+	_add_trimesh_recursive(inst, surface)
+	return inst
+
+static func _add_trimesh_recursive(node: Node, surface: int) -> void:
+	if node is MeshInstance3D:
+		var mi: MeshInstance3D = node as MeshInstance3D
+		if mi.mesh != null:
+			var shape: ConcavePolygonShape3D = mi.mesh.create_trimesh_shape()
+			if shape != null:
+				var body: StaticBody3D = StaticBody3D.new()
+				body.collision_layer = GameTypes.LAYER_WORLD
+				body.collision_mask = 0
+				body.set_meta("surface_type", surface)
+				var cs: CollisionShape3D = CollisionShape3D.new()
+				cs.shape = shape
+				body.add_child(cs)
+				mi.add_child(body)
+	for child: Node in node.get_children():
+		_add_trimesh_recursive(child, surface)
+
 # --- Lights ------------------------------------------------------------------
 
 static func omni(parent: Node, pos: Vector3, color: Color, energy: float, light_range: float, shadows: bool = false) -> OmniLight3D:

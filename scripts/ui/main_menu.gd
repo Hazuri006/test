@@ -33,7 +33,7 @@ func _ready() -> void:
 	center.add_child(_content)
 
 	_title = UITheme.title("THE LAST WARD")
-	var subtitle: Label = UITheme.label("Saint Veyra Hospital", 18, UITheme.TEXT_DIM)
+	var subtitle: Label = UITheme.label("no-clip · the backrooms", 18, UITheme.TEXT_DIM)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	var header: VBoxContainer = VBoxContainer.new()

@@ -17,6 +17,7 @@ signal monster_state_changed(state_name: String)
 
 const PLAYER_SCENE: String = "res://scenes/player/Player.tscn"
 const LEVEL_SCENES: Dictionary = {
+	"backrooms": "res://scenes/levels/Backrooms.tscn",
 	"exterior": "res://scenes/levels/HospitalExterior.tscn",
 	"interior": "res://scenes/levels/HospitalInterior.tscn",
 	"basement": "res://scenes/levels/HospitalBasement.tscn",
@@ -162,14 +163,14 @@ func new_game(difficulty: int) -> void:
 	QuestManager.reset()
 	EventManager.reset()
 	QuestManager.start_quest(QuestDatabase.first_quest_id())
-	checkpoint_level_id = "exterior"
+	checkpoint_level_id = "backrooms"
 	checkpoint_spawn_id = "start"
 	_close_menu()
-	await load_level("exterior", "start")
-	# The flashlight is found in the maintenance building (Quest 1). Story mode
-	# starts with a couple of spare batteries to soften the early game.
+	await load_level("backrooms", "start")
+	# You come through with your camcorder and a torch.
+	inventory.add_item("flashlight", 1)
 	if difficulty == GameTypes.Difficulty.STORY:
-		inventory.add_item("flashlight_battery", 2)
+		inventory.add_item("almond_water", 2)
 
 func _reset_run_state() -> void:
 	inventory.clear()
@@ -431,6 +432,15 @@ func resolve_ending(choice: String) -> void:
 		"contain": chosen_ending = GameTypes.Ending.CONTAINMENT
 		_: chosen_ending = GameTypes.Ending.RELEASE
 	trigger_ending(chosen_ending)
+
+## Shows an arbitrary ending screen (used by the Backrooms escape).
+func show_custom_ending(title: String, body: String) -> void:
+	_set_state(GameTypes.GameState.ENDING)
+	get_tree().paused = false
+	set_mouse_captured(false)
+	var menu: Control = _open_menu(UI_ENDING)
+	if menu != null and menu.has_method("show_custom"):
+		menu.call("show_custom", title, body)
 
 func trigger_ending(ending: int) -> void:
 	chosen_ending = ending

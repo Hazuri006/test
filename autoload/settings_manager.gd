@@ -28,6 +28,7 @@ var _defaults: Dictionary = {
 		"hold_to_sprint": true,
 		"hold_to_crouch": true,
 		"brightness": 1.0,
+		"vhs": true,
 	},
 	"controls": {
 		"mouse_sensitivity": 1.0,

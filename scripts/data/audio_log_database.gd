@@ -14,6 +14,10 @@ static func _ensure() -> void:
 	_load_overrides()
 
 static func _build() -> void:
+	# --- Backrooms ---
+	_add("log_br_intro", "Camcorder — Tape Start", "You", 14.0, "",
+		"[REC] Okay. Okay, it's recording. I — I fell through the wall. The actual wall, I leaned on it and I fell THROUGH. [breath] If anyone finds this tape: it's all yellow. Rooms and rooms and rooms, lights buzzing, and the carpet's wet. I'm going to keep filming. I'm going to find a way out. [static]")
+
 	_add("log_lena_intro", "Anonymous Recording", "Lena Morel", 14.0, "",
 		"[static] Eli, it's me. I know how this sounds. I'm inside Saint Veyra and I can't— [crackle] —they're going to do it again, the final extraction. If anyone finds this: do not let them open the lower ward. Please. Do not let them open it. [static]")
 
