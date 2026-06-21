@@ -1,0 +1,36 @@
+[gd_scene load_steps=4 format=3 uid="uid://c7mon0monster1"]
+
+[ext_resource type="Script" path="res://scripts/monster.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/monster.glb" id="2"]
+
+[sub_resource type="CapsuleShape3D" id="cap"]
+radius = 0.45
+height = 2.2
+
+[node name="Monster" type="CharacterBody3D"]
+collision_layer = 4
+collision_mask = 1
+script = ExtResource("1")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+shape = SubResource("cap")
+
+[node name="ModelRoot" type="Node3D" parent="."]
+
+[node name="Model" parent="ModelRoot" instance=ExtResource("2")]
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+path_desired_distance = 0.6
+target_desired_distance = 0.8
+radius = 0.5
+height = 2.0
+avoidance_enabled = false
+
+[node name="Glow" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
+light_color = Color(1, 0.36, 0.3, 1)
+light_energy = 0.8
+omni_range = 4.5
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]

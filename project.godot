@@ -1,0 +1,54 @@
+; Backrooms Escape Together — Godot 4.3 project
+; Co-op third-person horror set in the backrooms.
+
+config_version=5
+
+[application]
+
+config/name="Backrooms Escape Together"
+config/description="Co-op third-person horror. Escape the endless yellow rooms before the entity finds you."
+run/main_scene="res://scenes/MainMenu.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+Boot="*res://scripts/boot.gd"
+Net="*res://scripts/network_manager.gd"
+Game="*res://scripts/game_manager.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/mode="canvas_items"
+window/vsync/vsync_mode=1
+
+[physics]
+
+3d/default_gravity=18.0
+common/physics_ticks_per_second=60
+
+[navigation]
+
+3d/default_cell_size=0.18
+3d/default_cell_height=0.18
+3d/merge_rasterizer_cell_scale=0.001
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+textures/default_filters/anisotropic_filtering_level=4
+anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/use_taa=true
+lights_and_shadows/positional_shadow/atlas_size=4096
+environment/ssao/quality=3
+environment/ssil/quality=2
+environment/glow/upscale_mode=1
+
+[layer_names]
+
+3d_physics/layer_1="environment"
+3d_physics/layer_2="player"
+3d_physics/layer_3="monster"
+3d_physics/layer_4="interactable"
