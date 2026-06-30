@@ -6002,3 +6002,647 @@ SpellRegistry.Register({
         end
     })
 end)()
+------------------------------------------------------------
+-- RAINBOW DRAGON — invocation d'un dragon montable
+--
+-- DÉROULÉ :
+--  1. Le dragon (skeletal mesh "jjk::dragon") apparaît, statique.
+--  2. Le joueur joue l'animation "jjk::monterdragon" et monte dessus.
+--  3. Une fois assis (anim "jjk::assisdragon" en boucle), le joueur
+--     appuie sur sa touche avancer.
+--  4. Le dragon joue "jjk::flydragon_Anim", décolle puis monte en l'air.
+--  5. En vol, le joueur contrôle la direction du dragon avec sa caméra.
+--  6. Le dragon disparaît automatiquement au bout de 30 secondes.
+------------------------------------------------------------
+
+------------------------------------------------------------
+-- ÉTAT PARTAGÉ
+------------------------------------------------------------
+RAINBOW_DRAGON_STATE = RAINBOW_DRAGON_STATE or {}
+RAINBOW_DRAGON_AIM_STATE = RAINBOW_DRAGON_AIM_STATE or {}
+RAINBOW_DRAGON_AIM_REMOTE_REGISTERED = RAINBOW_DRAGON_AIM_REMOTE_REGISTERED or false
+RAINBOW_DRAGON_TAKEOFF_REMOTE_REGISTERED = RAINBOW_DRAGON_TAKEOFF_REMOTE_REGISTERED or false
+RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
+
+(function()
+    --------------------------------------------------------
+    -- ASSETS (tous dans le pack "jjk")
+    --------------------------------------------------------
+    local DRAGON_MESH        = "jjk::dragon"
+    local DRAGON_FLY_ANIM    = "jjk::flydragon_Anim"
+    local PLAYER_MOUNT_ANIM  = "jjk::monterdragon"
+    local PLAYER_SIT_ANIM    = "jjk::assisdragon"
+
+    --------------------------------------------------------
+    -- RÉGLAGES
+    --------------------------------------------------------
+    local FPS = 30
+
+    -- Durée de l'animation "monterdragon" avant que le joueur soit assis.
+    local MOUNT_FRAME = 40
+    local MOUNT_TIME_MS = math.floor((MOUNT_FRAME / FPS) * 1000)
+
+    -- Durée de vie totale du dragon une fois invoqué.
+    local DRAGON_LIFETIME_MS = 30000
+
+    -- Position d'apparition du dragon par rapport au joueur.
+    local DRAGON_SPAWN_FORWARD = 220
+    local DRAGON_SPAWN_HEIGHT  = 0
+
+    -- Placement du joueur sur le dos du dragon.
+    -- Socket du squelette du dragon où asseoir le joueur.
+    -- Si le socket n'existe pas, on retombe sur l'offset relatif ci-dessous.
+    local DRAGON_SEAT_SOCKET = "seat"
+    local DRAGON_SEAT_OFFSET = Vector(0, 0, 160)
+
+    -- Décollage : hauteur prise au moment du décollage.
+    local TAKEOFF_RISE_HEIGHT = 700
+    local TAKEOFF_RISE_TIME   = 1.6
+
+    -- Vol libre.
+    -- Plus le nombre est haut, plus le dragon va vite.
+    local FLY_SPEED = 1700
+    local FLY_UPDATE_MS = 15
+
+    -- Limite la montée / descente verticale (0 = pas de vertical, 1 = libre).
+    local FLY_VERTICAL_FACTOR = 0.85
+
+    --------------------------------------------------------
+    -- UTILS
+    --------------------------------------------------------
+    local function NormalizeVector(v)
+        if not v then return Vector(1, 0, 0) end
+
+        local len = math.sqrt((v.X * v.X) + (v.Y * v.Y) + (v.Z * v.Z))
+
+        if len <= 0.0001 then
+            return Vector(1, 0, 0)
+        end
+
+        return Vector(v.X / len, v.Y / len, v.Z / len)
+    end
+
+    local function RotationFromDirection(dir)
+        dir = NormalizeVector(dir)
+
+        local yaw = math.deg(math.atan(dir.Y, dir.X))
+        local flatLen = math.sqrt((dir.X * dir.X) + (dir.Y * dir.Y))
+        local pitch = math.deg(math.atan(dir.Z, flatLen))
+
+        return Rotator(pitch, yaw, 0)
+    end
+
+    local function SafeDestroy(entity)
+        if not entity then return end
+
+        pcall(function()
+            entity:Destroy()
+        end)
+    end
+
+    local function ClearIntervalSafe(interval)
+        if not interval then return end
+
+        pcall(function()
+            Timer.ClearInterval(interval)
+        end)
+    end
+
+    local function SafeGetLocation(entity)
+        local loc = nil
+
+        pcall(function()
+            loc = entity:GetLocation()
+        end)
+
+        return loc
+    end
+
+    local function SafeGetRotation(entity)
+        local rot = nil
+
+        pcall(function()
+            rot = entity:GetRotation()
+        end)
+
+        if not rot then
+            rot = Rotator(0, 0, 0)
+        end
+
+        return rot
+    end
+
+    local function SafeSetLocation(entity, loc)
+        if not entity or not loc then return end
+
+        pcall(function()
+            entity:SetLocation(loc)
+        end)
+    end
+
+    local function SafeSetRotation(entity, rot)
+        if not entity or not rot then return end
+
+        pcall(function()
+            entity:SetRotation(rot)
+        end)
+    end
+
+    local function SafeSetVelocity(entity, velocity)
+        if not entity then return end
+
+        pcall(function()
+            entity:SetVelocity(velocity or Vector(0, 0, 0))
+        end)
+    end
+
+    local function SafeSetGravity(entity, enabled)
+        if not entity then return end
+
+        pcall(function()
+            entity:SetGravityEnabled(enabled)
+        end)
+    end
+
+    local function SafeTranslateTo(entity, loc, time, exp)
+        if not entity or not loc then return end
+
+        pcall(function()
+            entity:TranslateTo(loc, time, exp or 0)
+        end)
+    end
+
+    local function SafePlayAnimation(entity, animRef, logName)
+        if not entity then return false end
+
+        local ok, err = pcall(function()
+            entity:PlayAnimation(animRef)
+        end)
+
+        if not ok then
+            Console.Log("Rainbow Dragon : erreur PlayAnimation " .. tostring(logName) .. " : " .. tostring(err))
+            return false
+        end
+
+        return true
+    end
+
+    --------------------------------------------------------
+    -- NETTOYAGE COMPLET D'UNE INVOCATION
+    --------------------------------------------------------
+    local function CleanupDragon(caster)
+        local state = RAINBOW_DRAGON_STATE[caster]
+        if not state then return end
+
+        -- Stoppe toutes les boucles
+        ClearIntervalSafe(state.flyInterval)
+        state.flyInterval = nil
+
+        ClearIntervalSafe(state.lifetimeTimer)
+        state.lifetimeTimer = nil
+
+        -- Détache et rétablit le joueur
+        if state.char then
+            pcall(function()
+                state.char:Detach()
+            end)
+
+            SafeSetGravity(state.char, true)
+            SafeSetVelocity(state.char, Vector(0, 0, 0))
+
+            pcall(function()
+                state.char:StopAnimation()
+            end)
+        end
+
+        -- Supprime le dragon
+        SafeDestroy(state.dragon)
+        state.dragon = nil
+
+        RAINBOW_DRAGON_AIM_STATE[caster] = nil
+        RAINBOW_DRAGON_STATE[caster] = nil
+
+        -- Prévient le client d'arrêter l'écoute de la touche / de la visée
+        pcall(function()
+            if Events and Events.CallRemote and caster then
+                Events.CallRemote("RainbowDragonStopControl", caster)
+            end
+        end)
+
+        Console.Log("Rainbow Dragon : invocation terminée et nettoyée")
+    end
+
+    --------------------------------------------------------
+    -- DERNIÈRE DIRECTION VISÉE PAR LE CLIENT
+    --------------------------------------------------------
+    local function GetLatestAim(caster, fallbackDir)
+        local saved = RAINBOW_DRAGON_AIM_STATE[caster]
+
+        if saved and saved.dir and saved.time then
+            if (os.clock() - saved.time) < 0.6 then
+                return NormalizeVector(saved.dir)
+            end
+        end
+
+        return NormalizeVector(fallbackDir or Vector(1, 0, 0))
+    end
+
+    --------------------------------------------------------
+    -- ASSOIT LE JOUEUR SUR LE DOS DU DRAGON
+    --------------------------------------------------------
+    local function SeatPlayerOnDragon(char, dragon)
+        if not char or not dragon then return end
+
+        local attached = false
+
+        local okAttach, errAttach = pcall(function()
+            attached = char:AttachTo(
+                dragon,
+                AttachmentRule.SnapToTarget,
+                DRAGON_SEAT_SOCKET,
+                -1,
+                false
+            )
+        end)
+
+        if not okAttach or not attached then
+            -- Pas de socket : on place le joueur manuellement au-dessus du dragon
+            Console.Log("Rainbow Dragon : socket " .. tostring(DRAGON_SEAT_SOCKET) ..
+                " absent, placement relatif : " .. tostring(errAttach))
+
+            local dragonLoc = SafeGetLocation(dragon)
+            local dragonRot = SafeGetRotation(dragon)
+
+            if dragonLoc then
+                SafeSetLocation(char, dragonLoc + DRAGON_SEAT_OFFSET)
+                SafeSetRotation(char, dragonRot)
+            end
+        else
+            pcall(function()
+                char:SetRelativeLocation(DRAGON_SEAT_OFFSET)
+                char:SetRelativeRotation(Rotator(0, 0, 0))
+            end)
+        end
+
+        -- Le joueur ne tombe plus tant qu'il est sur le dragon
+        SafeSetVelocity(char, Vector(0, 0, 0))
+        SafeSetGravity(char, false)
+
+        -- Animation assise en boucle
+        SafePlayAnimation(char, PLAYER_SIT_ANIM, "assisdragon")
+    end
+
+    --------------------------------------------------------
+    -- DÉCOLLAGE + VOL CONTRÔLÉ
+    --------------------------------------------------------
+    local function StartDragonFlight(caster)
+        local state = RAINBOW_DRAGON_STATE[caster]
+        if not state or not state.dragon then return end
+        if state.flying then return end
+
+        state.flying = true
+
+        local dragon = state.dragon
+
+        -- Lance l'animation de vol du dragon
+        SafePlayAnimation(dragon, DRAGON_FLY_ANIM, "flydragon_Anim")
+
+        Console.Log("Rainbow Dragon : décollage")
+
+        --------------------------------------------------------
+        -- MONTÉE INITIALE
+        --------------------------------------------------------
+        local dragonLoc = SafeGetLocation(dragon)
+        if not dragonLoc then return end
+
+        local riseLoc = dragonLoc + Vector(0, 0, TAKEOFF_RISE_HEIGHT)
+        SafeTranslateTo(dragon, riseLoc, TAKEOFF_RISE_TIME, 0)
+
+        --------------------------------------------------------
+        -- VOL LIBRE APRÈS LA MONTÉE
+        --------------------------------------------------------
+        Timer.SetTimeout(function()
+            local liveState = RAINBOW_DRAGON_STATE[caster]
+            if not liveState or not liveState.dragon then return end
+
+            local flyDragon = liveState.dragon
+
+            -- Direction de départ = orientation actuelle du dragon
+            local startRot = SafeGetRotation(flyDragon)
+            local fallbackDir = NormalizeVector(startRot:GetForwardVector())
+
+            liveState.flyInterval = Timer.SetInterval(function()
+                local s = RAINBOW_DRAGON_STATE[caster]
+                if not s or not s.dragon then return end
+
+                local currentLoc = SafeGetLocation(s.dragon)
+                if not currentLoc then return end
+
+                -- Direction visée par le joueur (caméra)
+                local aimDir = GetLatestAim(caster, fallbackDir)
+
+                -- On atténue la composante verticale pour un vol plus stable
+                local moveDir = NormalizeVector(Vector(
+                    aimDir.X,
+                    aimDir.Y,
+                    aimDir.Z * FLY_VERTICAL_FACTOR
+                ))
+
+                local stepDistance = FLY_SPEED * (FLY_UPDATE_MS / 1000)
+                local nextLoc = currentLoc + moveDir * stepDistance
+                local nextRot = RotationFromDirection(moveDir)
+
+                SafeSetLocation(s.dragon, nextLoc)
+                SafeSetRotation(s.dragon, nextRot)
+
+                -- Si le joueur n'est pas réellement attaché, on le maintient assis
+                if s.char and not s.attached then
+                    SafeSetLocation(s.char, nextLoc + DRAGON_SEAT_OFFSET)
+                    SafeSetRotation(s.char, nextRot)
+                    SafeSetVelocity(s.char, Vector(0, 0, 0))
+                end
+            end, FLY_UPDATE_MS)
+        end, math.floor(TAKEOFF_RISE_TIME * 1000))
+    end
+
+    --------------------------------------------------------
+    -- REMOTE : LE CLIENT ENVOIE SA DIRECTION DE CAMÉRA
+    --------------------------------------------------------
+    if not RAINBOW_DRAGON_AIM_REMOTE_REGISTERED and Events and Events.SubscribeRemote then
+        RAINBOW_DRAGON_AIM_REMOTE_REGISTERED = true
+
+        Events.SubscribeRemote("RainbowDragonUpdateAim", function(player, x, y, z)
+            if not player then return end
+            if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return end
+
+            RAINBOW_DRAGON_AIM_STATE[player] = {
+                dir = NormalizeVector(Vector(x, y, z)),
+                time = os.clock()
+            }
+        end)
+    end
+
+    --------------------------------------------------------
+    -- REMOTE : LE CLIENT A APPUYÉ SUR « AVANCER »
+    --------------------------------------------------------
+    if not RAINBOW_DRAGON_TAKEOFF_REMOTE_REGISTERED and Events and Events.SubscribeRemote then
+        RAINBOW_DRAGON_TAKEOFF_REMOTE_REGISTERED = true
+
+        Events.SubscribeRemote("RainbowDragonTakeOff", function(player)
+            if not player then return end
+
+            local state = RAINBOW_DRAGON_STATE[player]
+            if not state then return end
+            if not state.mounted then return end
+
+            StartDragonFlight(player)
+        end)
+    end
+
+    --------------------------------------------------------
+    -- CÔTÉ CLIENT : ÉCOUTE DE LA TOUCHE AVANCER + ENVOI DE LA VISÉE
+    --------------------------------------------------------
+    if not RAINBOW_DRAGON_CLIENT_REGISTERED and Events and Events.SubscribeRemote then
+        RAINBOW_DRAGON_CLIENT_REGISTERED = true
+
+        -- Le serveur prévient le client quand le joueur est assis et prêt
+        Events.SubscribeRemote("RainbowDragonReady", function()
+            if not Client or not Client.GetLocalPlayer then return end
+
+            local localPlayer = nil
+            pcall(function()
+                localPlayer = Client.GetLocalPlayer()
+            end)
+
+            if not localPlayer then return end
+
+            local takeoffSent = false
+
+            ----------------------------------------------------
+            -- Envoi continu de la direction de caméra (visée du vol)
+            ----------------------------------------------------
+            local aimInterval = nil
+
+            aimInterval = Timer.SetInterval(function()
+                local camRot = nil
+                pcall(function()
+                    camRot = localPlayer:GetCameraRotation()
+                end)
+
+                if not camRot then return end
+
+                local forward = NormalizeVector(camRot:GetForwardVector())
+
+                pcall(function()
+                    Events.CallRemote(
+                        "RainbowDragonUpdateAim",
+                        forward.X,
+                        forward.Y,
+                        forward.Z
+                    )
+                end)
+            end, 30)
+
+            ----------------------------------------------------
+            -- Détection de la touche avancer
+            -- AZERTY = "Z", QWERTY = "W", flèche = "Up"
+            ----------------------------------------------------
+            local forwardKeys = { "Z", "W", "Up" }
+
+            local function IsForwardPressed()
+                if not Input or not Input.IsKeyDown then return false end
+
+                for _, key in ipairs(forwardKeys) do
+                    local down = false
+                    pcall(function()
+                        down = Input.IsKeyDown(key)
+                    end)
+                    if down then return true end
+                end
+
+                return false
+            end
+
+            local inputInterval = nil
+
+            inputInterval = Timer.SetInterval(function()
+                if takeoffSent then return end
+
+                if IsForwardPressed() then
+                    takeoffSent = true
+
+                    pcall(function()
+                        Events.CallRemote("RainbowDragonTakeOff")
+                    end)
+
+                    Console.Log("Rainbow Dragon : touche avancer détectée, décollage demandé")
+                end
+            end, 30)
+
+            ----------------------------------------------------
+            -- Le serveur demande l'arrêt du contrôle (fin du sort)
+            ----------------------------------------------------
+            Events.SubscribeRemote("RainbowDragonStopControl", function()
+                if aimInterval then
+                    pcall(function()
+                        Timer.ClearInterval(aimInterval)
+                    end)
+                    aimInterval = nil
+                end
+
+                if inputInterval then
+                    pcall(function()
+                        Timer.ClearInterval(inputInterval)
+                    end)
+                    inputInterval = nil
+                end
+            end)
+        end)
+    end
+
+    --------------------------------------------------------
+    -- ENREGISTREMENT DU SORT
+    --------------------------------------------------------
+    SpellRegistry.Register({
+        id       = "rainbow_dragon",
+        name     = "Rainbow Dragon",
+        desc     = "Invoque un dragon arc-en-ciel montable que le joueur pilote dans les airs pendant 30 secondes.",
+        clan     = "gojo",
+        category = "Clan",
+        type     = "buff",
+
+        damage   = 0,
+        cost     = 60,
+        cooldown = 30,
+        rang     = "A",
+        range    = 0,
+        iconUrl  = "https://i.imgur.com/fYhbRv8.jpeg",
+
+        ----------------------------------------------------
+        -- ClientCast : direction de caméra de départ
+        ----------------------------------------------------
+        ClientCast = function(self, char, player, _)
+            if not player then return nil end
+
+            local rot = nil
+            pcall(function()
+                rot = player:GetCameraRotation()
+            end)
+
+            if not rot then return nil end
+
+            local forward = NormalizeVector(rot:GetForwardVector())
+
+            return {
+                dirX = forward.X,
+                dirY = forward.Y,
+                dirZ = forward.Z
+            }
+        end,
+
+        ----------------------------------------------------
+        -- Cast serveur
+        ----------------------------------------------------
+        Cast = function(sp, caster, data)
+            local char = GetValidChar(caster)
+            if not char then return end
+
+            -- Empêche d'invoquer deux dragons en même temps
+            if RAINBOW_DRAGON_STATE[caster] then
+                Console.Log("Rainbow Dragon : un dragon est déjà actif pour ce joueur")
+                return
+            end
+
+            local loc = SafeGetLocation(char)
+            local rot = SafeGetRotation(char)
+
+            if not loc then return end
+
+            local forward = NormalizeVector(rot:GetForwardVector())
+
+            ------------------------------------------------
+            -- DIRECTION DE DÉPART (caméra si dispo)
+            ------------------------------------------------
+            if data and data.dirX and data.dirY and data.dirZ then
+                forward = NormalizeVector(Vector(data.dirX, data.dirY, data.dirZ))
+            end
+
+            ------------------------------------------------
+            -- 1) APPARITION DU DRAGON (STATIQUE)
+            ------------------------------------------------
+            local spawnLoc = loc
+                + forward * DRAGON_SPAWN_FORWARD
+                + Vector(0, 0, DRAGON_SPAWN_HEIGHT)
+
+            local spawnRot = RotationFromDirection(Vector(forward.X, forward.Y, 0))
+
+            local dragon = nil
+
+            local okDragon, errDragon = pcall(function()
+                dragon = Character(
+                    spawnLoc,
+                    spawnRot,
+                    DRAGON_MESH
+                )
+            end)
+
+            if not okDragon or not dragon then
+                Console.Log("Rainbow Dragon : erreur spawn dragon : " .. tostring(errDragon))
+                return
+            end
+
+            -- Le dragon reste immobile tant qu'il n'a pas décollé
+            SafeSetGravity(dragon, false)
+            SafeSetVelocity(dragon, Vector(0, 0, 0))
+
+            Console.Log("Rainbow Dragon : dragon invoqué (statique)")
+
+            ------------------------------------------------
+            -- MÉMORISE L'ÉTAT
+            ------------------------------------------------
+            RAINBOW_DRAGON_STATE[caster] = {
+                dragon       = dragon,
+                char         = char,
+                mounted      = false,
+                flying       = false,
+                attached     = false,
+                flyInterval  = nil,
+                lifetimeTimer = nil
+            }
+
+            ------------------------------------------------
+            -- 2) ANIMATION : LE JOUEUR MONTE SUR LE DRAGON
+            ------------------------------------------------
+            SafePlayAnimation(char, PLAYER_MOUNT_ANIM, "monterdragon")
+
+            ------------------------------------------------
+            -- 3) FIN DE LA MONTÉE : LE JOUEUR S'ASSOIT
+            ------------------------------------------------
+            Timer.SetTimeout(function()
+                local state = RAINBOW_DRAGON_STATE[caster]
+                if not state or not state.dragon then return end
+
+                SeatPlayerOnDragon(char, state.dragon)
+
+                state.mounted = true
+                state.attached = true
+
+                Console.Log("Rainbow Dragon : joueur assis sur le dragon, prêt à décoller")
+
+                -- Prévient le client : il peut maintenant piloter
+                pcall(function()
+                    if Events and Events.CallRemote and caster then
+                        Events.CallRemote("RainbowDragonReady", caster)
+                    end
+                end)
+            end, MOUNT_TIME_MS)
+
+            ------------------------------------------------
+            -- 4) DISPARITION AUTOMATIQUE APRÈS 30 SECONDES
+            ------------------------------------------------
+            RAINBOW_DRAGON_STATE[caster].lifetimeTimer = Timer.SetTimeout(function()
+                CleanupDragon(caster)
+            end, DRAGON_LIFETIME_MS)
+        end,
+    })
+end)()
