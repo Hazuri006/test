@@ -6010,7 +6010,8 @@ end)()
 --  2. Le joueur joue l'animation "jjk::monterdragon" et monte dessus.
 --  3. Une fois assis (anim "jjk::assisdragon" en boucle), le joueur
 --     appuie sur sa touche avancer.
---  4. Le dragon joue "jjk::flydragon_Anim", décolle puis monte en l'air.
+--  4. Le dragon décolle puis monte en l'air en portant le joueur
+--     (pas d'animation de vol jouée sur le dragon).
 --  5. En vol, le joueur contrôle la direction du dragon avec sa caméra.
 --  6. Le dragon disparaît automatiquement au bout de 30 secondes.
 ------------------------------------------------------------
@@ -6029,7 +6030,6 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
     -- ASSETS (tous dans le pack "jjk")
     --------------------------------------------------------
     local DRAGON_MESH        = "jjk::dragon"
-    local DRAGON_FLY_ANIM    = "jjk::flydragon_Anim"
     local PLAYER_MOUNT_ANIM  = "jjk::monterdragon"
     local PLAYER_SIT_ANIM    = "jjk::assisdragon"
 
@@ -6364,8 +6364,8 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
 
         local dragon = state.dragon
 
-        -- Lance l'animation de vol du dragon
-        SafePlayAnimation(dragon, DRAGON_FLY_ANIM, "flydragon_Anim")
+        -- Pas d'animation de vol : le dragon (skeletal mesh) se déplace
+        -- simplement dans les airs en portant le joueur.
 
         Console.Log("Rainbow Dragon : décollage")
 
