@@ -6045,15 +6045,32 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
     -- Durée de vie totale du dragon une fois invoqué.
     local DRAGON_LIFETIME_MS = 30000
 
-    -- Position d'apparition du dragon par rapport au joueur.
-    local DRAGON_SPAWN_FORWARD = 220
-    local DRAGON_SPAWN_HEIGHT  = 0
+    -- Apparition du dragon : toujours juste À CÔTÉ du joueur et AU SOL,
+    -- peu importe l'endroit où le sort est lancé.
+    -- Distance latérale (sur le côté du joueur) en unités.
+    local DRAGON_SPAWN_SIDE = 220
+
+    -- Hauteur approximative entre le centre du joueur et ses pieds.
+    -- Sert de repli si le trace de sol échoue.
+    local CASTER_HALF_HEIGHT = 90
+
+    -- Distance du trace vers le bas pour trouver le sol exact.
+    local GROUND_TRACE_DOWN = 100000
 
     -- Placement du joueur sur le dos du dragon.
-    -- Socket du squelette du dragon où asseoir le joueur.
-    -- Si le socket n'existe pas, on retombe sur l'offset relatif ci-dessous.
-    local DRAGON_SEAT_SOCKET = "seat"
-    local DRAGON_SEAT_OFFSET = Vector(0, 0, 160)
+    -- Le joueur est attaché au BONE 139 du squelette du dragon.
+    local DRAGON_SEAT_BONE = 139
+
+    -- Offset relatif une fois attaché au bone (0 = collé pile sur le bone).
+    local DRAGON_SEAT_OFFSET = Vector(0, 0, 0)
+
+    -- Repli utilisé uniquement si l'attache au bone échoue.
+    local DRAGON_SEAT_FALLBACK_OFFSET = Vector(0, 0, 160)
+
+    -- Caméra : recul une fois le joueur monté sur le dragon.
+    local MOUNTED_CAMERA_DISTANCE = 900
+    -- Valeur remise à la fin du sort (3e personne par défaut).
+    local DEFAULT_CAMERA_DISTANCE = 300
 
     -- Décollage : hauteur prise au moment du décollage.
     local TAKEOFF_RISE_HEIGHT = 700
@@ -6090,6 +6107,48 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
         local pitch = math.deg(math.atan(dir.Z, flatLen))
 
         return Rotator(pitch, yaw, 0)
+    end
+
+    --------------------------------------------------------
+    -- TROUVE LE SOL SOUS UN POINT
+    -- Trace vers le bas pour poser le dragon au sol partout.
+    -- Repli sur "pieds du joueur" si le trace échoue.
+    --------------------------------------------------------
+    local function GetGroundLocation(fromLoc, fallbackZ)
+        if not fromLoc then return nil end
+
+        local groundPt = nil
+
+        pcall(function()
+            if Trace and Trace.LineSingle then
+                local collisionCh =
+                    CollisionChannel.WorldStatic
+                    | CollisionChannel.WorldDynamic
+                    | CollisionChannel.PhysicsBody
+
+                local traceMode = (TraceMode and TraceMode.TraceComplex) or 0
+
+                local startPt = fromLoc + Vector(0, 0, 200)
+                local endPt   = startPt + Vector(0, 0, -GROUND_TRACE_DOWN)
+
+                local tr = Trace.LineSingle(startPt, endPt, collisionCh, traceMode, {})
+
+                if tr and tr.Success then
+                    groundPt = tr.Location or tr.ImpactPoint
+                end
+            end
+        end)
+
+        if groundPt then
+            return Vector(fromLoc.X, fromLoc.Y, groundPt.Z)
+        end
+
+        -- Repli : niveau des pieds du joueur
+        if fallbackZ then
+            return Vector(fromLoc.X, fromLoc.Y, fallbackZ)
+        end
+
+        return fromLoc
     end
 
     local function SafeDestroy(entity)
@@ -6255,26 +6314,27 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
 
         local attached = false
 
+        -- Attache le joueur au BONE 139 du squelette du dragon
         local okAttach, errAttach = pcall(function()
             attached = char:AttachTo(
                 dragon,
                 AttachmentRule.SnapToTarget,
-                DRAGON_SEAT_SOCKET,
+                DRAGON_SEAT_BONE,
                 -1,
                 false
             )
         end)
 
         if not okAttach or not attached then
-            -- Pas de socket : on place le joueur manuellement au-dessus du dragon
-            Console.Log("Rainbow Dragon : socket " .. tostring(DRAGON_SEAT_SOCKET) ..
-                " absent, placement relatif : " .. tostring(errAttach))
+            -- Le bone est introuvable : on place le joueur manuellement au-dessus du dragon
+            Console.Log("Rainbow Dragon : bone " .. tostring(DRAGON_SEAT_BONE) ..
+                " introuvable, placement relatif : " .. tostring(errAttach))
 
             local dragonLoc = SafeGetLocation(dragon)
             local dragonRot = SafeGetRotation(dragon)
 
             if dragonLoc then
-                SafeSetLocation(char, dragonLoc + DRAGON_SEAT_OFFSET)
+                SafeSetLocation(char, dragonLoc + DRAGON_SEAT_FALLBACK_OFFSET)
                 SafeSetRotation(char, dragonRot)
             end
         else
@@ -6357,7 +6417,7 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
 
                 -- Si le joueur n'est pas réellement attaché, on le maintient assis
                 if s.char and not s.attached then
-                    SafeSetLocation(s.char, nextLoc + DRAGON_SEAT_OFFSET)
+                    SafeSetLocation(s.char, nextLoc + DRAGON_SEAT_FALLBACK_OFFSET)
                     SafeSetRotation(s.char, nextRot)
                     SafeSetVelocity(s.char, Vector(0, 0, 0))
                 end
@@ -6417,6 +6477,17 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
             if not localPlayer then return end
 
             local takeoffSent = false
+
+            ----------------------------------------------------
+            -- CAMÉRA QUI RECULE DÈS QUE LE JOUEUR EST MONTÉ
+            ----------------------------------------------------
+            pcall(function()
+                localPlayer:SetCameraArmLength(MOUNTED_CAMERA_DISTANCE)
+            end)
+
+            pcall(function()
+                localPlayer:SetCameraDistance(MOUNTED_CAMERA_DISTANCE)
+            end)
 
             ----------------------------------------------------
             -- Envoi continu de la direction de caméra (visée du vol)
@@ -6496,6 +6567,17 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
                     end)
                     inputInterval = nil
                 end
+
+                ------------------------------------------------
+                -- Remet la caméra à sa distance normale
+                ------------------------------------------------
+                pcall(function()
+                    localPlayer:SetCameraArmLength(DEFAULT_CAMERA_DISTANCE)
+                end)
+
+                pcall(function()
+                    localPlayer:SetCameraDistance(DEFAULT_CAMERA_DISTANCE)
+                end)
             end)
         end)
     end
@@ -6568,12 +6650,20 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
             end
 
             ------------------------------------------------
-            -- 1) APPARITION DU DRAGON (STATIQUE)
+            -- 1) APPARITION DU DRAGON
+            -- Toujours juste À CÔTÉ du joueur et AU SOL,
+            -- peu importe l'endroit où le sort est lancé.
             ------------------------------------------------
-            local spawnLoc = loc
-                + forward * DRAGON_SPAWN_FORWARD
-                + Vector(0, 0, DRAGON_SPAWN_HEIGHT)
+            -- Vecteur "côté droit" du joueur (perpendiculaire à sa direction)
+            local rightDir = NormalizeVector(Vector(forward.Y, -forward.X, 0))
 
+            -- Point à côté du joueur, puis on cherche le sol exact en dessous.
+            local sideLoc = loc + rightDir * DRAGON_SPAWN_SIDE
+            local footZ = loc.Z - CASTER_HALF_HEIGHT
+
+            local spawnLoc = GetGroundLocation(sideLoc, footZ)
+
+            -- Le dragon regarde dans la même direction que le joueur
             local spawnRot = RotationFromDirection(Vector(forward.X, forward.Y, 0))
 
             local dragon = nil
