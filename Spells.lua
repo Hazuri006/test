@@ -6479,6 +6479,26 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
             local takeoffSent = false
 
             ----------------------------------------------------
+            -- MÉMORISE LES RÉGLAGES CAMÉRA D'ORIGINE
+            -- pour pouvoir les remettre EXACTEMENT à la fin.
+            ----------------------------------------------------
+            local originalArmLength = nil
+            local originalDistance = nil
+            local originalFOV = nil
+
+            pcall(function()
+                originalArmLength = localPlayer:GetCameraArmLength()
+            end)
+
+            pcall(function()
+                originalDistance = localPlayer:GetCameraDistance()
+            end)
+
+            pcall(function()
+                originalFOV = localPlayer:GetCameraFOV()
+            end)
+
+            ----------------------------------------------------
             -- CAMÉRA QUI RECULE DÈS QUE LE JOUEUR EST MONTÉ
             ----------------------------------------------------
             pcall(function()
@@ -6569,15 +6589,21 @@ RAINBOW_DRAGON_CLIENT_REGISTERED = RAINBOW_DRAGON_CLIENT_REGISTERED or false
                 end
 
                 ------------------------------------------------
-                -- Remet la caméra à sa distance normale
+                -- REMET LA CAMÉRA EXACTEMENT COMME AVANT LE SORT
                 ------------------------------------------------
                 pcall(function()
-                    localPlayer:SetCameraArmLength(DEFAULT_CAMERA_DISTANCE)
+                    localPlayer:SetCameraArmLength(originalArmLength or DEFAULT_CAMERA_DISTANCE)
                 end)
 
                 pcall(function()
-                    localPlayer:SetCameraDistance(DEFAULT_CAMERA_DISTANCE)
+                    localPlayer:SetCameraDistance(originalDistance or DEFAULT_CAMERA_DISTANCE)
                 end)
+
+                if originalFOV then
+                    pcall(function()
+                        localPlayer:SetCameraFOV(originalFOV)
+                    end)
+                end
             end)
         end)
     end
