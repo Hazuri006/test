@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/star_system.gd" id="2_system"]
+[ext_resource type="Script" path="res://scripts/ship.gd" id="3_ship"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="SystemRoot" type="Node3D" parent="."]
+script = ExtResource("2_system")
+
+[node name="Ship" type="Node3D" parent="."]
+script = ExtResource("3_ship")
+
+[node name="Camera3D" type="Camera3D" parent="Ship"]
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("4_hud")
