@@ -1,0 +1,8 @@
+{
+  "_comment": "Association rôle Discord → rôle local. Remplacez les IDs par ceux de votre serveur. Voir docs/PERMISSIONS.md.",
+  "mappings": [
+    { "discordRoleId": "000000000000000001", "localRole": "SUPPORT" },
+    { "discordRoleId": "000000000000000002", "localRole": "MODERATOR" },
+    { "discordRoleId": "000000000000000003", "localRole": "ADMIN" }
+  ]
+}
