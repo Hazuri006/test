@@ -13,7 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PresenceService } from '../realtime/presence.service';
 import { SettingsService, type AppSettings } from '../settings/settings.service';
 import { DiscordSyncService } from '../discord-sync/discord-sync.service';
-import { decodeCursor, encodeCursor, highestRole, toUserSummary, userSummarySelect } from '../common/mappers';
+import { decodeCursor, encodeCursor, toUserSummary, userSummarySelect } from '../common/mappers';
 import { sanitizePlainText } from '../common/sanitize';
 import type { AuthUser } from '../common/decorators';
 import type {
