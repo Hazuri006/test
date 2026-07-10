@@ -3,6 +3,12 @@
  * Les comptes fictifs ne sont créés qu'en développement (ou si SEED_DEMO=true).
  * Les rôles et permissions sont TOUJOURS créés (nécessaires en production).
  */
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+// .env racine du monorepo (DATABASE_URL…), puis .env local éventuel
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config();
+
 import { PrismaClient } from '@prisma/client';
 import {
   ALL_PERMISSIONS,

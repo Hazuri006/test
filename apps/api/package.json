@@ -10,8 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy",
+    "prisma:migrate": "node scripts/prisma-env.js migrate dev",
+    "prisma:deploy": "node scripts/prisma-env.js migrate deploy",
     "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "prisma": {

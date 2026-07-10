@@ -11,7 +11,8 @@ test.describe('Page de connexion', () => {
 
   test("affiche un message d'erreur quand Discord refuse la connexion", async ({ page }) => {
     await page.goto('/login?error=discord_denied');
-    await expect(page.getByRole('alert')).toContainText(/discord/i);
+    // Le toaster expose aussi un role=alert : on cible celui du message OAuth
+    await expect(page.getByRole('alert').filter({ hasText: /discord/i })).toBeVisible();
   });
 
   test('ne déborde pas horizontalement sur mobile', async ({ page }) => {

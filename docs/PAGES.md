@@ -1,6 +1,8 @@
 # Pages du panel
 
-Captures impossibles dans ce dépôt : descriptions ci-dessous. Toutes les pages sont responsives (sidebar → tiroir, colonne « En ligne » → panneau coulissant sur mobile) et respectent `prefers-reduced-motion`.
+![Dashboard](screenshots/dashboard.png)
+
+Descriptions ci-dessous. Toutes les pages sont responsives (sidebar → tiroir, colonne « En ligne » → panneau coulissant sur mobile) et respectent `prefers-reduced-motion`.
 
 | Route | Description |
 | --- | --- |

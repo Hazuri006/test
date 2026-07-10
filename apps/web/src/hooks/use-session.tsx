@@ -31,7 +31,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     queryKey: ['session'],
     queryFn: async () => {
       try {
-        return await api<SessionUser>('/auth/me');
+        return await api<SessionUser>('/auth/me', { redirectOn401: false });
       } catch {
         return null;
       }

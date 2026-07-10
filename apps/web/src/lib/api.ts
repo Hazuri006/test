@@ -15,7 +15,11 @@ interface ApiOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
+  /** Désactive la redirection automatique vers /login sur 401 (sondes de session). */
+  redirectOn401?: boolean;
 }
+
+const PUBLIC_PATH_PREFIXES = ['/login', '/legal'];
 
 /** Client API : cookies de session inclus, erreurs normalisées. */
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -27,7 +31,12 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     signal: options.signal,
   });
 
-  if (res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+  if (
+    res.status === 401 &&
+    options.redirectOn401 !== false &&
+    typeof window !== 'undefined' &&
+    !PUBLIC_PATH_PREFIXES.some((prefix) => window.location.pathname.startsWith(prefix))
+  ) {
     window.location.href = '/login?error=session_expired';
   }
 
