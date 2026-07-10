@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yurei
+      POSTGRES_PASSWORD: yurei
+      POSTGRES_DB: yurei
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yurei"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      DATABASE_URL: postgresql://yurei:yurei@postgres:5432/yurei?schema=public
+      REDIS_URL: redis://redis:6379
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:4000}
+      APP_NAME: ${APP_NAME:-Yurei Project}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET requis}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY requis}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?DISCORD_CLIENT_ID requis}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?DISCORD_CLIENT_SECRET requis}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost:4000/api/auth/discord/callback}
+      DISCORD_REQUEST_EMAIL: ${DISCORD_REQUEST_EMAIL:-false}
+      DISCORD_ROLE_SYNC_ENABLED: ${DISCORD_ROLE_SYNC_ENABLED:-false}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_TICKET_WEBHOOK_URL: ${DISCORD_TICKET_WEBHOOK_URL:-}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      UPLOAD_DIR: /data/uploads
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-10}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      GAME_SERVER_ADAPTER: ${GAME_SERVER_ADAPTER:-demo}
+      GAME_SERVER_STATUS_URL: ${GAME_SERVER_STATUS_URL:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Yurei Project}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  pg_data:
+  redis_data:
+  uploads:

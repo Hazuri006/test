@@ -1,0 +1,32 @@
+{
+  "name": "yurei-panel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yurei Project — panel communautaire (Next.js + NestJS + Prisma + Redis)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run build:shared && npm run prisma:generate",
+    "build:shared": "npm run build -w @yurei/shared",
+    "prisma:generate": "npm run prisma:generate -w @yurei/api",
+    "prisma:migrate": "npm run prisma:migrate -w @yurei/api",
+    "prisma:deploy": "npm run prisma:deploy -w @yurei/api",
+    "seed": "npm run seed -w @yurei/api",
+    "dev": "npm run build:shared && concurrently -n api,web -c blue,magenta \"npm run dev -w @yurei/api\" \"npm run dev -w @yurei/web\"",
+    "dev:services": "docker compose -f docker-compose.dev.yml up -d",
+    "build": "npm run build:shared && npm run build -w @yurei/api && npm run build -w @yurei/web",
+    "start": "concurrently -n api,web -c blue,magenta \"npm run start -w @yurei/api\" \"npm run start -w @yurei/web\"",
+    "lint": "npm run lint -w @yurei/api && npm run lint -w @yurei/web",
+    "typecheck": "npm run typecheck -w @yurei/shared && npm run typecheck -w @yurei/api && npm run typecheck -w @yurei/web",
+    "test": "npm run test -w @yurei/api",
+    "test:e2e": "npm run test:e2e -w @yurei/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

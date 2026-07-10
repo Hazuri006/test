@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Uploads (local storage in dev)
+apps/api/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
