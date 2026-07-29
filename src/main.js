@@ -15,6 +15,7 @@ import { AudioEngine } from './audio/audio.js';
 import { HUD } from './ui/hud.js';
 import { Menus } from './ui/menus.js';
 import { Match } from './game/match.js';
+import { DIFFICULTIES, DEFAULT_DIFFICULTY } from './game/ai.js';
 import { clamp, damp, lerp, TAU, disposeObject } from './core/utils.js';
 
 const _v = new THREE.Vector3();
@@ -83,7 +84,13 @@ class App {
 
     this.audio = new AudioEngine();
     this.input = new Input();
+    this.input.attachCanvas(this.canvas);
     this.hud = new HUD(this.uiRoot);
+    this.input.onMouseLookChange = (on) => {
+      this.hud.setMouseLook(on);
+      this.audio.uiMove();
+      if (!on) this.match?.cameras[0].recenter();
+    };
     this.menus = new Menus(this.uiRoot, this.audio);
     this.menus.onAction = (a, v) => this.onMenuAction(a, v);
 
@@ -124,7 +131,7 @@ class App {
     this.selIndex = 0;
     this.picks = [0, 1];
     this.stageIndex = 0;
-    this.difficulty = 1;
+    this.difficulty = DEFAULT_DIFFICULTY;
     this.mode = 'vs-cpu';
     this.transitionT = 0;
 
@@ -192,6 +199,12 @@ class App {
 
   setState(s) {
     this.state = s;
+    // mouse attacks and mouse-look only exist while a match is running
+    const playing = s === 'battle';
+    this.input.mouseGameplay = playing;
+    document.body.classList.toggle('playing', playing);
+    if (!playing) this.input.releaseMouseLook();
+
     switch (s) {
       case 'title':
         this.menus.show('title-screen');
@@ -270,7 +283,7 @@ class App {
         this.startBattle();
         break;
       case 'diff-cycle':
-        this.difficulty = (this.difficulty + 1) % 4;
+        this.difficulty = (this.difficulty + 1) % DIFFICULTIES.length;
         a.uiMove();
         this.menus.updateStage(this.stageIndex, this.difficulty, this.mode !== 'vs-local');
         break;
@@ -402,8 +415,8 @@ class App {
       let i = this.stageIndex;
       if (m.up) i = (i - cols + n) % n;
       if (m.down) i = (i + cols) % n;
-      if (m.left) { this.difficulty = (this.difficulty + 3) % 4; a.uiMove(); }
-      if (m.right) { this.difficulty = (this.difficulty + 1) % 4; a.uiMove(); }
+      if (m.left) { this.difficulty = (this.difficulty + DIFFICULTIES.length - 1) % DIFFICULTIES.length; a.uiMove(); }
+      if (m.right) { this.difficulty = (this.difficulty + 1) % DIFFICULTIES.length; a.uiMove(); }
       if (i !== this.stageIndex) { this.stageIndex = i; a.uiMove(); }
       this.menus.updateStage(this.stageIndex, this.difficulty, this.mode !== 'vs-local');
       if (m.confirm) { a.uiConfirm(); this.startBattle(); }

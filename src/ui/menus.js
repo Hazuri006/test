@@ -415,7 +415,9 @@ export class Menus {
   updateStage(index, diffIndex, showDiff = true) {
     this.stageEls.forEach((e, i) => e.classList.toggle('sel', i === index));
     this.diffEl.style.display = showDiff ? '' : 'none';
-    this.diffEl.innerHTML = `DIFFICULTÉ : ${DIFFICULTIES[diffIndex].name}<span class="sub">CLIQUEZ / ← → POUR CHANGER</span>`;
+    const d = DIFFICULTIES[diffIndex];
+    this.diffEl.innerHTML =
+      `DIFFICULTÉ : ${d.name}<span class="sub">${d.sub} — CLIQUEZ / ← → POUR CHANGER</span>`;
   }
 
   /* ---- controls ---- */
@@ -427,9 +429,10 @@ export class Menus {
       ['W A S D', 'Déplacement (verrouillé sur l\'adversaire)'],
       ['E / Q', 'Monter / descendre (vol)'],
       ['MAJ', 'Boost — Dragon Dash'],
-      ['J', 'Attaque enchaînée (spammez pour le combo)'],
-      ['K', 'Coup lourd (↑ = uppercut, ↓ = écrasement)'],
-      ['L', 'Boule de ki'],
+      ['CLIC G. / J', 'Attaque enchaînée (spammez pour le combo)'],
+      ['CLIC D. / L', 'Boule de ki'],
+      ['CLIC MIL. / K', 'Coup lourd (↑ = uppercut, ↓ = écrasement)'],
+      ['M', 'Caméra à la souris (curseur masqué)'],
       ['ESPACE', 'Garde'],
       ['MAJ (en dégât)', 'Téléportation — contre'],
       ['C', 'Charge de ki'],
@@ -437,7 +440,7 @@ export class Menus {
       ['U', 'Blast 1 — compétence'],
       ['I', 'Blast 2 — super'],
       ['O', 'ULTIME (en Sparking)'],
-      ['ÉCHAP', 'Pause'],
+      ['ÉCHAP', 'Pause / relâcher la souris'],
       ['Joueur 2', 'Flèches + pavé numérique 0-6'],
       ['Manettes', 'Deux manettes détectées automatiquement'],
     ];

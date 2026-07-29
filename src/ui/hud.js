@@ -86,6 +86,10 @@ export class HUD {
     this.mash.innerHTML = '<div class="k">J / □</div><div class="t">MARTELEZ !</div>';
     this.root.appendChild(this.mash);
 
+    this.mouseBadge = el('div', 'mouse-badge',
+      '<b>SOURIS</b> CAMÉRA ACTIVE — <b>M</b> POUR RELÂCHER');
+    this.root.appendChild(this.mouseBadge);
+
     this.moveBanner = el('div', 'announce');
     this.moveTxt = el('div', 'txt', '');
     this.moveTxt.style.fontSize = 'clamp(22px, 5vh, 76px)';
@@ -96,6 +100,8 @@ export class HUD {
   }
 
   show(v = true) { this.root.classList.toggle('hidden', !v); this.root.classList.toggle('on', v); }
+
+  setMouseLook(on) { this.mouseBadge.classList.toggle('on', !!on); }
 
   setFighters(a, b) {
     const cols = ['var(--p1)', 'var(--p2)'];

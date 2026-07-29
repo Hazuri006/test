@@ -33,9 +33,10 @@ npm run preview    # -> http://localhost:4173
 | `W A S D` | Déplacement (verrouillé sur l'adversaire) |
 | `E` / `Q` | Monter / descendre — vol libre |
 | `Maj` | Boost — *Dragon Dash* |
-| `J` | Attaque enchaînée — martelez pour le combo 5 coups |
-| `K` | Coup lourd (`↑` = uppercut lanceur, `↓` = écrasement au sol) |
-| `L` | Boule de ki |
+| **Clic gauche** ou `J` | Attaque enchaînée — martelez pour le combo 5 coups |
+| **Clic droit** ou `L` | Boule de ki |
+| **Clic molette** ou `K` | Coup lourd (`↑` = uppercut lanceur, `↓` = écrasement au sol) |
+| **`M`** | **Caméra à la souris** — capture le pointeur et masque le curseur |
 | `Espace` | Garde |
 | `Maj` *pendant un dégât* | Téléportation — contre (coûte du ki) |
 | `C` | Charge de ki |
@@ -43,7 +44,19 @@ npm run preview    # -> http://localhost:4173
 | `U` | Blast 1 — compétence signature |
 | `I` | Blast 2 — super |
 | `O` | **ULTIME** (uniquement en Sparking) |
-| `Échap` | Pause |
+| `Échap` | Pause / relâche le pointeur |
+
+### Caméra à la souris
+
+`M` capture le pointeur (le curseur disparaît) et la souris fait **orbiter la
+caméra** autour de ton personnage : horizontalement pour tourner, verticalement
+pour prendre de la hauteur ou plonger. Le verrouillage sur l'adversaire reste
+actif, donc les deux combattants restent cadrés — tu changes l'angle, pas la
+cible. Un bandeau en bas de l'écran rappelle que le mode est actif.
+
+`M` à nouveau (ou `Échap`) relâche le pointeur, et la caméra revient en douceur
+à son cadrage par défaut. Le curseur est masqué pendant tout le combat, même
+sans capture du pointeur.
 
 **Joueur 2** (écran partagé) : flèches directionnelles + pavé numérique
 `1`/`2`/`3` (rush / lourd / ki), `4`/`5`/`6` (blasts), `0` (garde), `.` (boost),
@@ -75,8 +88,23 @@ trois attaques nommées et son éveil :
 Sanctuaire Céleste (îles flottantes), Arène du Tournoi (foule, gradins),
 Cratère Ardent (lave, braises), Faille Temporelle (nébuleuse, barrière).
 
-**3 modes** : Combat Simple (contre le CPU, 4 niveaux de difficulté),
-Versus Local (écran partagé), Survie (adversaires en vagues).
+**3 modes** : Combat Simple (contre le CPU), Versus Local (écran partagé),
+Survie (adversaires en vagues).
+
+**5 niveaux de difficulté**, réglables sur l'écran de sélection d'arène :
+
+| Niveau | Comportement |
+| --- | --- |
+| **TRÈS FACILE** | Hésite très souvent, ne contre jamais, dégâts × 0,45 |
+| **FACILE** | Adversaire prudent, frappe peu, dégâts × 0,7 |
+| **NORMAL** | Combat équilibré, dégâts × 1 |
+| **DIFFICILE** | Enchaîne, garde et contre, dégâts × 1,15 |
+| **LÉGENDE** | Sans pitié, contres au réflexe, dégâts × 1,35 |
+
+Au-delà des poids de comportement (réactivité, agressivité, garde, fréquence des
+contres et des supers), chaque niveau applique un handicap sur les **dégâts** et
+la **génération de ki** du CPU, et une probabilité d'**hésitation** — c'est ce
+qui rend le bas de l'échelle réellement abordable et pas seulement plus lent.
 
 ## Systèmes de combat
 
@@ -130,8 +158,15 @@ npm run smoke            # dans un autre
 
 Le test lance le jeu dans Chromium, démarre un combat et vérifie le
 corps-à-corps, la charge de ki, la transformation, les rayons, l'ultime, les
-projectiles, le contre et l'écran partagé, en capturant une image à chaque étape
-dans `tests/shots/`. Variables : `URL`, `OUT`, `STAGE`, `CHROME`.
+projectiles, le contre, les **commandes souris** (clic gauche/droit, capture du
+pointeur avec `M`, orbite de la caméra), les **handicaps de difficulté** et
+l'écran partagé — en capturant une image à chaque étape dans `tests/shots/`.
+Variables : `URL`, `OUT`, `STAGE`, `CHROME`.
+
+Note : le jeu borne le pas de temps pour éviter que la physique ne traverse les
+collisions. Sur une machine incapable de tenir la cadence (rendu logiciel par
+exemple), le temps de jeu avance donc plus lentement que le temps réel — c'est
+pourquoi le test ne vérifie jamais un débit par seconde.
 
 ## Structure
 

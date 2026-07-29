@@ -10,6 +10,9 @@ export const ACTIONS = [
   'start', 'back',
 ];
 
+/** mouse-look toggle key — handled outside the action table */
+export const MOUSELOOK_KEY = 'KeyM';
+
 const KEYMAP_P1 = {
   KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right',
   KeyJ: 'rush', KeyK: 'smash', KeyL: 'kiblast',
@@ -17,6 +20,8 @@ const KEYMAP_P1 = {
   Space: 'guard', ShiftLeft: 'boost', KeyC: 'charge',
   KeyE: 'ascend', KeyQ: 'descend',
   Enter: 'start', Escape: 'back',
+  // mouse buttons ride the same edge queue as the keyboard
+  Mouse0: 'rush', Mouse2: 'kiblast', Mouse1: 'smash',
 };
 
 const KEYMAP_P2 = {
@@ -106,6 +111,8 @@ export class Input {
       this.keys.add(e.code);
       if (this.tapQueue.length < 32) this.tapQueue.push(e.code);
       this.anyKeyFlag = true;
+      // pointer lock has to be requested from inside the gesture
+      if (e.code === MOUSELOOK_KEY) this.toggleMouseLook();
       if (PREVENT.has(e.code)) e.preventDefault();
     };
     this._onUp = (e) => this.keys.delete(e.code);
@@ -113,6 +120,73 @@ export class Input {
     window.addEventListener('keydown', this._onDown, { passive: false });
     window.addEventListener('keyup', this._onUp);
     window.addEventListener('blur', this._blur);
+
+    /* ---------------- mouse ---------------- */
+    this.canvas = null;
+    this.mouseGameplay = false;   // true only while a match is running
+    this.mouseLook = false;       // pointer locked, mouse drives the camera
+    this.lookDX = 0; this.lookDY = 0;
+    this.sensitivity = 1;
+
+    this._onMouseDown = (e) => {
+      if (!this.mouseGameplay) return;
+      const code = `Mouse${e.button}`;
+      if (!KEYMAP_P1[code]) return;
+      e.preventDefault();
+      this.keys.add(code);
+      if (this.tapQueue.length < 32) this.tapQueue.push(code);
+    };
+    this._onMouseUp = (e) => this.keys.delete(`Mouse${e.button}`);
+    this._onMouseMove = (e) => {
+      if (!this.mouseLook) return;
+      this.lookDX += e.movementX || 0;
+      this.lookDY += e.movementY || 0;
+    };
+    this._onContext = (e) => { if (this.mouseGameplay) e.preventDefault(); };
+    this._onLockChange = () => {
+      this.mouseLook = !!this.canvas && document.pointerLockElement === this.canvas;
+      if (!this.mouseLook) { this.lookDX = 0; this.lookDY = 0; }
+      this.onMouseLookChange?.(this.mouseLook);
+    };
+
+    window.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mouseup', this._onMouseUp);
+    window.addEventListener('mousemove', this._onMouseMove);
+    window.addEventListener('contextmenu', this._onContext);
+    document.addEventListener('pointerlockchange', this._onLockChange);
+  }
+
+  attachCanvas(canvas) { this.canvas = canvas; }
+
+  /**
+   * Toggle mouse-look. Must run inside the key event that requested it:
+   * requestPointerLock needs the user-gesture context.
+   */
+  toggleMouseLook() {
+    if (!this.canvas || !this.mouseGameplay) return false;
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+      return false;
+    }
+    const req = this.canvas.requestPointerLock?.({ unadjustedMovement: true });
+    // Chrome returns a promise for the options form; ignore rejection and
+    // fall back to the plain call so older engines still lock.
+    if (req && typeof req.catch === 'function') {
+      req.catch(() => this.canvas.requestPointerLock());
+    }
+    return true;
+  }
+
+  releaseMouseLook() {
+    if (this.canvas && document.pointerLockElement === this.canvas) document.exitPointerLock();
+    this.mouseLook = false;
+  }
+
+  /** consume the accumulated look delta for this frame */
+  takeLook() {
+    const d = { x: this.lookDX * this.sensitivity, y: this.lookDY * this.sensitivity };
+    this.lookDX = 0; this.lookDY = 0;
+    return d;
   }
 
   /** menu-level helpers, merged across both pads/keyboards */
@@ -183,6 +257,11 @@ export class Input {
     window.removeEventListener('keydown', this._onDown);
     window.removeEventListener('keyup', this._onUp);
     window.removeEventListener('blur', this._blur);
+    window.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('mouseup', this._onMouseUp);
+    window.removeEventListener('mousemove', this._onMouseMove);
+    window.removeEventListener('contextmenu', this._onContext);
+    document.removeEventListener('pointerlockchange', this._onLockChange);
   }
 }
 

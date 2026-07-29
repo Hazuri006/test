@@ -99,6 +99,7 @@ export class Fighter {
 
     this.dead = false;
     this.locked = false;      // cinematic lock
+    this.dmgScale = 1;        // difficulty handicap, set by AIController
   }
 
   /* ---------------- helpers ---------------- */
@@ -599,7 +600,7 @@ export class Fighter {
     const facing = _v2.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const blocking = this.state === S.GUARD && facing.dot(fromDir) < -0.1;
 
-    let dmg = h.damage * this.defMul;
+    let dmg = h.damage * this.defMul * (h.from?.dmgScale ?? 1);
     const point = h.point ? _v3.copy(h.point) : this.center(_v3);
 
     if (blocking) {

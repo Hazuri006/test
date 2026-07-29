@@ -276,6 +276,11 @@ export class Match {
     this.updateBeams(gdt);
     this.updateStruggle(dt);
 
+    // mouse-look drives player 1's camera
+    const look = this.input.mouseLook ? this.input.takeLook() : null;
+    this.cameras[0].manual = !!this.input.mouseLook;
+    if (look && (look.x || look.y)) this.cameras[0].addLook(look.x, look.y);
+
     // cameras
     for (let i = 0; i < (this.split ? 2 : 1); i++) {
       this.cameras[i].update(dt, this.fighters[i], this.fighters[1 - i], this.fx);

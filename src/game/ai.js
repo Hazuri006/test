@@ -23,12 +23,40 @@ class FakeInput {
   }
 }
 
+/**
+ * Difficulty ladder. Beyond the behaviour weights, each level scales the
+ * damage the CPU deals (`dmg`) and how fast it builds ki (`ki`), so the
+ * easy end is actually forgiving instead of merely slower to react.
+ */
 export const DIFFICULTIES = [
-  { id: 0, name: 'DÉBUTANT', react: 0.55, aggro: 0.35, guard: 0.18, vanish: 0.02, combo: 0.35, blast: 0.25, think: [0.7, 1.3] },
-  { id: 1, name: 'GUERRIER', react: 0.36, aggro: 0.55, guard: 0.35, vanish: 0.12, combo: 0.6, blast: 0.45, think: [0.45, 0.9] },
-  { id: 2, name: 'ÉLITE', react: 0.22, aggro: 0.72, guard: 0.5, vanish: 0.3, combo: 0.8, blast: 0.6, think: [0.3, 0.6] },
-  { id: 3, name: 'LÉGENDE', react: 0.12, aggro: 0.86, guard: 0.66, vanish: 0.52, combo: 0.95, blast: 0.75, think: [0.18, 0.4] },
+  {
+    id: 0, name: 'TRÈS FACILE', sub: 'Idéal pour apprendre les commandes',
+    react: 0.8, aggro: 0.18, guard: 0.08, vanish: 0, combo: 0.12, blast: 0.1,
+    think: [1.0, 1.8], dmg: 0.45, ki: 0.5, idle: 0.45,
+  },
+  {
+    id: 1, name: 'FACILE', sub: 'Adversaire prudent, frappe peu',
+    react: 0.6, aggro: 0.34, guard: 0.18, vanish: 0.02, combo: 0.3, blast: 0.22,
+    think: [0.75, 1.4], dmg: 0.7, ki: 0.75, idle: 0.22,
+  },
+  {
+    id: 2, name: 'NORMAL', sub: 'Combat équilibré',
+    react: 0.36, aggro: 0.55, guard: 0.35, vanish: 0.12, combo: 0.6, blast: 0.45,
+    think: [0.45, 0.9], dmg: 1.0, ki: 1.0, idle: 0.06,
+  },
+  {
+    id: 3, name: 'DIFFICILE', sub: 'Enchaîne, garde et contre',
+    react: 0.22, aggro: 0.72, guard: 0.5, vanish: 0.3, combo: 0.8, blast: 0.6,
+    think: [0.3, 0.6], dmg: 1.15, ki: 1.25, idle: 0,
+  },
+  {
+    id: 4, name: 'LÉGENDE', sub: 'Sans pitié — contres au réflexe',
+    react: 0.12, aggro: 0.88, guard: 0.66, vanish: 0.55, combo: 0.95, blast: 0.78,
+    think: [0.18, 0.4], dmg: 1.35, ki: 1.5, idle: 0,
+  },
 ];
+
+export const DEFAULT_DIFFICULTY = 2;
 
 export class AIController {
   constructor(fighter, level = 1) {
@@ -43,7 +71,16 @@ export class AIController {
     this.strafeT = 0;
   }
 
-  setLevel(l) { this.d = DIFFICULTIES[clamp(l, 0, 3)]; this.level = l; }
+  setLevel(l) {
+    this.level = clamp(l, 0, DIFFICULTIES.length - 1);
+    this.d = DIFFICULTIES[this.level];
+    const f = this.f;
+    // outgoing damage handicap, read by Fighter.takeHit
+    f.dmgScale = this.d.dmg;
+    // ki economy handicap
+    if (f.baseKiRegen === undefined) f.baseKiRegen = f.tune.kiRegen;
+    f.tune.kiRegen = f.baseKiRegen * this.d.ki;
+  }
 
   update(dt) {
     const f = this.f, foe = f.foe;
@@ -52,6 +89,17 @@ export class AIController {
     inp.mvx = 0; inp.mvy = 0;
 
     if (f.dead || !foe || f.locked) { f.update(dt, inp); return; }
+
+    // hesitation window: on the easy levels the CPU regularly does nothing,
+    // which is what actually makes it beatable for a new player
+    if (this.d.idle > 0) {
+      this.idleT = (this.idleT ?? 0) - dt;
+      if (this.idleT <= 0) {
+        this.idleT = rand(0.35, 1.1);
+        this.idling = Math.random() < this.d.idle;
+      }
+      if (this.idling) { f.update(dt, inp); return; }
+    }
 
     this.planT -= dt;
     this.strafeT -= dt;

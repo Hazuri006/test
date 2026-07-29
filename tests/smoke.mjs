@@ -53,6 +53,24 @@ const check = (label, cond) => {
   if (!cond) errors.push(`ASSERT ${label}`);
 };
 
+/** clean slate: no live shots, both fighters upright and idle, CPU parked */
+const resetToIdle = () => page.evaluate(() => new Promise((r) => {
+  const a = window.__app, m = a.match;
+  m.clearShots();
+  m.hitstopT = 0; m.slowT = 0;
+  m.phase = 'fight'; m.phaseT = 3; m.timer = 90;
+  a.state = 'battle';
+  m.fighters[1].locked = true;
+  m.fighters.forEach((f, i) => {
+    f.hp = f.maxHp; f.dead = false; f.sparking = false; f.invuln = 0;
+    f.ki = 100; f.stopTrail();
+    f.setState('idle');
+    f.place(0, m.stage.groundY, i === 0 ? -4.8 : 4.8, i === 0 ? 0 : Math.PI);
+    f.anim.play('idle', { fade: 0, restart: true });
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => r(true)));
+}));
+
 /* ---- start a match ---- */
 await page.evaluate((stageIndex) => {
   const a = window.__app;
@@ -88,16 +106,21 @@ await shot('02-melee');
 
 /* ---- ki charge through the real input path ---- */
 await page.evaluate(() => {
-  const f = window.__app.match.fighters[0];
+  const m = window.__app.match, f = m.fighters[0];
   f.ki = 20;
   f.setState('idle');          // a rush-in is still "busy" and ignores charge
   f.stopTrail();
+  m.fighters[1].locked = true; // a CPU hit would break the charge mid-measure
 });
 await page.keyboard.down('KeyC');
-await page.waitForTimeout(1000);
-const charged = (await probe()).ki[0];
+await page.waitForTimeout(1200);
+const charging = await probe();
 await page.keyboard.up('KeyC');
-check(`holding charge refills ki (20 -> ${charged})`, charged > 25);
+await page.evaluate(() => { window.__app.match.fighters[1].locked = false; });
+// rate is deliberately not asserted: the loop clamps dt, so a slow renderer
+// advances game time slower than wall time and any ki/second figure is noise
+check(`holding charge enters the charge state and refills ki (20 -> ${charging.ki[0]})`,
+  charging.state[0] === 'charge' && charging.ki[0] > 20);
 await shot('03-charge');
 
 /* ---- sparking transformation ---- */
@@ -147,6 +170,85 @@ await page.evaluate(() => {
 await page.waitForTimeout(400);
 await shot('08-vanish');
 
+/* ---- mouse controls ----
+   the CPU is parked for this section: a hit landing mid-click would put the
+   player in hitstun and the click would be correctly ignored              */
+await resetToIdle();
+check('mouse gameplay armed during a match',
+  await page.evaluate(() => window.__app.input.mouseGameplay === true));
+check('cursor hidden during a match',
+  await page.evaluate(() => document.body.classList.contains('playing')));
+
+await resetToIdle();
+await page.mouse.move(640, 360);
+await page.mouse.down({ button: 'left' });
+const leftClick = await page.evaluate(() => new Promise((r) => {
+  let frames = 6;
+  const tick = () => {
+    const st = window.__app.match.fighters[0].state;
+    if (st === 'attack' || st === 'rushin' || --frames <= 0) r(st);
+    else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}));
+await page.mouse.up({ button: 'left' });
+check(`left click starts a rush (${leftClick})`, leftClick === 'attack' || leftClick === 'rushin');
+
+// count spawns rather than sample the live array: point-blank, a blast can be
+// created and connect inside a single frame step
+await resetToIdle();
+await page.evaluate(() => {
+  const m = window.__app.match;
+  m.__spawns = 0;
+  const orig = m.spawnProjectile.bind(m);
+  m.spawnProjectile = (o) => { m.__spawns++; return orig(o); };
+});
+await page.mouse.down({ button: 'right' });
+const rightClick = await page.evaluate(() => new Promise((r) => {
+  let frames = 30;
+  const tick = () => {
+    if (window.__app.match.__spawns > 0 || --frames <= 0) r(window.__app.match.__spawns);
+    else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}));
+await page.mouse.up({ button: 'right' });
+check('right click fires a ki blast', rightClick >= 1);
+
+await page.keyboard.press('KeyM');
+await page.waitForTimeout(350);
+check('M grabs the pointer',
+  await page.evaluate(() => document.pointerLockElement === document.getElementById('gl')));
+const cam = await page.evaluate(() => new Promise((r) => {
+  const a = window.__app;
+  a.input.lookDX = 400; a.input.lookDY = -60;
+  let frames = 40;
+  const tick = () => {
+    const c = a.match.cameras[0];
+    if (Math.abs(c.lookYaw) > 0.05 || --frames <= 0) {
+      r({ yaw: c.lookYaw, manual: c.manual, state: a.state });
+    } else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}));
+check(`mouse orbits the camera (yaw ${cam.yaw.toFixed(2)})`, Math.abs(cam.yaw) > 0.05 && cam.manual);
+await shot('09-mouselook');
+await page.keyboard.press('KeyM');
+await page.waitForTimeout(350);
+check('M releases the pointer', await page.evaluate(() => document.pointerLockElement === null));
+await page.evaluate(() => { window.__app.match.fighters[1].locked = false; });
+
+/* ---- difficulty handicaps ---- */
+const easy = await page.evaluate(() => {
+  const a = window.__app;
+  a.mode = 'vs-cpu'; a.stageIndex = 0; a.picks = [0, 1]; a.difficulty = 0;
+  a.startBattle();
+  const cpu = a.match.fighters[1];
+  return { dmg: cpu.dmgScale, ki: cpu.tune.kiRegen, base: cpu.baseKiRegen };
+});
+check(`easy CPU damage handicap (x${easy.dmg})`, easy.dmg < 1);
+check('easy CPU ki handicap', easy.ki < easy.base);
+
 /* ---- split-screen local versus ---- */
 await page.evaluate(() => {
   const a = window.__app;
@@ -157,7 +259,7 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(2000);
 check('split-screen uses two cameras', await page.evaluate(() => window.__app.match.split === true));
-await shot('09-split');
+await shot('10-split');
 
 console.log('\nfps:', await page.evaluate(() => document.getElementById('fps')?.textContent));
 console.log(errors.length ? `\nFAILURES:\n${errors.join('\n')}` : '\nAll checks passed, no console errors.');
