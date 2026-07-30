@@ -1,0 +1,49 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/player/player_animator.gd" id="2_anim"]
+[ext_resource type="Script" path="res://scripts/player/third_person_camera.gd" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/player/web_system.gd" id="4_web"]
+[ext_resource type="Script" path="res://scripts/player/player_combat.gd" id="5_combat"]
+[ext_resource type="Script" path="res://scripts/player/speed_fx.gd" id="6_fx"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.36
+height = 1.78
+
+[node name="Player" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 193
+floor_max_angle = 0.9
+floor_snap_length = 0.45
+slide_on_ceiling = false
+script = ExtResource("1_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.92, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Visual" type="Node3D" parent="."]
+script = ExtResource("2_anim")
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("3_cam")
+
+[node name="WebSystem" type="Node3D" parent="."]
+script = ExtResource("4_web")
+
+[node name="Combat" type="Node" parent="."]
+script = ExtResource("5_combat")
+
+[node name="SpeedFX" type="Node3D" parent="."]
+script = ExtResource("6_fx")
+
+[node name="WallProbe" type="RayCast3D" parent="."]
+position = Vector3(0, 1.05, 0)
+target_position = Vector3(0, 0, -0.85)
+collision_mask = 1
+
+[node name="GroundProbe" type="RayCast3D" parent="."]
+position = Vector3(0, 0.25, 0)
+target_position = Vector3(0, -1.1, 0)
+collision_mask = 193

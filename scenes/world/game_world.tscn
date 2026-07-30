@@ -1,0 +1,37 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/systems/world.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/systems/graphics_env.gd" id="2_env"]
+[ext_resource type="Script" path="res://scripts/systems/day_night_cycle.gd" id="3_sun"]
+[ext_resource type="Script" path="res://scripts/city/city_generator.gd" id="4_city"]
+[ext_resource type="Script" path="res://scripts/systems/world_streamer.gd" id="5_stream"]
+[ext_resource type="Script" path="res://scripts/missions/mission_director.gd" id="6_missions"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="7_hud"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="8_pause"]
+
+[node name="World" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+script = ExtResource("2_env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.7, 0.5, -0.5, 0, 0.7, 0.7, 0.7, -0.5, 0.5, 0, 60, 0)
+light_energy = 1.5
+shadow_enabled = true
+script = ExtResource("3_sun")
+
+[node name="City" type="Node3D" parent="."]
+script = ExtResource("4_city")
+
+[node name="Streamer" type="Node" parent="."]
+script = ExtResource("5_stream")
+
+[node name="Missions" type="Node" parent="."]
+script = ExtResource("6_missions")
+
+[node name="Actors" type="Node3D" parent="."]
+
+[node name="HUD" parent="." instance=ExtResource("7_hud")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("8_pause")]
