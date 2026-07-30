@@ -73,6 +73,10 @@ var _indicator: MeshInstance3D
 var _indicator_pulse: float = 0.0
 
 func _ready() -> void:
+	# Run AFTER PlayerAnimator (priority 50) so the strand is anchored to the
+	# hand's final pose for this frame. Reading it earlier meant the web hung a
+	# frame behind the hand -- half a metre of drift at swing speed.
+	process_priority = 60
 	_player = get_parent() as CharacterBody3D
 	_camera_rig = _player.get_node_or_null("CameraRig")
 	_animator = _player.get_node_or_null("Visual")
@@ -431,7 +435,10 @@ func _orient_strand(node: MeshInstance3D, from: Vector3, to: Vector3, thickness:
 		reference = Vector3.RIGHT
 	var x_axis: Vector3 = reference.cross(up).normalized()
 	var z_axis: Vector3 = x_axis.cross(up).normalized()
-	var basis := Basis(x_axis, up, z_axis).scaled(Vector3(thickness, length, thickness))
+	# Basis(x, y, z) takes COLUMNS, so scaling the axis vectors directly is what
+	# stretches the cylinder along the rope. Basis.scaled() would scale the rows
+	# (i.e. the world axes) and shear the strand off the hand.
+	var basis := Basis(x_axis * thickness, up * length, z_axis * thickness)
 	node.global_transform = Transform3D(basis, from + delta_v * 0.5)
 
 func tension() -> float:

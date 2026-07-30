@@ -133,6 +133,11 @@ func _run() -> void:
 		var peak_speed: float = 0.0
 		var max_stretch: float = 0.0
 		var swung_frames: int = 0
+		var worst_hand_gap: float = 0.0
+		var worst_anchor_gap: float = 0.0
+		var strand_seen: bool = false
+		var strand: MeshInstance3D = web.get_node_or_null("Strand")
+		var animator: Node3D = player.get_node_or_null("Visual")
 		for i in 90:
 			await get_tree().physics_frame
 			if int(player.get("state")) == 6:      # State.SWING
@@ -141,13 +146,55 @@ func _run() -> void:
 				var stretch: float = player.global_position.distance_to(web.get("attach_point")) \
 						- float(web.get("rope_length"))
 				max_stretch = maxf(max_stretch, stretch)
+				# The strand is a cylinder spanning hand -> anchor: check both ends
+				# every frame, which is exactly what "the web is stuck to the hand"
+				# means.
+				if strand != null and strand.visible:
+					strand_seen = true
+					var half: Vector3 = strand.global_transform.basis.y * 0.5
+					var hand: Node3D = animator.call("web_origin", true)
+					worst_hand_gap = maxf(worst_hand_gap,
+							(strand.global_position - half).distance_to(hand.global_position))
+					worst_anchor_gap = maxf(worst_anchor_gap,
+							(strand.global_position + half).distance_to(web.get("attach_point")))
 		_check("swing physics moves the hero", peak_speed > 5.0,
 				"peak %.1f m/s over %d frames" % [peak_speed, swung_frames])
 		_check("rope constraint holds", max_stretch < 3.0,
 				"max overshoot %.2f m" % max_stretch)
+
+		_check("strand is drawn while swinging", strand_seen)
+		_check("web strand stays on the hand", strand_seen and worst_hand_gap < 0.25,
+				"worst %.3f m" % worst_hand_gap)
+		_check("web strand stays on the anchor", strand_seen and worst_anchor_gap < 0.25,
+				"worst %.3f m" % worst_anchor_gap)
 		if bool(web.get("is_attached")):
 			web.call("release", true)
 		_check("web released cleanly", not bool(web.get("is_attached")))
+
+	# --- facing -------------------------------------------------------------
+	player.global_position = CityLayout.intersection_center(3, 3) + Vector3(0, 1.5, 0)
+	player.velocity = Vector3.ZERO
+	rig.call("set_look", 0.0, -10.0)
+	await _frames(20)
+	Input.action_press("move_forward")
+	await _frames(40)
+	var travel_dir: Vector3 = Vector3(player.velocity.x, 0.0, player.velocity.z).normalized()
+	var facing: Vector3 = -player.global_transform.basis.z
+	var facing_dot: float = facing.dot(travel_dir)
+	Input.action_release("move_forward")
+	_check("hero faces the way he runs", facing_dot > 0.85, "dot %.2f" % facing_dot)
+
+	# Strafing right must move the hero to the camera's right, not its left.
+	player.velocity = Vector3.ZERO
+	await _frames(12)
+	var before_strafe := player.global_position
+	Input.action_press("move_right")
+	await _frames(35)
+	Input.action_release("move_right")
+	var strafe: Vector3 = player.global_position - before_strafe
+	var camera_right: Vector3 = rig.call("get_flat_right")
+	var strafe_dot: float = strafe.normalized().dot(camera_right)
+	_check("strafe keys are not mirrored", strafe_dot > 0.8, "dot %.2f" % strafe_dot)
 
 	# --- zip line -----------------------------------------------------------
 	var zipped := false
@@ -188,6 +235,8 @@ func _run() -> void:
 		ObjectPool.release(hunter)
 
 	# --- web attack on an enemy --------------------------------------------
+	player.velocity = Vector3.ZERO
+	await _frames(30)          # let the turn lerp settle
 	var webbed := EnemyFactory.spawn("thug", player.global_position - player.global_transform.basis.z * 4.0)
 	if webbed != null:
 		await _frames(10)

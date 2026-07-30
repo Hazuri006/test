@@ -232,7 +232,9 @@ func get_flat_forward() -> Vector3:
 	return f.normalized() if f.length_squared() > 0.0001 else Vector3.FORWARD
 
 func get_flat_right() -> Vector3:
-	return get_flat_forward().cross(Vector3.DOWN).normalized()
+	# forward x UP = right in Godot's right-handed, Y-up space.
+	# (forward x DOWN gives the LEFT vector, which swapped the strafe keys.)
+	return get_flat_forward().cross(Vector3.UP).normalized()
 
 func aim_ray_origin() -> Vector3:
 	return camera.global_position

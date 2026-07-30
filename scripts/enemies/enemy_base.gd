@@ -445,12 +445,13 @@ func _animate(delta: float) -> void:
 	if arm_l != null:
 		arm_l.rotation.x = -swing * 0.6
 	if arm_r != null:
-		arm_r.rotation.x = swing * 0.6 - _attack_swing * 2.2
+		arm_r.rotation.x = swing * 0.6 + _attack_swing * 2.2
 	if chest != null:
 		chest.rotation.y = swing * 0.12
 		chest.rotation.x = clampf(speed * 0.02, 0.0, 0.2) + _attack_swing * 0.3
 	if hips != null:
-		hips.position.y = (0.86) + absf(sin(_anim_phase)) * 0.04 * clampf(speed / 6.0, 0.0, 1.0)
+		hips.position.y = EnemyRig.HIP_HEIGHT + absf(sin(_anim_phase)) * 0.04 \
+				* clampf(speed / 6.0, 0.0, 1.0)
 
 	if state == State.WEBBED:
 		# Struggling in the webbing.
@@ -507,3 +508,7 @@ func pool_acquired() -> void:
 func pool_released() -> void:
 	target = null
 	velocity = Vector3.ZERO
+	# Leave the gameplay groups: a parked enemy must be invisible to targeting,
+	# to the minimap and to squad counters. reset_enemy() re-adds it on reuse.
+	remove_from_group("enemies")
+	remove_from_group("defeated_enemies")

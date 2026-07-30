@@ -201,9 +201,25 @@ pooling. Le processus sort avec le code `0` si tout passe.
 === RESULT: 45 checks, 0 failure(s) ===
 ```
 
-`tests/screenshot.tscn` rend quelques captures (menu, ville, rue) via Xvfb, et
-`tests/probe.tscn` / `tests/diagnose.tscn` affichent l'etat interne (camera,
-blocs, AABB) pour le debogage.
+Captures via Xvfb : `tests/screenshot.tscn` (menu, ville, rue),
+`tests/character_shot.tscn` (les figurines de face / de trois quarts / de dos),
+`tests/swing_shot.tscn` (course et balancement en jeu). `tests/probe.tscn` et
+`tests/diagnose.tscn` affichent l'etat interne (camera, blocs, AABB) pour le
+debogage.
+
+## Conventions a respecter
+
+* **Orientation** : tout ce qui est construit par le code regarde vers **-Z**,
+  la direction "avant" de Godot. Un rig monte vers +Z court a reculons et inverse
+  tout son cycle de marche.
+* **Rotations d'animation** : sur un rig oriente -Z, une rotation X **positive**
+  envoie un membre vers l'avant.
+* **Mise a l'echelle d'une Basis** : `Basis.scaled()` met a l'echelle les
+  *lignes* (les axes du monde). Pour mettre a l'echelle les axes propres d'un
+  objet tourne, multiplier les colonnes :
+  `Basis(b.x * s.x, b.y * s.y, b.z * s.z)`.
+* **SpringArm3D** place ses enfants **directs** chaque frame : tout decalage
+  (secousse, recul) doit vivre un niveau plus bas.
 
 ## Reglages
 

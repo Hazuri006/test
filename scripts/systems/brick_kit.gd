@@ -309,7 +309,9 @@ func fill_multimesh(mmi: MultiMeshInstance3D, bricks: Array) -> void:
 		if b.has("rot"):
 			basis = Basis(Vector3.UP, float(b["rot"]))
 		var size: Vector3 = b["size"]
-		basis = basis.scaled(size)
+		# Scale the basis COLUMNS, i.e. the brick's own axes. Basis.scaled() scales
+		# the rows (the world axes) and would skew every rotated brick.
+		basis = Basis(basis.x * size.x, basis.y * size.y, basis.z * size.z)
 		var pos: Vector3 = b["pos"]
 		mm.set_instance_transform(i, Transform3D(basis, pos))
 		var tint: Color = b.get("tint", Color.WHITE)

@@ -15,7 +15,7 @@ extends Node3D
 
 @export var fade_in_speed: float = 17.0
 @export var full_speed: float = 46.0
-@export var max_intensity: float = 0.85
+@export var max_intensity: float = 0.55
 @export var particle_speed: float = 24.0
 @export var blur_smoothing: float = 5.0
 
