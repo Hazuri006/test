@@ -11,6 +11,11 @@ décors, textures, effets et musique sont tous générés par le code au lanceme
 > le langage visuel du genre (cel-shading, auras, kamehamehas, HUD, caméra), mais
 > avec un roster et des décors **originaux**. Aucun personnage, nom, musique ou
 > asset appartenant à Bandai Namco / Toei / Bird Studio n'est utilisé.
+>
+> Les modèles Dragon Ball qui circulent sur Sketchfab ou DeviantArt sont presque
+> toujours des extractions des jeux officiels, rediffusées sans licence : les
+> intégrer ici serait de la contrefaçon. Si tu veux remplacer les modèles
+> procéduraux, voir **Modèles externes** plus bas.
 
 ## Lancer le jeu
 
@@ -130,12 +135,25 @@ Tout est écrit à la main, sans bibliothèque de post-traitement :
   (lignes de vitesse), distorsion d'onde de choc, aberration chromatique,
   tone mapping filmique, étalonnage, vignette, grain — compatible écran partagé
 - **Ciels procéduraux** : dégradé, soleil, bancs de nuages animés, étoiles, nébuleuse
-- **Auras** : shader de flamme bruitée, rendue en faces arrière pour envelopper
-  la silhouette sans laver le personnage
+- **Auras de ki** : le maillage est un anneau de **pétales séparés**, pas un cône.
+  Chaque pétale porte son index en attribut et le vertex shader lui donne sa
+  propre hauteur de léchage et son propre balancement, si bien que la silhouette
+  ne se répète jamais. Le fragment shader l'effile en pointe et coupe l'alpha
+  net, pour des langues de flamme cel-shadées comme dans l'anime — et non un
+  nuage de bruit. Trois couches : cœur pâle en faces arrière collé au corps,
+  flamme principale en double face, et évasement court aux pieds. À pleine
+  puissance la flamme cesse de lécher et monte en colonne, avec des éclairs
+  qui claquent autour du corps.
 - **VFX** : impacts étoilés, anneaux de choc, explosions, débris, poussière,
   images rémanentes, traînées de coups, colonnes de transformation
-- **Personnages** procéduraux : squelette d'`Object3D`, corps en primitives,
-  visages dessinés sur canvas, 7 coiffures, 5 tenues, capes et queues animées
+- **Personnages** procéduraux : squelette d'`Object3D`, membres en profils
+  tournés (fuselés du haut vers le bas, pas des saucisses uniformes), boules
+  d'articulation aux coudes et aux genoux pour qu'aucun trou n'apparaisse à la
+  flexion, poings fermés avec pouce, col et nœud de ceinture du gi,
+  7 coiffures, 5 tenues, capes et queues animées
+- **Expressions faciales** : trois visages dessinés sur canvas par personnage
+  (neutre, cri, douleur), échangés dans le matériau de la tête selon l'état —
+  bouche ouverte à l'effort, yeux serrés quand il encaisse
 
 ## Audio
 
@@ -147,6 +165,30 @@ Tout est écrit à la main, sans bibliothèque de post-traitement :
 - **cris de combat** par synthèse à formants
 - **bande-son procédurale** : séquenceur en doubles-croches, une ambiance par
   arène (tempo, gamme, instrumentation), intensité pilotée par l'état du combat
+
+## Modèles externes
+
+Les combattants sont générés par le code, sans aucun fichier de modèle. Si tu
+veux des personnages plus détaillés, il faut des assets dont l'usage est
+**réellement autorisé**. Sources propres :
+
+| Source | Contenu | Licence |
+| --- | --- | --- |
+| [Mixamo](https://mixamo.com) (Adobe) | Personnages riggés + des milliers d'animations | Gratuit, usage commercial autorisé, compte Adobe requis |
+| [Quaternius](https://quaternius.com) | Packs de personnages low-poly riggés | CC0 (domaine public) |
+| [Kenney](https://kenney.nl) | Packs de personnages et props | CC0 |
+| [Poly Pizza](https://poly.pizza) | Modèles divers, licence indiquée par asset | CC0 / CC-BY selon l'asset |
+
+Sur Sketchfab, filtre sur *Downloadable* + licence **CC0 / CC-BY** et vérifie
+que l'auteur est bien le créateur du modèle. Sur DeviantArt, la quasi-totalité
+des modèles de jeux sont des rips : à éviter.
+
+Le chargement d'un modèle riggé externe n'est pas encore branché — ça demande un
+`GLTFLoader`, un `AnimationMixer` et une table de correspondance entre les états
+de combat (`idle`, `rush1`…`rush5`, `smash`, `guard`, `hitLight`, `blowAway`,
+`charge`, `beam`…) et les clips du fichier. Dépose un `.glb` que tu as le droit
+d'utiliser dans `public/models/` et cette table pourra être écrite pour lui : les
+noms des clips dépendent du fichier, donc il faut l'avoir sous la main.
 
 ## Tests
 

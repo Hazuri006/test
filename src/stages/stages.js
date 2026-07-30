@@ -226,11 +226,11 @@ export function buildStage(id, scene) {
         mesas.push({
           p: [Math.cos(a) * r, rand(-4, 0), Math.sin(a) * r],
           r: [0, rand(0, TAU), 0],
-          s: [rand(14, 34), rand(18, 62), rand(14, 34)],
+          s: [rand(12, 28), rand(14, 44), rand(12, 28)],
           c: 0x6b5a5c,
         });
       }
-      g.add(instanced(new THREE.CylinderGeometry(1, 1.25, 1, 7, 1), toonMat(0xffffff), mesas));
+      g.add(instanced(new THREE.CylinderGeometry(0.62, 1.2, 1, 6, 1), toonMat(0xffffff), mesas));
 
       // small stones scattered on the field
       const pebbles = [];

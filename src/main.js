@@ -49,11 +49,8 @@ class Preview {
     this.anim.update(dt);
     const off = this.anim.apply();
     this.rig.inner.position.set(off.x, off.y, off.z);
-    const u = this.rig.auraMat.uniforms;
-    u.uTime.value += dt;
-    u.uPower.value = 0.42;
-    u.uOpacity.value = 0.6;
-    this.rig.aura.visible = true;
+    this.rig.aura.update(dt, 0.5);
+    this.rig.crackle.update(dt, 0);
     for (const k in this.rig.materials) {
       const m = this.rig.materials[k];
       if (m.uniforms?.uEnergy) m.uniforms.uEnergy.value = 0.14;

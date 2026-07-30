@@ -366,8 +366,8 @@ export class Fighter {
     }
     this.world.ui?.announceMove(this.index, t.name, true);
     this.world.audio.transform(this.spec.voice);
-    this.world.fx.pillar(this.pos, this.energyColor.getHex(), 26, 1.1);
-    this.world.fx.explosion(this.center(_v3), this.energyColor.getHex(), 4.5, { shake: 1.4 });
+    this.world.fx.pillar(this.pos, this.energyColor.getHex(), 22, 1.0);
+    this.world.fx.explosion(this.center(_v3), this.energyColor.getHex(), 3.0, { shake: 1.4 });
   }
 
   exitSparking() {
@@ -936,18 +936,21 @@ export class Fighter {
       : this.state === S.BOOST || this.state === S.RUSHIN ? 0.65
       : this.ki > 92 ? 0.4 : 0;
     this.auraPower = damp(this.auraPower, target, 8, dt);
-    const showAura = this.auraPower > 0.04;
-    this.rig.aura.visible = showAura;
-    if (showAura) {
-      const u = this.rig.auraMat.uniforms;
-      u.uTime.value += dt;
-      u.uPower.value = this.auraPower;
-      u.uOpacity.value = clamp(this.auraPower, 0, 1);
-      this.rig.aura.scale.setScalar(0.9 + this.auraPower * 0.35);
-      if (Math.random() < this.auraPower * 0.7) {
-        w.fx.boostTrail(this.pos, this.energyColor.getHex(), 1);
-      }
+    this.rig.aura.update(dt, this.auraPower);
+    // lightning only snaps around a fighter at high power
+    this.rig.crackle.update(dt, this.sparking ? 1.3 : this.auraPower > 0.85 ? 0.6 : 0,
+      1.85 * (this.spec.scale ?? 1), 0.62 * (this.spec.scale ?? 1));
+    if (this.auraPower > 0.04 && Math.random() < this.auraPower * 0.7) {
+      w.fx.boostTrail(this.pos, this.energyColor.getHex(), 1);
     }
+
+    // facial expression follows the state — the cheapest life we can add
+    const st = this.state;
+    this.rig.setExpression(
+      this.faceFlash > 0.25 || st === S.HIT || st === S.BLOWN || st === S.DOWN ? 'hurt'
+      : st === S.ATTACK || st === S.CAST || st === S.CHARGE || st === S.TRANSFORM ||
+        st === S.RUSHIN || this.sparking ? 'shout'
+      : 'neutral');
 
     // material energy glow
     const energy = clamp(this.auraPower * 0.5 + (this.sparking ? 0.35 : 0), 0, 1);

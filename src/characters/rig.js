@@ -4,7 +4,9 @@
    parented to them, so posing == setting euler angles.
    ============================================================ */
 import * as THREE from 'three';
-import { createToonMaterial, createOutlineMaterial, createAuraMaterial } from '../graphics/materials.js';
+import { createToonMaterial, createOutlineMaterial } from '../graphics/materials.js';
+import { Aura, Crackle } from '../vfx/aura.js';
+import { sprites } from '../graphics/textures.js';
 import { TAU, rand } from '../core/utils.js';
 
 /* ---------------- face texture ---------------- */
@@ -25,10 +27,30 @@ export function faceTexture(opts = {}) {
   const eyeDx = W * 0.052;
   const eye = opts.eyeColor ?? '#2a3550';
   const brow = opts.browColor ?? '#1a1410';
-  const angry = opts.angry ?? 0.35;
+  const expr = opts.expr ?? 'neutral';
+  const angry = (opts.angry ?? 0.35) + (expr === 'shout' ? 0.5 : expr === 'hurt' ? 0.7 : 0);
   const lash = opts.lashes ?? false;
 
+  /** squeezed-shut eye, used for the hurt face */
+  const drawShutEye = (sx) => {
+    const x = cx + sx * eyeDx;
+    ctx.save();
+    ctx.translate(x, eyeY);
+    ctx.scale(sx, 1);
+    ctx.strokeStyle = brow;
+    ctx.lineWidth = 4.2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-15, -4);
+    ctx.quadraticCurveTo(0, 8, 16, -3);
+    ctx.stroke();
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(-16, -9); ctx.lineTo(-21, -14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(17, -8); ctx.lineTo(23, -13); ctx.stroke();
+    ctx.restore();
+  };
+
   const drawEye = (sx) => {
+    if (expr === 'hurt') return drawShutEye(sx);
     const x = cx + sx * eyeDx;
     ctx.save();
     ctx.translate(x, eyeY);
@@ -87,17 +109,34 @@ export function faceTexture(opts = {}) {
   ctx.beginPath();
   ctx.moveTo(cx + 3, eyeY + 16); ctx.lineTo(cx + 7, eyeY + 22);
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(70,30,30,.8)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  if (opts.smirk) {
-    ctx.moveTo(cx - 12, eyeY + 36);
-    ctx.quadraticCurveTo(cx, eyeY + 40, cx + 14, eyeY + 31);
+  if (expr === 'shout' || expr === 'hurt') {
+    // open mouth: the single biggest tell that a fighter is exerting
+    const w = expr === 'shout' ? 15 : 12;
+    const h = expr === 'shout' ? 15 : 10;
+    ctx.fillStyle = '#4a1418';
+    ctx.beginPath();
+    ctx.ellipse(cx, eyeY + 36, w, h, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#f0e0e0';
+    ctx.beginPath();
+    ctx.ellipse(cx, eyeY + 36 - h * 0.62, w * 0.78, h * 0.26, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(50,20,20,.9)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.ellipse(cx, eyeY + 36, w, h, 0, 0, TAU); ctx.stroke();
   } else {
-    ctx.moveTo(cx - 11, eyeY + 35);
-    ctx.quadraticCurveTo(cx, eyeY + 38, cx + 11, eyeY + 35);
+    ctx.strokeStyle = 'rgba(70,30,30,.8)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    if (opts.smirk) {
+      ctx.moveTo(cx - 12, eyeY + 36);
+      ctx.quadraticCurveTo(cx, eyeY + 40, cx + 14, eyeY + 31);
+    } else {
+      ctx.moveTo(cx - 11, eyeY + 35);
+      ctx.quadraticCurveTo(cx, eyeY + 38, cx + 11, eyeY + 35);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
 
   if (opts.scar) {
     ctx.strokeStyle = 'rgba(150,70,60,.75)'; ctx.lineWidth = 2.6;
@@ -134,6 +173,29 @@ function capsule(r, len, key) {
   return cachedGeo(`cap:${key}`, () => {
     const g = new THREE.CapsuleGeometry(r, len, 4, 14);
     g.translate(0, -len / 2 - r * 0.0, 0);
+    return g;
+  });
+}
+
+/**
+ * Tapered limb segment hanging from the joint: rTop at the joint, rBot at
+ * the far end, with rounded caps. Uniform capsules read as sausages.
+ */
+function limb(rTop, rBot, len, key) {
+  return cachedGeo(`limb:${key}:${rTop.toFixed(3)}:${rBot.toFixed(3)}:${len.toFixed(3)}`, () => {
+    const pts = [];
+    const N = 9;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const y = -t * len;
+      // ease the radius and round both ends
+      const base = rTop + (rBot - rTop) * (t * t * (3 - 2 * t));
+      const cap = Math.sin(Math.min(1, t * 6) * Math.PI / 2) *
+                  Math.sin(Math.min(1, (1 - t) * 6) * Math.PI / 2);
+      pts.push(new THREE.Vector2(Math.max(0.004, base * (0.8 + 0.2 * cap)), y));
+    }
+    const g = new THREE.LatheGeometry(pts, 14);
+    g.computeVertexNormals();
     return g;
   });
 }
@@ -179,10 +241,12 @@ function headGeometry() {
 
 /* ---------------- hair ---------------- */
 
-function spike(len, base, tip = 0.012) {
+function spike(len, base, tip = 0.014) {
   return cachedGeo(`spike:${len.toFixed(3)}:${base.toFixed(3)}`, () => {
-    const g = new THREE.CylinderGeometry(tip, base, len, 6, 1);
+    const g = new THREE.CylinderGeometry(tip, base * 1.22, len, 5, 1);
+    g.scale(1, 1, 0.82);      // slightly flattened clumps, not needles
     g.translate(0, len / 2, 0);
+    g.computeVertexNormals();
     return g;
   });
 }
@@ -317,7 +381,7 @@ function buildHair(style, mat, outlineMat, accentMat) {
 
 export function buildFighter(spec) {
   const P = spec.palette;
-  const outlineMat = createOutlineMaterial(P.outline ?? 0x0a0d16, spec.build === 'heavy' ? 1.25 : 1.05);
+  const outlineMat = createOutlineMaterial(P.outline ?? 0x0a0d16, spec.build === 'heavy' ? 0.62 : 0.55);
 
   const mk = (color, o = {}) => createToonMaterial({
     color, energyColor: P.aura, ...o,
@@ -389,10 +453,19 @@ export function buildFighter(spec) {
   if (outfit === 'gi') {
     // undershirt collar + open jacket panels
     addMesh(chest, new THREE.SphereGeometry(0.135, 16, 12, 0, TAU, 0, Math.PI * 0.5),
-      M.secondary, [0, 0.11, 0.012], [0, 0, 0], [1.05, 0.72, 0.78]);
-    // sash
-    addMesh(hips, new THREE.TorusGeometry(0.135, 0.036, 8, 20), M.accent, [0, 0.04, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72]);
-    addMesh(hips, new THREE.BoxGeometry(0.07, 0.26, 0.05), M.accent, [0.10, -0.05, 0.09], [0.1, 0, 0.18]);
+      M.secondary, [0, 0.11, 0.012], [0, 0, 0], [1.05, 0.72, 0.78], false);
+    // sash + knot with hanging tails
+    addMesh(hips, new THREE.TorusGeometry(0.135, 0.036, 8, 20), M.accent, [0, 0.04, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72], false);
+    addMesh(hips, new THREE.SphereGeometry(0.042, 10, 8), M.accent, [0.055, 0.04, 0.095], null, [1.3, 0.9, 0.8], false);
+    addMesh(hips, new THREE.BoxGeometry(0.055, 0.24, 0.028), M.accent, [0.085, -0.07, 0.095], [0.12, 0, 0.2], null, false);
+    addMesh(hips, new THREE.BoxGeometry(0.05, 0.19, 0.026), M.accent, [0.028, -0.06, 0.10], [0.08, 0, -0.12], null, false);
+    // gi collar / lapels
+    addMesh(chest, new THREE.TorusGeometry(0.085, 0.022, 8, 16, Math.PI * 1.25),
+      M.primary, [0, 0.235, 0.012], [Math.PI / 2 - 0.25, 0, -Math.PI * 0.62], [1, 1, 0.9], false);
+    for (const sd of [1, -1]) {
+      addMesh(chest, new THREE.BoxGeometry(0.045, 0.2, 0.022), M.primary,
+        [sd * 0.052, 0.12, 0.098], [0.06, sd * 0.1, sd * 0.22], null, false);
+    }
   } else if (outfit === 'armor') {
     const plate = torsoGeometry(build);
     addMesh(spine, plate, M.secondary, [0, 0.005, 0], null, 1.075);
@@ -401,14 +474,14 @@ export function buildFighter(spec) {
       addMesh(chest, new THREE.SphereGeometry(0.085, 14, 10),
         M.secondary, [s * (shoulderX + 0.01), 0.16, 0], null, [1.2, 0.85, 1.1]);
     }
-    addMesh(hips, new THREE.TorusGeometry(0.15, 0.03, 8, 18), M.accent, [0, 0.02, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72]);
+    addMesh(hips, new THREE.TorusGeometry(0.15, 0.03, 8, 18), M.accent, [0, 0.02, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72], false);
   } else if (outfit === 'battlesuit') {
-    addMesh(chest, new THREE.BoxGeometry(0.19, 0.14, 0.16), M.dark, [0, 0.10, 0.02], null, 1);
+    addMesh(chest, new THREE.BoxGeometry(0.19, 0.14, 0.16), M.dark, [0, 0.10, 0.02], null, 1, false);
     addMesh(chest, new THREE.SphereGeometry(0.032, 12, 10), M.glow, [0, 0.14, 0.10]);
     for (const s of [1, -1]) {
       addMesh(chest, new THREE.BoxGeometry(0.03, 0.10, 0.02), M.glow, [s * 0.08, 0.05, 0.115], null, 1, false);
     }
-    addMesh(hips, new THREE.TorusGeometry(0.15, 0.028, 8, 18), M.dark, [0, 0.02, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72]);
+    addMesh(hips, new THREE.TorusGeometry(0.15, 0.028, 8, 18), M.dark, [0, 0.02, 0], [Math.PI / 2, 0, 0], [1, 1, 0.72], false);
   } else if (outfit === 'robe') {
     const skirt = cachedGeo('skirt', () => {
       const g = new THREE.CylinderGeometry(0.17, 0.31, 0.52, 18, 1, true);
@@ -416,7 +489,7 @@ export function buildFighter(spec) {
       return g;
     });
     addMesh(hips, skirt, M.secondary, [0, 0.04, 0]);
-    addMesh(hips, new THREE.TorusGeometry(0.14, 0.032, 8, 18), M.accent, [0, 0.05, 0], [Math.PI / 2, 0, 0], [1, 1, 0.75]);
+    addMesh(hips, new THREE.TorusGeometry(0.14, 0.032, 8, 18), M.accent, [0, 0.05, 0], [Math.PI / 2, 0, 0], [1, 1, 0.75], false);
   } else if (outfit === 'bio') {
     for (let i = 0; i < 7; i++) {
       const a = rand(0, TAU);
@@ -430,10 +503,16 @@ export function buildFighter(spec) {
   /* ---- head ---- */
   // the face is painted into the head material itself: a separate decal
   // sphere z-fights at this scale
+  const faceOpts = spec.face ?? {};
+  const faces = {
+    neutral: faceTexture({ ...faceOpts, expr: 'neutral' }),
+    shout: faceTexture({ ...faceOpts, expr: 'shout' }),
+    hurt: faceTexture({ ...faceOpts, expr: 'hurt' }),
+  };
   M.face = createToonMaterial({
     color: P.skin, energyColor: P.aura,
     specStrength: 0.2, rimStrength: 0.6, shadowTint: 0.9,
-    faceMap: faceTexture(spec.face ?? {}),
+    faceMap: faces.neutral,
   });
   const headMesh = addMesh(head, headGeometry(), M.face, [0, 0.02, 0]);
 
@@ -468,13 +547,19 @@ export function buildFighter(spec) {
     const hd = bone('hand' + side, fa, 0, -0.25, 0);
     arms[side] = { sh, ua, fa, hd };
 
+    const sleeve = outfit === 'gi' || outfit === 'robe' ? M.primary : M.skin;
     addMesh(sh, new THREE.SphereGeometry(armR * 1.35, 12, 10), outfit === 'armor' ? M.secondary : M.primary, [0, -0.01, 0], null, [1, 1, 1], false);
-    addMesh(ua, capsule(armR, 0.24, `ua${armR}`), outfit === 'gi' || outfit === 'robe' ? M.primary : M.skin, [0, -0.02, 0]);
-    addMesh(fa, capsule(armR * 0.92, 0.22, `fa${armR}`), M.skin, [0, -0.015, 0]);
+    // upper arm tapers toward the elbow, forearm toward the wrist
+    addMesh(ua, limb(armR * 1.06, armR * 0.9, 0.25, `ua${armR}`), sleeve, [0, -0.015, 0]);
+    // elbow ball: without it the arm shows a gap as soon as it bends
+    addMesh(ua, new THREE.SphereGeometry(armR * 0.95, 12, 10), sleeve, [0, -0.25, 0], null, null, false);
+    addMesh(fa, limb(armR * 0.93, armR * 0.74, 0.23, `fa${armR}`), M.skin, [0, -0.012, 0]);
     // wristband
-    addMesh(fa, new THREE.CylinderGeometry(armR * 1.18, armR * 1.18, 0.06, 12), M.accent, [0, -0.215, 0], null, null, false);
-    // hand
-    addMesh(hd, new THREE.SphereGeometry(armR * 1.25, 12, 10), M.skin, [0, -0.02, 0], null, [0.85, 1.15, 1.0]);
+    addMesh(fa, new THREE.CylinderGeometry(armR * 1.05, armR * 1.02, 0.06, 12), M.accent, [0, -0.212, 0], null, null, false);
+    // fist: a rounded box with a thumb ridge reads as a clenched hand
+    addMesh(hd, new THREE.SphereGeometry(armR * 1.22, 12, 10), M.skin, [0, -0.03, 0], null, [0.92, 1.02, 1.12], false);
+    addMesh(hd, new THREE.SphereGeometry(armR * 0.44, 8, 8), M.skin,
+      [-s * armR * 0.72, -0.02, armR * 0.44], null, [1, 1.3, 1], false);
   }
 
   /* ---- legs ---- */
@@ -486,10 +571,13 @@ export function buildFighter(spec) {
     const ft = bone('foot' + side, sn, 0, -0.38, 0);
     legs[side] = { th, sn, ft };
 
-    addMesh(th, capsule(legR, 0.36, `th${legR}`), M.primary, [0, -0.02, 0]);
-    addMesh(sn, capsule(legR * 0.82, 0.34, `sn${legR}`), outfit === 'gi' ? M.primary : M.skin, [0, -0.015, 0]);
+    const trouser = outfit === 'gi' ? M.primary : M.skin;
+    addMesh(th, limb(legR * 1.08, legR * 0.86, 0.37, `th${legR}`), M.primary, [0, -0.015, 0]);
+    // knee ball
+    addMesh(th, new THREE.SphereGeometry(legR * 0.9, 12, 10), M.primary, [0, -0.38, 0], null, null, false);
+    addMesh(sn, limb(legR * 0.85, legR * 0.6, 0.34, `sn${legR}`), trouser, [0, -0.012, 0]);
     // boot
-    addMesh(sn, new THREE.CylinderGeometry(legR * 0.95, legR * 0.88, 0.16, 12), M.secondary, [0, -0.30, 0], null, null, false);
+    addMesh(sn, new THREE.CylinderGeometry(legR * 0.82, legR * 0.9, 0.16, 12), M.secondary, [0, -0.30, 0], null, null, false);
     const foot = addMesh(ft, new THREE.BoxGeometry(0.10, 0.07, 0.20), M.secondary, [0, -0.02, 0.045]);
     foot.geometry.computeVertexNormals();
   }
@@ -537,25 +625,19 @@ export function buildFighter(spec) {
     tail.userData.bones = tailBones;
   }
 
-  /* ---- aura shell ---- */
-  // truncated cone hugging the body — a needle-thin tip reads as a
-  // white spike poking out of the head, so keep the top wide
-  const auraGeo = cachedGeo('aura', () => {
-    const g = new THREE.CylinderGeometry(0.30, 0.52, 2.5, 26, 12, true);
-    g.translate(0, 1.02, 0);
-    return g;
-  });
-  const auraMat = createAuraMaterial(P.aura, P.auraCore ?? 0xffffff);
-  const aura = new THREE.Mesh(auraGeo, auraMat);
-  aura.visible = false;
-  aura.renderOrder = 6;
-  aura.frustumCulled = false;
-  inner.add(aura);
+  /* ---- ki flame ---- */
+  const aura = new Aura(inner, P, 1);
+  const crackle = new Crackle(inner, sprites().bolt, P.aura, 8);
 
   return {
     root, inner, bones: B, arms, legs, meshes, materials: M,
-    aura, auraMat, hairGroup, headMesh, cape, tail,
-    outlineMat,
+    aura, crackle, hairGroup, headMesh, cape, tail,
+    outlineMat, spec, faces, expression: 'neutral',
+    setExpression(name) {
+      if (this.expression === name || !faces[name]) return;
+      this.expression = name;
+      M.face.uniforms.uFaceMap.value = faces[name];
+    },
     height: 1.8 * scale,
   };
 }
@@ -572,7 +654,8 @@ export function retint(rig, palette, opts = {}) {
   if (palette.secondary !== undefined) M.secondary.uniforms.uColor.value.set(palette.secondary);
   if (palette.accent !== undefined) M.accent.uniforms.uColor.value.set(palette.accent);
   if (palette.aura !== undefined) {
-    rig.auraMat.uniforms.uColor.value.set(palette.aura);
+    rig.aura.setColors(palette.aura, palette.auraCore ?? rig.spec?.palette?.auraCore ?? 0xffffff);
+    rig.crackle.setColor(palette.aura);
     for (const k in M) {
       const m = M[k];
       if (m.uniforms?.uEnergyColor) m.uniforms.uEnergyColor.value.set(palette.aura);
