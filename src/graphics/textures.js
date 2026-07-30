@@ -133,8 +133,8 @@ export function groundTexture(kind = 'rock', tint = '#8b6a4e', size = 512) {
 
     // scattered detail: pebbles / cracks, drawn wrapped so the tile stays seamless
     ctx.globalAlpha = 0.25;
-    for (let i = 0; i < 260; i++) {
-      const x = rand(0, size), y = rand(0, size), r = rand(1, 5);
+    for (let i = 0; i < 200; i++) {
+      const x = rand(0, size), y = rand(0, size), r = rand(0.8, 2.6);
       ctx.fillStyle = Math.random() > 0.5 ? '#000' : '#fff';
       for (const ox of [-size, 0, size]) {
         for (const oy of [-size, 0, size]) {

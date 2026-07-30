@@ -209,7 +209,11 @@ export class Fighter {
 
     // --- charge ki ---
     if (inp.held('charge')) {
-      if (this.state !== S.CHARGE) { this.setState(S.CHARGE); w.audio.startLoop(`chg${this.index}`, 'charge', this.spec.voice); }
+      if (this.state !== S.CHARGE) {
+        this.setState(S.CHARGE);
+        w.audio.startLoop(`chg${this.index}`, 'charge', this.spec.voice);
+        w.audio.powerUp(0.9, this.spec.voice);
+      }
       this.addKi(this.tune.kiRegen * 3.4 * dt);
       if (this.ki >= this.maxKi) this.skill = Math.min(this.maxSkill, this.skill + dt * 0.9);
       return;
@@ -247,7 +251,8 @@ export class Fighter {
     if (d > 4.2 && d < 34) {
       this.setState(S.RUSHIN, 0.55);
       this.anim.play('flyFast', { fade: 0.07 });
-      this.world.audio.swish(this.spec.voice * 1.2);
+      this.world.audio.swish(this.spec.voice * 0.7);
+      this.world.audio.noise({ dur: 0.4, gain: 0.16, type: 'lowpass', freq: 900, sweep: [300, 1800] });
       this.world.fx.boostTrail(this.center(_v3), this.spec.palette.aura, 4);
     } else {
       this.attackIndex = 0;

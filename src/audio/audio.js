@@ -125,42 +125,131 @@ export class AudioEngine {
 
   /* ---------------- combat SFX ---------------- */
 
+  /**
+   * Impacts are built as transient + body + tail, the way a real hit reads:
+   *   transient — 20 ms bright click, tells the ear exactly when it landed
+   *   body      — pitch-swept sine thump, gives the weight
+   *   tail      — mid noise burst through the reverb, gives the room
+   * Everything is randomised a little so a 5-hit combo doesn't machine-gun
+   * the same sample.
+   */
   punch(power = 1, pitch = 1) {
-    this.noise({ dur: 0.1 * power, gain: 0.34 * power, type: 'bandpass', freq: 1800 * pitch, q: 0.9, sweep: [2600 * pitch, 420] });
-    this.tone({ freq: 190 * pitch, to: 52, dur: 0.16 * power, gain: 0.5 * power, type: 'sine' });
-    this.tone({ freq: 90, to: 40, dur: 0.22 * power, gain: 0.35 * power, type: 'triangle' });
+    const r = rand(0.94, 1.07);
+    this.noise({
+      dur: 0.03, gain: 0.3 * power, type: 'highpass',
+      freq: 4200 * pitch, sweep: [6000 * pitch * r, 1800],
+    });
+    this.tone({
+      freq: 235 * pitch * r, to: 46, dur: 0.13 * power,
+      gain: 0.52 * power, type: 'sine', attack: 0.002,
+    });
+    this.noise({
+      dur: 0.085 * power, gain: 0.2 * power, type: 'bandpass',
+      freq: 950 * pitch, q: 1.6, sweep: [1500 * pitch * r, 380],
+    });
+    this.tone({ freq: 88, to: 38, dur: 0.2 * power, gain: 0.3 * power, type: 'triangle' });
   }
 
   heavyHit(pitch = 1) {
-    this.punch(1.5, pitch * 0.8);
-    this.noise({ dur: 0.42, gain: 0.3, type: 'lowpass', freq: 700, sweep: [1400, 120] });
-    this.tone({ freq: 70, to: 28, dur: 0.5, gain: 0.5, type: 'sine' });
+    this.punch(1.45, pitch * 0.82);
+    // sub drop: what separates a smash from a jab
+    this.tone({ freq: 78, to: 26, dur: 0.55, gain: 0.55, type: 'sine', attack: 0.004 });
+    this.noise({ dur: 0.5, gain: 0.26, type: 'lowpass', freq: 700, sweep: [1600, 110] });
+    this.noise({ dur: 0.05, gain: 0.3, type: 'bandpass', freq: 2600, q: 2, delay: 0.012 });
   }
 
+  /** limb travelling through air — fast doppler sweep */
   swish(pitch = 1) {
-    this.noise({ dur: 0.16, gain: 0.14, type: 'bandpass', freq: 900, q: 2.4, sweep: [500 * pitch, 3200 * pitch] });
+    const c = this.ctx; if (!this.ok) return;
+    const t = this.t;
+    const src = c.createBufferSource();
+    src.buffer = this.noiseBuf; src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass'; f.Q.value = 3.2;
+    const peak = 2400 * pitch * rand(0.9, 1.15);
+    f.frequency.setValueAtTime(peak * 0.35, t);
+    f.frequency.exponentialRampToValueAtTime(peak, t + 0.07);
+    f.frequency.exponentialRampToValueAtTime(peak * 0.3, t + 0.19);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.19, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.2);
+    src.connect(f); f.connect(g); g.connect(this.sfxBus);
+    src.start(t); src.stop(t + 0.25);
   }
 
   guardHit() {
-    this.noise({ dur: 0.14, gain: 0.24, type: 'bandpass', freq: 3200, q: 3, sweep: [4200, 900] });
-    this.tone({ freq: 420, to: 180, dur: 0.14, gain: 0.2, type: 'square' });
+    // metallic: a couple of detuned partials over the noise crack
+    this.noise({ dur: 0.12, gain: 0.2, type: 'bandpass', freq: 3400, q: 3.5, sweep: [4600, 1000] });
+    for (const f of [1180, 1790, 2630]) {
+      this.tone({ freq: f * rand(0.99, 1.01), to: f * 0.985, dur: 0.22, gain: 0.07, type: 'sine' });
+    }
+    this.tone({ freq: 150, to: 70, dur: 0.13, gain: 0.22, type: 'triangle' });
   }
 
+  /** small ki bolt: resonant descending zap with a metallic ring */
   kiShot(pitch = 1) {
-    this.tone({ freq: 1500 * pitch, to: 260, dur: 0.24, gain: 0.24, type: 'sawtooth' });
-    this.noise({ dur: 0.2, gain: 0.16, type: 'highpass', freq: 1200, sweep: [3600, 900] });
+    if (!this.ok) return;
+    const c = this.ctx, t = this.t;
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(1750 * pitch, t);
+    o.frequency.exponentialRampToValueAtTime(210 * pitch, t + 0.22);
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass'; f.Q.value = 11;
+    f.frequency.setValueAtTime(4200 * pitch, t);
+    f.frequency.exponentialRampToValueAtTime(400, t + 0.22);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.26);
+    o.connect(f); f.connect(g); g.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.3);
+    this.tone({ freq: 2900 * pitch, to: 1500 * pitch, dur: 0.1, gain: 0.05, type: 'sine' });
+    this.noise({ dur: 0.16, gain: 0.1, type: 'highpass', freq: 1600, sweep: [4200, 1100] });
   }
 
   explosion(size = 1) {
-    this.noise({ dur: 1.1 * size, gain: 0.5, type: 'lowpass', freq: 800, sweep: [2400, 60] });
-    this.tone({ freq: 120, to: 22, dur: 0.9 * size, gain: 0.6, type: 'sine' });
-    this.tone({ freq: 60, to: 18, dur: 1.4 * size, gain: 0.42, type: 'triangle', delay: 0.02 });
-    this.noise({ dur: 0.14, gain: 0.4, type: 'highpass', freq: 2400 });
+    // crack, then the roll-off, then the sub
+    this.noise({ dur: 0.05, gain: 0.42, type: 'highpass', freq: 2800 });
+    this.noise({ dur: 1.2 * size, gain: 0.48, type: 'lowpass', freq: 900, sweep: [3000, 55] });
+    this.tone({ freq: 135, to: 20, dur: 0.95 * size, gain: 0.6, type: 'sine', attack: 0.003 });
+    this.tone({ freq: 58, to: 17, dur: 1.5 * size, gain: 0.44, type: 'triangle', delay: 0.025 });
+    // debris rattle
+    for (let i = 0; i < 3; i++) {
+      this.noise({
+        dur: 0.22, gain: 0.07 * size, type: 'bandpass',
+        freq: rand(900, 2600), q: 2, delay: 0.1 + i * rand(0.06, 0.16),
+      });
+    }
   }
 
   vanish() {
-    this.noise({ dur: 0.2, gain: 0.2, type: 'bandpass', freq: 2600, q: 4, sweep: [900, 5200] });
-    this.tone({ freq: 2200, to: 5200, dur: 0.14, gain: 0.1, type: 'sine' });
+    this.noise({ dur: 0.18, gain: 0.2, type: 'bandpass', freq: 2600, q: 5, sweep: [700, 6000] });
+    this.tone({ freq: 1800, to: 6200, dur: 0.12, gain: 0.09, type: 'sine' });
+    this.tone({ freq: 300, to: 90, dur: 0.1, gain: 0.14, type: 'triangle', delay: 0.02 });
+  }
+
+  /** high metallic ring for beam clashes */
+  clash() {
+    for (const f of [1560, 2340, 3120, 4700]) {
+      this.tone({ freq: f * rand(0.99, 1.02), to: f * 0.97, dur: rand(0.5, 0.9), gain: 0.07, type: 'sine' });
+    }
+    this.noise({ dur: 0.4, gain: 0.22, type: 'bandpass', freq: 2200, q: 1.4, sweep: [5200, 900] });
+    this.tone({ freq: 95, to: 34, dur: 0.7, gain: 0.4, type: 'sine' });
+  }
+
+  /** rising rumble under a power-up */
+  powerUp(dur = 1.2, pitch = 1) {
+    if (!this.ok) return;
+    this.noise({ dur, gain: 0.3, type: 'lowpass', freq: 300, sweep: [140, 3200] });
+    this.tone({ freq: 42 * pitch, to: 150 * pitch, dur, gain: 0.4, type: 'triangle', curve: 'exp' });
+    for (let i = 0; i < 7; i++) {
+      this.noise({
+        dur: 0.05, gain: 0.1, type: 'bandpass', freq: rand(2200, 6000), q: 4,
+        delay: rand(0.05, dur * 0.9),
+      });
+    }
   }
 
   /** looping charge / beam layer */
@@ -193,12 +282,26 @@ export class AudioEngine {
       n.connect(nf); nf.connect(ng); ng.connect(out);
       n.start(t); nodes.push(n);
     } else {
-      // sustained beam roar
+      // sustained beam roar: filtered noise bed + a resonant band that
+      // drifts, so it breathes instead of sitting as static hiss
       const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
       const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400; f.Q.value = 2;
-      const g2 = c.createGain(); g2.gain.value = 0.75;
+      const g2 = c.createGain(); g2.gain.value = 0.7;
       n.connect(f); f.connect(g2); g2.connect(out);
       n.start(t); nodes.push(n);
+
+      const res = c.createBiquadFilter();
+      res.type = 'bandpass'; res.Q.value = 7;
+      res.frequency.setValueAtTime(520 * pitch, t);
+      res.frequency.linearRampToValueAtTime(320 * pitch, t + 2.2);
+      const rg = c.createGain(); rg.gain.value = 0.5;
+      f.connect(res); res.connect(rg); rg.connect(out);
+
+      // slow amplitude wobble = the roar
+      const wob = c.createOscillator(); wob.frequency.value = 7.5;
+      const wg = c.createGain(); wg.gain.value = 0.13;
+      wob.connect(wg); wg.connect(g2.gain);
+      wob.start(t); nodes.push(wob);
       const o = c.createOscillator(); o.type = 'sawtooth';
       o.frequency.setValueAtTime(70 * pitch, t);
       const og = c.createGain(); og.gain.value = 0.4;
@@ -263,8 +366,9 @@ export class AudioEngine {
 
   transform(pitch = 1) {
     if (!this.ok) return;
-    this.tone({ freq: 60, to: 900, dur: 1.1, gain: 0.3, type: 'sawtooth', curve: 'exp' });
-    this.noise({ dur: 1.2, gain: 0.3, type: 'highpass', freq: 400, sweep: [200, 6000] });
+    this.powerUp(1.1, pitch);
+    this.tone({ freq: 60, to: 900, dur: 1.1, gain: 0.26, type: 'sawtooth', curve: 'exp' });
+    this.noise({ dur: 1.2, gain: 0.26, type: 'highpass', freq: 400, sweep: [200, 6000] });
     this.tone({ freq: 90, to: 30, dur: 1.6, gain: 0.5, type: 'sine', delay: 0.85 });
     this.explosion(0.7);
     this.shout(pitch, 1.2, 1.1);

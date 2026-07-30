@@ -43,6 +43,55 @@ function planarUV(geo, scale = 8) {
   return geo;
 }
 
+/* deterministic 2D value noise, for terrain relief and ground tinting */
+function hash2(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+function noise2(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
+}
+function fbm2(x, y, oct = 4) {
+  let v = 0, amp = 0.5, f = 1, tot = 0;
+  for (let i = 0; i < oct; i++) {
+    v += noise2(x * f, y * f) * amp;
+    tot += amp; f *= 2.03; amp *= 0.5;
+  }
+  return v / tot;
+}
+
+/**
+ * Layered rock: horizontal strata plus a wind-carved lean. Plain displaced
+ * icospheres read as potatoes.
+ */
+function crag(seed = 1) {
+  const g = new THREE.CylinderGeometry(0.62, 1, 1, 9, 6);
+  g.translate(0, 0.5, 0);
+  const p = g.attributes.position;
+  const v = new THREE.Vector3();
+  let s = seed * 7919;
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  const lean = (rnd() - 0.5) * 0.5;
+  const bands = [];
+  for (let i = 0; i < 8; i++) bands.push(0.82 + rnd() * 0.36);
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const band = bands[Math.min(bands.length - 1, Math.floor(v.y * bands.length))];
+    const a = Math.atan2(v.z, v.x);
+    const ripple = 1 + Math.sin(a * 5 + v.y * 9) * 0.09 + Math.sin(a * 11) * 0.05;
+    v.x *= band * ripple; v.z *= band * ripple;
+    v.x += lean * v.y * v.y;              // topples slightly with height
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 function rockGeo(seed = 1, detail = 0) {
   const g = new THREE.IcosahedronGeometry(1, detail);
   const pos = g.attributes.position;
@@ -181,14 +230,87 @@ export function buildStage(id, scene) {
     scene.background = null;
   };
 
-  const addGround = (kind, tint, repeat, radius = 130) => {
-    const geo = new THREE.CircleGeometry(radius, 72);
-    geo.rotateX(-Math.PI / 2);
-    const mat = toonMat(0xffffff, { map: groundMap(kind, tint, repeat) });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.y = 0;
-    g.add(m);
-    return m;
+  /**
+   * Ground = a perfectly flat arena disc (gameplay depends on that) plus a
+   * displaced outer apron that rises with distance. A single flat disc to the
+   * horizon is what made every stage read as a tabletop.
+   * Large-scale vertex colour on top of the tiling map breaks the repeat.
+   */
+  const addGround = (kind, tint, repeat, radius = 130, opts = {}) => {
+    const flat = Math.min(radius, (opts.flat ?? stage.radius + 10));
+    const relief = opts.relief ?? 9;
+    // planar UVs already carry the tiling, so the map itself must stay at
+    // repeat 1 — otherwise the two multiply and the ground moirés
+    const mat = toonMat(0xffffff, {
+      map: groundMap(kind, tint, 1),
+      vertexColors: true,
+    });
+    const group = new THREE.Group();
+
+    const tintVertices = (geo, amount = 0.11) => {
+      const p = geo.attributes.position;
+      const col = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        const n = fbm2(p.getX(i) * 0.014, p.getZ(i) * 0.014, 3);
+        const k = 1 + (n - 0.5) * 2 * amount;
+        col[i * 3] = k; col[i * 3 + 1] = k * (1 - (n - 0.5) * 0.06); col[i * 3 + 2] = k * (1 - (n - 0.5) * 0.12);
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return geo;
+    };
+    const planar = (geo, sc) => {
+      const p = geo.attributes.position, uv = geo.attributes.uv;
+      for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / sc, p.getZ(i) / sc);
+      uv.needsUpdate = true;
+      return geo;
+    };
+    const texScale = opts.tile ?? 5.5;   // world units per texture tile
+
+    // subdivided ring, not CircleGeometry: a triangle fan has one centre
+    // vertex, so per-vertex tinting bleeds outward as radial wedges
+    const inner = new THREE.RingGeometry(0.02, flat, 96, 18);
+    inner.rotateX(-Math.PI / 2);
+    group.add(new THREE.Mesh(tintVertices(planar(inner, texScale)), mat));
+
+    if (radius > flat + 1) {
+      const outer = new THREE.RingGeometry(flat, radius, 108, 28);
+      outer.rotateX(-Math.PI / 2);
+      const p = outer.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), z = p.getZ(i);
+        const r = Math.hypot(x, z);
+        // ramp the displacement in so the arena edge stays seamless
+        const k = Math.min(1, (r - flat) / Math.max(1, radius - flat) * 2.2);
+        const h = (fbm2(x * 0.009, z * 0.009, 4) - 0.45) * relief
+                + (fbm2(x * 0.035, z * 0.035, 3) - 0.5) * relief * 0.28;
+        p.setY(i, h * k * k);
+      }
+      outer.computeVertexNormals();
+      group.add(new THREE.Mesh(tintVertices(planar(outer, texScale)), mat));
+    }
+    g.add(group);
+    return group;
+  };
+
+  /** distant silhouette ridges — cheap aerial perspective through the fog */
+  const addRidges = (color, rings = [[300, 26, 55], [430, 40, 30]]) => {
+    const geo = new THREE.ConeGeometry(1, 1, 5, 1);
+    geo.translate(0, 0.5, 0);
+    for (const [dist, height, count] of rings) {
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * TAU + rand(-0.05, 0.05);
+        const r = dist * rand(0.86, 1.18);
+        const h = height * rand(0.5, 1.5);
+        list.push({
+          p: [Math.cos(a) * r, -height * 0.15, Math.sin(a) * r],
+          r: [0, rand(0, TAU), 0],
+          s: [h * rand(1.1, 2.3), h, h * rand(1.1, 2.3)],
+          c: new THREE.Color(color).offsetHSL(0, 0, rand(-0.04, 0.04)).getHex(),
+        });
+      }
+      g.add(instanced(geo, toonMat(0xffffff), list));
+    }
   };
 
   switch (id) {
@@ -204,20 +326,21 @@ export function buildStage(id, scene) {
         sunDir: new THREE.Vector3(-0.5, 0.16, 0.35), sunColor: 0xfff0c8,
         sunSize: 0.016, sunGlow: 120, clouds: 0.85, cloudColor: 0xffdcb0, cloudDark: 0x6d4a63,
       }));
-      addGround('rock', 0x8a7368, 42);
+      addGround('rock', 0x8a7368, 42, 340, { relief: 16 });
+      addRidges(0x6a5560, [[300, 30, 52], [440, 46, 34]]);
 
       const rocks = [];
       for (let i = 0; i < 46; i++) {
         const a = rand(0, TAU), r = rand(40, 118);
         const s = rand(1.8, 6.5);
         rocks.push({
-          p: [Math.cos(a) * r, rand(-0.6, 0.4) * s, Math.sin(a) * r],
-          r: [rand(-0.2, 0.2), rand(0, TAU), rand(-0.2, 0.2)],
-          s: [s * rand(0.9, 1.4), s * rand(0.7, 1.5), s * rand(0.9, 1.4)],
+          p: [Math.cos(a) * r, -0.4, Math.sin(a) * r],
+          r: [rand(-0.06, 0.06), rand(0, TAU), rand(-0.06, 0.06)],
+          s: [s * rand(0.7, 1.2), s * rand(1.1, 2.4), s * rand(0.7, 1.2)],
           c: new THREE.Color(0x7d6a5e).offsetHSL(rand(-0.02, 0.02), 0, rand(-0.07, 0.07)).getHex(),
         });
       }
-      g.add(instanced(rockGeo(3, 1), toonMat(0xffffff), rocks));
+      g.add(instanced(crag(3), toonMat(0xffffff), rocks));
 
       // far mesas
       const mesas = [];
@@ -264,7 +387,7 @@ export function buildStage(id, scene) {
         sunSize: 0.02, sunGlow: 90, clouds: 0.45, cloudColor: 0x6a7ba8, cloudDark: 0x1a2340,
         stars: 0.7,
       }));
-      addGround('stone', 0x63697c, 46);
+      addGround('stone', 0x63697c, 46, 300, { relief: 5 });
 
       const mat = toonMat(0xffffff);
       const box = new THREE.BoxGeometry(1, 1, 1);
@@ -325,7 +448,8 @@ export function buildStage(id, scene) {
         sunDir: new THREE.Vector3(0.35, 0.35, 0.5), sunColor: 0xfff4d8,
         sunSize: 0.014, clouds: 0.85, cloudColor: 0xffffff, cloudDark: 0xc8b8d8,
       }));
-      addGround('grass', 0x6a9455, 58, 90);
+      addGround('grass', 0x6a9455, 58, 320, { relief: 13 });
+      addRidges(0x7f96a8, [[280, 34, 46], [420, 52, 30]]);
 
       // floating islands
       const isl = [];
@@ -392,11 +516,12 @@ export function buildStage(id, scene) {
       }));
 
       // sunken ring
-      addGround('sand', 0xd8c090, 44, 200);
+      addGround('sand', 0xd8c090, 44, 330, { flat: 96, relief: 11 });
+      addRidges(0xb8a684, [[300, 26, 44], [450, 40, 28]]);
       const ringGeo = planarUV(new THREE.CylinderGeometry(46, 48, 2.4, 64, 1), 7);
       const ringMap = groundMap('stone', 0xd0c8b0, 1);
       const ring = new THREE.Mesh(ringGeo, toonMat(0xffffff, { map: ringMap }));
-      ring.position.y = -1.2;
+      ring.position.y = -1.17;   // clear of the sand disc at y=0
       g.add(ring);
       const border = new THREE.Mesh(new THREE.TorusGeometry(46.5, 0.9, 8, 72), toonMat(0xf0e8d0));
       border.rotation.x = Math.PI / 2;
@@ -449,16 +574,16 @@ export function buildStage(id, scene) {
     case 'volcano': {
       setLight({
         lightDir: new THREE.Vector3(-0.3, 0.55, -0.4),
-        lightColor: 0xffcaa0, skyColor: 0x9a4030, groundColor: 0x3a1810,
-        ambient: 0.5, rimColor: 0xff8a3c, fogColor: 0x431a16, fogDensity: 0.0062,
-        dirIntensity: 1.4,
+        lightColor: 0xffd0aa, skyColor: 0xb05038, groundColor: 0x4a221a,
+        ambient: 0.78, hemiIntensity: 0.7, rimColor: 0xff8a3c,
+        fogColor: 0x5a2620, fogDensity: 0.0058, dirIntensity: 1.5,
       });
       g.add(createSky({
-        top: 0x180608, mid: 0x6a1e14, bottom: 0xd85a1e,
+        top: 0x2e1016, mid: 0x8a2c1c, bottom: 0xe0641e,
         sunDir: new THREE.Vector3(-0.3, 0.12, -0.4), sunColor: 0xffb060,
         sunSize: 0.02, sunGlow: 60, clouds: 0.9, cloudColor: 0xff9050, cloudDark: 0x2a0c0a,
       }));
-      addGround('rock', 0x3a2a26, 44);
+      addGround('rock', 0x4a3430, 44, 300, { relief: 14 });
 
       // lava pools
       const lavaMat = new THREE.MeshBasicMaterial({
@@ -482,18 +607,18 @@ export function buildStage(id, scene) {
         const a = rand(0, TAU), r = rand(38, 130);
         const s = rand(2.0, 7.5);
         rocks.push({
-          p: [Math.cos(a) * r, rand(-0.5, 0.3) * s, Math.sin(a) * r],
-          r: [rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3)],
-          s: [s, s * rand(0.8, 1.6), s],
+          p: [Math.cos(a) * r, -0.4, Math.sin(a) * r],
+          r: [rand(-0.08, 0.08), rand(0, TAU), rand(-0.08, 0.08)],
+          s: [s * 0.85, s * rand(1.2, 2.6), s * 0.85],
           c: new THREE.Color(0x2e2220).offsetHSL(0, 0, rand(-0.03, 0.05)).getHex(),
         });
       }
-      g.add(instanced(rockGeo(7, 1), toonMat(0xffffff), rocks));
+      g.add(instanced(crag(7), toonMat(0xffffff), rocks));
 
       // caldera walls
       const wall = new THREE.Mesh(
-        new THREE.CylinderGeometry(140, 118, 90, 40, 1, true),
-        toonMat(0x2a1c18, { side: THREE.BackSide })
+        new THREE.CylinderGeometry(230, 200, 120, 44, 1, true),
+        toonMat(0x4a2c24, { side: THREE.BackSide })
       );
       wall.position.y = 30;
       g.add(wall);

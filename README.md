@@ -134,6 +134,12 @@ Tout est écrit à la main, sans bibliothèque de post-traitement :
 - **Pipeline HDR** custom : bright pass, bloom gaussien 3 niveaux, flou radial
   (lignes de vitesse), distorsion d'onde de choc, aberration chromatique,
   tone mapping filmique, étalonnage, vignette, grain — compatible écran partagé
+- **Terrain** : l'arène reste parfaitement plate (le gameplay en dépend) mais un
+  tablier extérieur se soulève avec la distance, plus deux anneaux de crêtes
+  lointaines qui donnent la perspective aérienne à travers le brouillard. Une
+  teinte à grande échelle en couleurs de sommets casse la répétition de la
+  texture, et les rochers sont des blocs stratifiés inclinés plutôt que des
+  patates déformées
 - **Ciels procéduraux** : dégradé, soleil, bancs de nuages animés, étoiles, nébuleuse
 - **Auras de ki** : le maillage est un anneau de **pétales séparés**, pas un cône.
   Chaque pétale porte son index en attribut et le vertex shader lui donne sa
@@ -159,8 +165,14 @@ Tout est écrit à la main, sans bibliothèque de post-traitement :
 
 100 % synthétisé via Web Audio :
 
-- impacts (bruit filtré + thump), gardes, swishs, tirs de ki, explosions avec
-  réverbération à réponse impulsionnelle générée
+- **impacts en trois couches** — transitoire clair de 20 ms (l'oreille sait
+  exactement quand le coup touche), corps en sinus balayé (le poids), queue de
+  bruit médium envoyée dans la réverb (la pièce) — avec une variation aléatoire
+  pour qu'un combo de 5 coups ne mitraille pas le même son
+- coups lourds avec chute de sub, gardes métalliques à partiels désaccordés,
+  swishs à balayage doppler, tirs de ki résonants descendants, explosions
+  (crack, roulement, sub, gravats), choc de rayons, montée en puissance
+- réverbération à réponse impulsionnelle générée au lancement
 - boucles de charge et de rayon
 - **cris de combat** par synthèse à formants
 - **bande-son procédurale** : séquenceur en doubles-croches, une ambiance par

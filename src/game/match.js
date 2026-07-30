@@ -387,6 +387,7 @@ export class Match {
     this.struggle.sphere.scale.setScalar(2.2);
     this.ui.showStruggle(true);
     this.fx.shake(0.8, 3);
+    this.audio.clash();
     this.audio.explosion(0.9);
     this.cameras.forEach((c) => c.playCinematic('beam', a.owner, b.owner, 3.4));
   }
