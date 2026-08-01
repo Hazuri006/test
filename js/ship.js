@@ -90,11 +90,14 @@ function buildShipMesh(gl, palette) {
   return B.build(gl);
 }
 
+/* Albedos deliberately top out around 0.6.  Sunlight here is ~1.5x, so a 0.8
+   hull clips through the tonemap and every ship comes out looking like bare
+   plastic — the panelling only reads when the lit faces stay off the ceiling. */
 const SHIP_PALETTES = [
-  { hull: [0.80, 0.80, 0.83], dark: [0.20, 0.22, 0.26], trim: [0.90, 0.42, 0.12], glass: [0.10, 0.45, 0.55], glow: [0.35, 0.75, 1.00] },
-  { hull: [0.86, 0.74, 0.42], dark: [0.24, 0.20, 0.18], trim: [0.30, 0.36, 0.52], glass: [0.14, 0.40, 0.42], glow: [1.00, 0.62, 0.22] },
-  { hull: [0.45, 0.52, 0.60], dark: [0.16, 0.18, 0.22], trim: [0.75, 0.82, 0.88], glass: [0.20, 0.55, 0.60], glow: [0.60, 1.00, 0.75] },
-  { hull: [0.72, 0.28, 0.30], dark: [0.20, 0.14, 0.16], trim: [0.92, 0.86, 0.70], glass: [0.30, 0.20, 0.45], glow: [1.00, 0.35, 0.55] }
+  { hull: [0.58, 0.59, 0.62], dark: [0.15, 0.17, 0.20], trim: [0.62, 0.30, 0.09], glass: [0.07, 0.28, 0.36], glow: [0.30, 0.66, 0.95] },
+  { hull: [0.60, 0.52, 0.30], dark: [0.18, 0.15, 0.13], trim: [0.22, 0.27, 0.40], glass: [0.09, 0.26, 0.29], glow: [0.95, 0.55, 0.18] },
+  { hull: [0.34, 0.40, 0.47], dark: [0.12, 0.14, 0.17], trim: [0.56, 0.61, 0.66], glass: [0.12, 0.34, 0.38], glow: [0.45, 0.92, 0.66] },
+  { hull: [0.50, 0.22, 0.23], dark: [0.15, 0.11, 0.12], trim: [0.62, 0.58, 0.48], glass: [0.19, 0.13, 0.31], glow: [0.92, 0.30, 0.48] }
 ];
 
 /* ============================================================================

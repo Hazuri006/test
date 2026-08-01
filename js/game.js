@@ -943,6 +943,20 @@ const Game = {
     gl.uniform1f(pr.u.uSunAng, Math.asin(clamp(this.system.starRadius / starDist, 0, 0.999)));
     gl.uniform3fv(pr.u.uNebulaTint, this.system.nebula);
 
+    /* Stars are stylised bright points; a physically-scattered daytime sky is
+       not bright enough to bury them through the tonemap.  So fade them by how
+       much lit air is overhead — full in space and at night, gone at noon. */
+    let starDim = 1;
+    if (p && p.atmoAmount > 0.001) {
+      V3.sub(_gRel, this.camPos, p.pos);
+      const alt = V3.len(_gRel) - p.radius;
+      const dens = saturate(p.densityAt(Math.max(alt, 0)) / p.atmoAmount);
+      V3.normalize(_gDir, _gRel);
+      const day = smoothstep(-0.12, 0.20, V3.dot(_gDir, sun));
+      starDim = 1 - saturate(dens * 1.25) * day;
+    }
+    gl.uniform1f(pr.u.uStarDim, starDim);
+
     gl.uniform1i(pr.u.uSteps, this.quality.atmoSteps);
     gl.uniform1i(pr.u.uCloudSteps, this.quality.cloudSteps);
 

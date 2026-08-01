@@ -187,7 +187,9 @@ class Planet {
     this.atmoRadius = this.radius + this.atmoThickness;
     this.scaleHeight = this.atmoThickness * 0.26;
 
-    const k = this.biome.atmo > 0 ? clamp(Math.sqrt(8000 / this.scaleHeight), 1, 3.0) : 0;
+    /* Linear, not sqrt: the zenith optical depth has to land near Earth's
+       0.26 or the daytime sky stays dim enough to see stars through. */
+    const k = this.biome.atmo > 0 ? clamp(8000 / this.scaleHeight, 1, 5.0) : 0;
     const sky = this.biome.sky;
     const mx = Math.max(sky[0], sky[1], sky[2]) || 1;
     const peak = BETA_EARTH[2] * k;

@@ -174,12 +174,14 @@ vec3 surfaceAlbedo(float alt, float slope, float lat, float variation,
   return col;
 }
 
-/* ---- ray / sphere.  Returns (near, far); far < 0 means no hit. ---- */
+/* Ray/sphere.  Returns (near, far).  A miss returns far < 0 AND a near of
+   +infinity: callers that only test the near value must not be able to mistake
+   a miss for a hit right in front of the camera. */
 vec2 raySphere(vec3 ro, vec3 rd, float r){
   float b = dot(ro, rd);
   float c = dot(ro, ro) - r*r;
   float h = b*b - c;
-  if (h < 0.0) return vec2(1.0, -1.0);
+  if (h < 0.0) return vec2(1e30, -1.0);
   h = sqrt(h);
   return vec2(-b - h, -b + h);
 }
@@ -264,7 +266,7 @@ void main(){
 
   /* --- fine surface detail from the tiling 3D noise volume --- */
   float macro = texture(uNoise, lp * 0.0016).r;
-  float meso  = texture(uNoise, lp * 0.019).g;
+  float meso  = texture(uNoise, lp * 0.0075).g;
   float variation = clamp(macro * 0.65 + meso * 0.35, 0.0, 1.0);
 
   /* bump mapping, faded out with distance so it never aliases */
@@ -272,11 +274,14 @@ void main(){
   if (bumpFade > 0.004){
     vec3 t1 = normalize(cross(up, abs(up.y) < 0.9 ? vec3(0.0,1.0,0.0) : vec3(1.0,0.0,0.0)));
     vec3 t2 = cross(up, t1);
-    float ds = 0.35;
+    /* One noise repeat per ~30 m.  Any finer and the surface reads as
+       television static rather than ground. */
+    float ds = 0.032;
+    float e = 3.5;
     float h0 = texture(uNoise, lp*ds).b;
-    float hx = texture(uNoise, (lp + t1*0.55)*ds).b;
-    float hy = texture(uNoise, (lp + t2*0.55)*ds).b;
-    n = normalize(n - (t1*(hx-h0) + t2*(hy-h0)) * 2.6 * bumpFade);
+    float hx = texture(uNoise, (lp + t1*e)*ds).b;
+    float hy = texture(uNoise, (lp + t2*e)*ds).b;
+    n = normalize(n - (t1*(hx-h0) + t2*(hy-h0)) * 1.9 * bumpFade);
   }
 
   float slope = 1.0 - clamp(dot(n, up), 0.0, 1.0);
@@ -506,6 +511,7 @@ uniform vec4 uDPColB[8];
 
 uniform vec4 uScan;           // xyz origin relative to camera, w radius
 uniform vec3 uNebulaTint;
+uniform float uStarDim;   // 1 in space / at night, ~0 in a daylit atmosphere
 uniform int  uSteps;
 uniform int  uCloudSteps;
 
@@ -536,18 +542,18 @@ vec3 background(vec3 rd){
   vec3 galN = normalize(vec3(0.32, 0.88, -0.35));
   float band = pow(clamp(1.0 - abs(dot(rd, galN)), 0.0, 1.0), 11.0);
 
-  vec3 col = uNebulaTint * neb * band * 0.34;
-  col += uNebulaTint.bgr * pow(neb, 1.8) * band * 0.09;
+  vec3 col = uNebulaTint * neb * band * 0.34 * uStarDim;
+  col += uNebulaTint.bgr * pow(neb, 1.8) * band * 0.09 * uStarDim;
 
   /* faint stellar haze along the galactic plane */
-  col += uNebulaTint * band * 0.012;
+  col += uNebulaTint * band * 0.012 * uStarDim;
 
   float t0, t1, t2;
   float s = starLayer(rd, 95.0,  0.34, 7.0,  t0) * 1.00
           + starLayer(rd, 215.0, 0.26, 10.0, t1) * 0.55
           + starLayer(rd, 470.0, 0.17, 14.0, t2) * 0.28;
   vec3 tint = mix(vec3(0.70, 0.82, 1.0), vec3(1.0, 0.84, 0.64), t0);
-  col += tint * s * (1.9 + band * 1.6);
+  col += tint * s * (1.9 + band * 1.6) * uStarDim;
 
   /* dust lanes cutting the band */
   col *= 1.0 - band * pow(texture(uNoise, rd * 4.6 + 41.0).a, 2.0) * 0.5;
@@ -632,7 +638,7 @@ vec3 atmosphere(vec3 ro, vec3 rd, float tMax, out vec3 transmit){
   }
 
   transmit = exp(-(betaR * odR + vec3(betaM * 1.1) * odM));
-  return (sumR * betaR * phaseR + sumM * betaM * phaseM) * uSunColor * 15.0;
+  return (sumR * betaR * phaseR + sumM * betaM * phaseM) * uSunColor * 22.0;
 }
 
 /* ---------------------------------------------------------------- clouds -- */
@@ -826,8 +832,9 @@ void main(){
       vec2 h = raySphere(apRO, rd, uAPSeaR);
       underwater = camR < uAPSeaR;
       float t = -1.0;
-      if (underwater) { t = h.y; }
-      else if (h.x > 0.0) { t = h.x; }
+      /* h.y > 0.0 is the hit test — checking only h.x would treat a miss as a
+         hit and paint the sea across the sky. */
+      if (h.y > 0.0) t = underwater ? h.y : (h.x > 0.0 ? h.x : -1.0);
 
       if (t > 0.0 && t < dist){
         vec3 pos = apRO + rd * t;
