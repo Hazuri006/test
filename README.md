@@ -29,11 +29,14 @@ starship hull is generated at runtime from a seed.
 - **On-foot exploration** with a jetpack, walking correctly around a sphere.
 - **Four-stage drive**: cruise, boost, pulse drive, and an ultra drive at a
   hundred times the boost that crosses the system in seconds.
-- **Debris belts** around roughly two worlds in five — a tilted, slowly turning
-  band of rock above the atmosphere that you fly through on the way down.
-- **Procedural everything except the hull**: the rocks and flora, the star
-  field and nebula, the engine exhaust, the engine hum, the wind, the ambient
-  score.
+- **Debris belts** around roughly four worlds in five — a tilted, slowly turning
+  band of rock above the atmosphere that you fly through on the way down. Two
+  thirds are broad fields rather than tidy rings.
+- **Forests on worlds that grow them**, instanced from three baked tree
+  variants with a procedural wind sway.
+- **Procedural everything except the hull and the trees**: the rocks and
+  scrub, the star field and nebula, the engine exhaust, the engine hum, the
+  wind, the ambient score.
 
 ## Controls
 
@@ -112,6 +115,15 @@ lines up with the exhaust axis. Radial density, shock diamonds (which only
 stand up in thin air, and only once the drive is working) and scrolling
 turbulence are all evaluated per fragment.
 
+**An engine trail has to survive a deferred sky.** The plume is additive and
+writes no depth, which is right for a transparent thing — but the sky pass
+rebuilds the world from the depth buffer, so "no depth here" means "this pixel
+is sky", and the whole trail was being painted over with stars. The scene
+buffer is cleared to black, so whatever sits in it at a depth-less pixel is
+exactly the sum of the additive passes; the sky shader keeps that and adds it
+back over the finished sky. A drive trail against a starfield survives, glows,
+and feeds the bloom.
+
 **A realistic debris belt is invisible.** Spaced the way real ones are, the
 rocks sit kilometres apart and read as nothing at all. The belts here are
 deliberately concentrated into a thinner, narrower band so they register both
@@ -143,6 +155,7 @@ js/math.js          vectors, quaternions, matrices, PRNG, simplex noise
 js/gl.js            WebGL2 helpers, meshes, procedural geometry builder
 js/shaders.js       all GLSL: terrain, objects, ship, thrusters, sky, post
 js/shipmodel.js     the starship, baked from glTF and embedded as base64
+js/treemodel.js     the trees, baked the same way, three variants in one buffer
 js/planets.js       biome archetypes, terrain functions, system generation
 js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
@@ -182,8 +195,36 @@ engine nozzle is found by taking the aft-most part whose centre sits near the
 axis; the exhaust plume is anchored to it, and the emissive map's strength
 tracks the drive state so the ship visibly spools up.
 
-> The model is a third-party asset (its glTF metadata identifies it as a
-> Sketchfab export). Check its licence before redistributing this repository
+## The trees
+
+The tree `.glb` turned out to hold **three** trees standing in a row, sharing
+one bark mesh and one leaf/branch mesh. Baked whole, every instance was a
+twenty-metre clump of three trunks pivoted in the gap between them. The bake
+splits them apart on triangle centroids and keeps them as three variants of a
+single vertex buffer — each pivoted at its own trunk with Y = 0 at the ground,
+scaled by a common factor so they keep their relative sizes (8.8, 9.5 and 11 m).
+Instancing picks a variant per tree, so a stand is not one silhouette repeated.
+
+Bark tiles its UVs — they run from -3.5 to 12 — so it cannot share an atlas and
+keeps its own repeating texture; leaf and branch both sit inside the unit square
+and are packed into one alpha-masked atlas. Six index ranges over one buffer,
+three variants times two materials, and one instanced draw per range per chunk.
+
+Two things that are easy to get wrong here and produce a tree with no leaves at
+all. The runtime uploads textures with `UNPACK_FLIP_Y_WEBGL`, so a tile pasted
+at the top of the atlas image ends up at the *top* of the GL texture while glTF
+counts `v` down from that same row — every UV needs `t = 1 - v`, or the foliage
+samples empty atlas and vanishes under the alpha test. And the mip chain
+averages more and more empty space into an alpha mask as it recedes, so a fixed
+cutoff strips the canopy bare with distance; the shader estimates the mip level
+from the UV derivatives and relaxes the test to match.
+
+The source ships a morph-target wind animation. It is dropped: the vertex shader
+sways the canopy instead, phased by instance position, which costs no extra
+vertex data and means the forest does not lean in lockstep.
+
+> Both models are third-party assets (their glTF metadata identifies them as
+> Sketchfab exports). Check their licences before redistributing this repository
 > publicly — everything else here is generated at runtime and carries no such
 > constraint.
 

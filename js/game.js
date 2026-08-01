@@ -88,6 +88,7 @@ const Game = {
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
       debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
       ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
+      tree: GLU.program(SH.treeVS, SH.treeFS, 'tree'),
       thruster: GLU.program(SH.thrusterVS, SH.thrusterFS, 'thruster'),
       sky: GLU.program(SH.fullVS, SH.skyFS, 'sky'),
       bright: GLU.program(SH.fullVS, SH.brightFS, 'bright'),
@@ -127,6 +128,8 @@ const Game = {
     this.thrusterMesh = buildThrusterMesh(this.gl);
     this.shipTex = await this.loadTexture(SHIP_MODEL.tex);
     this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
+    this.treeBark = await this.loadTexture(TREE_MODEL.bark, true);
+    this.treeAtlas = await this.loadTexture(TREE_MODEL.atlas, false);
 
     setProgress(1.0, 'ready');
     await tick();
@@ -134,7 +137,7 @@ const Game = {
 
   /* The hull atlas travels as a data: URI inside shipmodel.js, so it decodes
      without a network request and the game still runs from file://. */
-  loadTexture(src) {
+  loadTexture(src, repeat) {
     const gl = this.gl;
     return new Promise((resolve) => {
       const img = new Image();
@@ -146,8 +149,9 @@ const Game = {
         gl.generateMipmap(gl.TEXTURE_2D);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        const wrap = repeat === false ? gl.CLAMP_TO_EDGE : gl.REPEAT;
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
         const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
         if (aniso) {
           const max = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
@@ -869,9 +873,56 @@ const Game = {
     _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
     gl.uniformMatrix3fv(op.u.uModelRot, false, _gMat3);
     for (const ch of this.terrain.visible) {
-      if (!ch.props) continue;
+      if (!ch.props || !ch.props.baked) continue;
       gl.uniform3f(op.u.uOffset, ch.center[0] + px, ch.center[1] + py, ch.center[2] + pz);
-      ch.props.draw();
+      ch.props.baked.draw();
+    }
+
+    this.drawTrees(sun, sunCol, amb, p, px, py, pz);
+  },
+
+  /* Trees: one instanced draw per chunk, per variant, per material, all
+     sharing a single geometry buffer.  Bark and foliage differ only by texture
+     and alpha test, so the texture bind is the outer loop. */
+  drawTrees(sun, sunCol, amb, p, px, py, pz) {
+    const gl = this.gl, pr = this.prog.tree;
+    let any = false;
+    for (const ch of this.terrain.visible) if (ch.props && ch.props.trees) { any = true; break; }
+    if (!any) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uTreeH, TREE_MODEL.height);
+    /* Denser air pushes the canopy harder. */
+    const dens = p.densityAt(Math.max(this.mode === 'foot' ? this.player.altitude : this.ship.altitude, 0));
+    gl.uniform1f(pr.u.uWind, 0.10 + saturate(dens) * 0.22);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, amb);
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    this.bindLight(pr);
+
+    const V = TREE_MODEL.variants;
+    for (let m = 0; m < 2; m++) {
+      const bark = m === 0;
+      const sz = bark ? TREE_MODEL.barkSize : TREE_MODEL.atlasSize;
+      GLU.bindTex(pr, 'uTex', 0, bark ? this.treeBark : this.treeAtlas, gl.TEXTURE_2D);
+      gl.uniform2f(pr.u.uTexSize, sz[0], sz[1]);
+      gl.uniform1f(pr.u.uAlphaCutoff, bark ? 0.0 : TREE_MODEL.alphaCutoff);
+      gl.uniform1f(pr.u.uTintMix, bark ? 0.30 : 1.0);
+      gl.uniform1f(pr.u.uTranslucency, bark ? 0.0 : 0.55);
+      for (const ch of this.terrain.visible) {
+        const tv = ch.props && ch.props.trees;
+        if (!tv) continue;
+        gl.uniform3f(pr.u.uOffset, ch.center[0] + px, ch.center[1] + py, ch.center[2] + pz);
+        for (let v = 0; v < V.length; v++) {
+          const ir = tv.variantRanges[v];
+          if (!ir[1]) continue;
+          tv.draw(V[v][m][0], V[v][m][1], ir[0], ir[1]);
+        }
+      }
     }
   },
 
@@ -981,24 +1032,29 @@ const Game = {
     gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
     GLU.bindTex(pr, 'uNoise', 0, this.noiseTex, gl.TEXTURE_3D);
 
-    gl.uniform1f(pr.u.uLen, 2.2 + power * 7.0 + sh.ultra * 16.0);
-    gl.uniform1f(pr.u.uRad, 0.85 + Math.min(power, 1.0) * 0.30);
+    /* Long and thin: the trail runs many ship-lengths aft. */
+    gl.uniform1f(pr.u.uLen, 8.0 + power * 46.0 + sh.ultra * 120.0);
+    gl.uniform1f(pr.u.uRad, 0.70 + Math.min(power, 1.0) * 0.22);
+    gl.uniform1f(pr.u.uMinWidth, this.tanFovY * 2 * 2.0 / Math.max(this.rt.h, 1));
     /* Shock diamonds need a working drive and thin air to stand up in. */
     const dens = this.activePlanet ? this.activePlanet.densityAt(Math.max(sh.altitude, 0)) : 0;
     gl.uniform1f(pr.u.uShock, saturate(power * 0.9 - 0.25) * (1 - saturate(dens * 1.6)));
 
     /* Colour shifts with the drive: orange idle, blue-white under pulse,
        violet at ultra. */
+    /* Saturated primaries rather than pastels — an additive trail that is
+       already near white in the core needs strong colour in the halo to read
+       as anything but a grey streak. */
     const t1 = saturate(drive), t2 = saturate(sh.ultra);
-    _gCore[0] = lerp(lerp(1.0, 0.62, t1), 0.85, t2);
-    _gCore[1] = lerp(lerp(0.72, 0.88, t1), 0.62, t2);
-    _gCore[2] = lerp(lerp(0.34, 1.00, t1), 1.00, t2);
-    _gTip[0] = lerp(lerp(1.0, 0.20, t1), 0.65, t2);
-    _gTip[1] = lerp(lerp(0.30, 0.45, t1), 0.18, t2);
-    _gTip[2] = lerp(lerp(0.06, 1.00, t1), 1.00, t2);
+    _gCore[0] = lerp(lerp(0.30, 0.20, t1), 0.85, t2);
+    _gCore[1] = lerp(lerp(0.95, 0.70, t1), 0.30, t2);
+    _gCore[2] = lerp(lerp(1.00, 1.00, t1), 1.00, t2);
+    _gTip[0] = lerp(lerp(0.05, 0.10, t1), 0.55, t2);
+    _gTip[1] = lerp(lerp(0.55, 0.25, t1), 0.05, t2);
+    _gTip[2] = lerp(lerp(0.95, 1.00, t1), 1.00, t2);
     gl.uniform3fv(pr.u.uCore, _gCore);
     gl.uniform3fv(pr.u.uTip, _gTip);
-    gl.uniform1f(pr.u.uIntensity, 0.62 + Math.min(power, 1.8) * 0.52);
+    gl.uniform1f(pr.u.uIntensity, 0.85 + Math.min(power, 1.8) * 0.80);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);

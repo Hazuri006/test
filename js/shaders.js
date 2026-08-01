@@ -795,11 +795,19 @@ void main(){
   float dist = 1e20;
   vec3 col;
 
+  /* Additive, depth-less things — the engine plumes — are blended into the
+     scene buffer against a black clear, and would otherwise be thrown away
+     here: with no depth written, their pixels read as empty sky.  Keep what is
+     already in the buffer and add it back over the finished sky at the end, so
+     a drive trail against starfield survives and still reads as emissive. */
+  vec3 emissive = vec3(0.0);
+
   if (hasScene){
     float w = exp2(rawD * uInvLogK) - 1.0;
     dist = w / max(dot(rd, uCamFwd), 1e-4);
     col = texture(uScene, vUV).rgb;
   } else {
+    emissive = texture(uScene, vUV).rgb;
     col = background(rd) + starDisc(rd);
   }
 
@@ -926,7 +934,131 @@ void main(){
     col = mix(col, col * vec3(0.55, 0.95, 1.25) + vec3(0.02, 0.09, 0.13), wash);
   }
 
+  fragColor = vec4(col + emissive, 1.0);
+}
+`;
+
+/* ============================================================================
+   TREES — instanced, alpha-masked foliage with procedural wind.
+
+   The source model shipped a morph-target wind bake; it is replaced here by a
+   sway computed from world position and height up the trunk.  That costs no
+   extra vertex data and, more importantly, gives every instance its own phase
+   — a forest where every tree leans in lockstep looks worse than one that does
+   not move at all.
+   ============================================================================ */
+SH.treeVS = SH.head + SH.common + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+layout(location=3) in vec3 iOffset;   // relative to the chunk centre
+layout(location=4) in vec4 iRot;      // orientation on the surface
+layout(location=5) in vec4 iTint;     // rgb tint, a = scale
+
+uniform mat4 uViewProj;
+uniform vec3 uOffset;
+uniform float uFcoefHalf;
+uniform float uTime;
+uniform float uWind;
+uniform float uTreeH;
+
+out vec3 vPos;
+out vec3 vNormal;
+out vec2 vUV;
+out vec3 vTint;
+out float vLogZ;
+
+vec3 qrot(vec4 q, vec3 v){ return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+
+void main(){
+  vec3 lp = aPos;
+
+  /* Sway grows with height up the trunk and is phased by instance position. */
+  float h = clamp(aPos.y / uTreeH, 0.0, 1.0);
+  float sway = h * h;
+  float ph = dot(iOffset, vec3(0.13, 0.09, 0.17));
+  lp.x += (sin(uTime * 1.25 + ph) * 0.55 + sin(uTime * 3.1 + ph * 2.3) * 0.20) * sway * uWind;
+  lp.z += (cos(uTime * 1.05 + ph * 1.4) * 0.45 + sin(uTime * 2.6 + ph) * 0.18) * sway * uWind;
+
+  lp = qrot(iRot, lp * iTint.a);
+  vec3 p = lp + iOffset + uOffset;
+
+  vPos = p;
+  vNormal = qrot(iRot, aNormal);
+  vUV = aUV;
+  vTint = iTint.rgb;
+
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  gl_Position = cp;
+}
+`;
+
+SH.treeFS = SH.head + SH.common + `
+in vec3 vPos;
+in vec3 vNormal;
+in vec2 vUV;
+in vec3 vTint;
+in float vLogZ;
+
+uniform sampler2D uTex;
+uniform vec2 uTexSize;
+uniform float uAlphaCutoff;
+uniform float uTintMix;
+uniform float uTranslucency;
+uniform vec3 uSunDir, uSunColor, uAmbient;
+uniform vec3 uPlanetC;
+uniform float uFcoefHalf;
+uniform vec4 uLightPos;
+uniform vec3 uLightCol;
+uniform vec3 uLightDir;
+
+out vec4 fragColor;
+
+void main(){
+  vec4 t = texture(uTex, vUV);
+  if (uAlphaCutoff > 0.0){
+    /* Every mip level averages more empty space into the mask, so a fixed
+       cutoff strips the canopy bare as it recedes — a stand of trees turns
+       into a stand of sticks.  Estimate the mip from the UV derivatives and
+       relax the test to match. */
+    vec2 dx = dFdx(vUV * uTexSize), dy = dFdy(vUV * uTexSize);
+    float lod = 0.5 * log2(max(dot(dx, dx), dot(dy, dy)) + 1e-8);
+    if (t.a < uAlphaCutoff * clamp(1.0 - lod * 0.22, 0.30, 1.0)) discard;
+  }
+
+  vec3 n = normalize(vNormal);
+  if (!gl_FrontFacing) n = -n;          // foliage cards are two-sided
+  vec3 up = normalize(vPos - uPlanetC);
+  /* The biome tint is a hue shift with unit average, so it recolours foliage
+     without darkening it; bark only takes a little of it and stays bark. */
+  vec3 albedo = t.rgb * mix(vec3(1.0), vTint, uTintMix);
+
+  float ndl = max(dot(n, uSunDir), 0.0);
+  float shade = smoothstep(-0.12, 0.10, dot(up, uSunDir));
+  vec3 col = albedo * uSunColor * ndl * shade;
+  col += albedo * uAmbient * (0.55 + 0.45 * dot(n, up));
+
+  /* Leaves lit from behind glow — without it a canopy reads as cardboard. */
+  if (uTranslucency > 0.0){
+    float back = pow(max(dot(-n, uSunDir), 0.0), 1.7);
+    col += albedo * uSunColor * back * uTranslucency * shade;
+  }
+
+  if (uLightPos.w > 0.0){
+    vec3 L = uLightPos.xyz - vPos;
+    float d = length(L);
+    if (d < uLightPos.w){
+      L /= d;
+      float att = 1.0 - d / uLightPos.w; att *= att;
+      float cone = smoothstep(0.32, 0.78, dot(-L, uLightDir));
+      col += albedo * uLightCol * max(dot(n, L), 0.0) * att * (0.22 + 0.78 * cone);
+    }
+  }
+
   fragColor = vec4(col, 1.0);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
 }
 `;
 
@@ -1046,6 +1178,8 @@ uniform vec3 uCamRight, uCamUp;
 uniform float uFcoefHalf;
 uniform float uLen;
 uniform float uRad;
+uniform float uMinWidth;   // smallest half-width in radians, so the trail
+                           // never falls below a couple of pixels
 
 out float vT;
 out vec2 vQuad;     // beam: (side, 0); disc: the 2D corner offset
@@ -1068,7 +1202,11 @@ void main(){
     /* Looking straight down the exhaust the cross product degenerates; the
        disc takes over there, so any stable fallback will do. */
     right = rl > 1e-4 ? right / rl : normalize(cross(axis, vec3(0.0, 1.0, 0.0)) + vec3(1e-3));
-    p = spine + right * (aData.x * aInfo.x * uRad);
+    /* A trail this thin is often under a pixel wide, and a sub-pixel triangle
+       strip misses pixel centres and flickers out entirely.  Hold it to a
+       minimum angular width instead. */
+    float w = max(aInfo.x * uRad, length(spine) * uMinWidth);
+    p = spine + right * (aData.x * w);
     vAlign = abs(dot(axis, view));
     vT = aData.y;
     vQuad = vec2(aData.x, 0.0);
@@ -1118,8 +1256,11 @@ void main(){
     float r = abs(vQuad.x);
     float t = vT;
 
-    /* Radial density: a soft-shouldered profile, not a hard-edged polygon. */
-    float radial = pow(max(1.0 - r * r, 0.0), 1.7);
+    /* A tight bright filament with a soft halo around it — the shape that
+       reads as a neon drive trail rather than a puff of flame. */
+    float core = pow(max(1.0 - r, 0.0), 6.0);
+    float halo = pow(max(1.0 - r * r, 0.0), 2.2);
+    float radial = core * 1.9 + halo * 0.42;
 
     /* Turbulence, scrolling aft.  Sampling the shared volume is far cheaper
        than evaluating noise, and the plume only needs to shimmer. */
@@ -1133,14 +1274,17 @@ void main(){
 
     /* White-hot at the throat, drive colour along the body, dark at the tip. */
     float hot = exp(-t * 5.5);
-    col = mix(uCore, uTip, smoothstep(0.02, 0.65, t));
-    col = mix(col, vec3(1.0, 0.97, 0.92), hot * 0.85);
+    col = mix(uCore, uTip, smoothstep(0.02, 0.80, t));
+    /* White only in the filament itself; the halo keeps the drive colour, so
+       the trail stays saturated instead of washing out to grey. */
+    col = mix(col, vec3(1.0, 0.98, 0.95), min(hot * 0.6 + core * 0.55, 0.9));
     col += uCore * dia * 1.6;
 
-    a = radial * pow(max(1.0 - t, 0.0), 1.10) * (0.70 + 0.55 * turb);
-    /* Keep a real floor along the body — weighting this too heavily towards
-       the throat leaves the plume invisible a metre behind the nozzle. */
-    a *= 0.62 + 0.38 * hot + dia;
+    /* Barely tapers along its length: the trail should stay bright most of
+       the way and then fall off hard at the very end. */
+    a = radial * pow(max(1.0 - t, 0.0), 0.45) * (0.80 + 0.35 * turb);
+    a *= 0.82 + 0.18 * hot + dia;
+    a *= smoothstep(1.0, 0.86, t);
     /* Fade the beam out as it turns edge-on to the viewer — the disc below
        carries the look from directly behind. */
     a *= 1.0 - pow(vAlign, 3.0);

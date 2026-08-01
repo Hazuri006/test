@@ -9,8 +9,46 @@
    ground does.
    ============================================================================ */
 
+/* Shared tree geometry, built once and instanced by every chunk.  One vertex
+   buffer holds all three baked variants; TREE_MODEL.variants indexes into it. */
+const TreeAsset = {
+  mesh: null,
+  build(gl) {
+    if (this.mesh) return this.mesh;
+    const M = TREE_MODEL;
+    const pos = new Int16Array(decodeBase64(M.pos));
+    const nrm = new Int8Array(decodeBase64(M.nrm));
+    const uv = new Uint16Array(decodeBase64(M.uv));
+    const idx = new Uint16Array(decodeBase64(M.idx));
+    const v = new Float32Array(M.vertexCount * 8);
+    for (let i = 0; i < M.vertexCount; i++) {
+      const s = i * 8, q = i * 3, u = i * 2;
+      v[s]     = pos[q]     / 32767 * M.posScale[0] + M.posBias[0];
+      v[s + 1] = pos[q + 1] / 32767 * M.posScale[1] + M.posBias[1];
+      v[s + 2] = pos[q + 2] / 32767 * M.posScale[2] + M.posBias[2];
+      v[s + 3] = nrm[q] / 127; v[s + 4] = nrm[q + 1] / 127; v[s + 5] = nrm[q + 2] / 127;
+      /* The bark texture tiles, so its UVs run well outside [0,1] and the bake
+         quantises against their real range rather than the unit square. */
+      v[s + 6] = uv[u] / 65535 * M.uvScale[0] + M.uvBias[0];
+      v[s + 7] = uv[u + 1] / 65535 * M.uvScale[1] + M.uvBias[1];
+    }
+    this.mesh = new Mesh(gl, [
+      { name: 'aPos', size: 3 }, { name: 'aNormal', size: 3 }, { name: 'aUV', size: 2 }
+    ]);
+    this.mesh.upload(v, idx);
+    return this.mesh;
+  },
+  layout: [{ name: 'iOffset', size: 3 }, { name: 'iRot', size: 4 }, { name: 'iTint', size: 4 }]
+};
+
+const _tA = V3.new(), _tB = V3.new();
+
 const Props = {
   maxPerChunk: 44,
+  /* A finest chunk is ~25 m across and a tree is 7–9 m tall with a canopy to
+     match, so a handful per patch already reads as woodland.  Packing them any
+     tighter turns a forest into a wall. */
+  treesPerChunk: 6,
 
   /* Deterministic per-chunk seed: the same patch always grows the same trees. */
   seedFor(chunk) {
@@ -21,22 +59,27 @@ const Props = {
     return s;
   },
 
+  /* Worlds whose flora weight is high enough get the real tree model; sparse
+     scrub biomes keep the cheap procedural shrubs. */
+  usesTreeModel(planet) { return planet.biome.props && planet.biome.props.tree >= 0.5; },
+
   scatter(chunk, gl) {
     const terrain = chunk.t;
     const planet = terrain.planet;
     const cfg = planet.biome.props;
     if (!cfg) return null;
 
-    const total = cfg.rock + cfg.tree + cfg.crystal;
-    if (total <= 0.01) return null;
+    const useTrees = this.usesTreeModel(planet);
+    const total = (useTrees ? cfg.rock + cfg.crystal : cfg.rock + cfg.tree + cfg.crystal);
+    if (total <= 0.01 && !useTrees) return null;
 
     /* Finest chunks get the full population, one level up gets a thinned one
        so the transition outward is gradual rather than a hard ring.  Biome
        weight drives density too: a lush world should read as vegetated, a
        barren one as scattered boulders. */
     const levelScale = chunk.level >= terrain.maxLevel ? 1.0 : 0.4;
-    const count = Math.round(this.maxPerChunk * levelScale * clamp(total, 0.35, 1.5));
-    if (count < 1) return null;
+    const count = Math.round(this.maxPerChunk * levelScale * clamp(total, 0.25, 1.5));
+    const treeCount = useTrees ? Math.round(this.treesPerChunk * levelScale * cfg.tree) : 0;
 
     const rng = makeRNG(this.seedFor(chunk));
     const f = CUBE_FACES[chunk.face];
@@ -81,14 +124,16 @@ const Props = {
 
       const ox = pos[0] - cx, oy = pos[1] - cy, oz = pos[2] - cz;
 
-      // pick an archetype
-      const roll = rng() * total;
+      /* Archetype weights.  On worlds that use the real tree model the
+         procedural flora weight is dropped entirely. */
+      const wFlora = useTrees ? 0 : cfg.tree;
+      const roll = rng() * (cfg.rock + wFlora + cfg.crystal);
       const local = new MeshBuilder();
       const shade = 0.72 + rng() * 0.5;
       const col = [tint[0] * shade, tint[1] * shade, tint[2] * shade];
 
       if (roll < cfg.rock) this.buildRock(local, rng, col);
-      else if (roll < cfg.rock + cfg.tree) this.buildFlora(local, rng, col, planet.biome.id);
+      else if (roll < cfg.rock + wFlora) this.buildFlora(local, rng, col, planet.biome.id);
       else this.buildCrystal(local, rng, col, planet.biome.id);
 
       /* Bake the local mesh into the chunk mesh. */
@@ -111,8 +156,87 @@ const Props = {
       placed++;
     }
 
-    if (!placed) return null;
-    return B.build(gl);
+    const out = { baked: placed ? B.build(gl) : null, trees: null };
+    if (treeCount > 0) out.trees = this.scatterTrees(chunk, gl, treeCount);
+    return (out.baked || out.trees) ? out : null;
+  },
+
+  /* Tree instances for one chunk: position, an orientation that stands the
+     trunk on the local surface, a scale and a tint.
+
+     Instances are bucketed by variant and concatenated, so the chunk keeps one
+     instance buffer and each variant is a contiguous slice of it — the draw
+     then costs one call per variant present rather than one per tree. */
+  scatterTrees(chunk, gl, count) {
+    const planet = chunk.t.planet;
+    const cfg = planet.biome.props;
+    const rng = makeRNG(this.seedFor(chunk) ^ 0x7ee5);
+    const f = CUBE_FACES[chunk.face];
+    const dir = V3.new(), nrm = V3.new(), pos = V3.new();
+    const cx = chunk.center[0], cy = chunk.center[1], cz = chunk.center[2];
+    const nVar = TREE_MODEL.variants.length;
+    const hue = Math.max((cfg.tint[0] + cfg.tint[1] + cfg.tint[2]) / 3, 1e-3);
+    const buckets = [];
+    for (let i = 0; i < nVar; i++) buckets.push([]);
+    const q = Q4.new(), right = V3.new(), fwd = V3.new();
+
+    for (let k = 0; k < count; k++) {
+      const u = chunk.u0 + rng() * chunk.size;
+      const v = chunk.v0 + rng() * chunk.size;
+      V3.set(dir,
+        f.n[0] + f.u[0] * u + f.v[0] * v,
+        f.n[1] + f.u[1] * u + f.v[1] * v,
+        f.n[2] + f.u[2] * u + f.v[2] * v);
+      V3.normalize(dir, dir);
+
+      const alt = planet.heightAt(dir[0], dir[1], dir[2], chunk.lod);
+      if (planet.hasWater && alt < planet.seaH + 2.5) continue;
+      planet.normalAt(dir, nrm, Math.max(planet.radius * 4e-6, 0.8));
+      if (1 - V3.dot(nrm, dir) > 0.22) continue;   // trees need level ground
+
+      V3.scale(pos, dir, planet.radius + alt);
+
+      /* Orientation with local +Y along the surface normal, spun at random
+         about it.  fromBasis takes (right, up, forward) with right = fwd x up. */
+      V3.set(fwd, 0, 0, 1);
+      if (Math.abs(V3.dot(nrm, fwd)) > 0.9) V3.set(fwd, 1, 0, 0);
+      V3.planeProject(fwd, fwd, nrm);
+      V3.normalize(fwd, fwd);
+      V3.normalize(right, V3.cross(right, fwd, nrm));
+      const spin = rng() * TAU, cs = Math.cos(spin), sn = Math.sin(spin);
+      V3.set(_tB, fwd[0] * cs + right[0] * sn, fwd[1] * cs + right[1] * sn, fwd[2] * cs + right[2] * sn);
+      V3.normalize(_tB, _tB);
+      V3.normalize(_tA, V3.cross(_tA, _tB, nrm));
+      Q4.fromBasis(q, _tA, nrm, _tB);
+
+      /* Normalised to unit average: the tint carries the biome's hue, and the
+         texture keeps its own brightness instead of being halved by it. */
+      const shade = (0.86 + rng() * 0.30) / hue;
+      buckets[(rng() * nVar) | 0].push(
+        pos[0] - cx, pos[1] - cy, pos[2] - cz,
+        q[0], q[1], q[2], q[3],
+        cfg.tint[0] * shade, cfg.tint[1] * shade, cfg.tint[2] * shade,
+        /* The variants are already 7.2–9 m tall, so this only varies them: a
+           stand wants saplings among full-grown trees, not a size class. */
+        0.62 + rng() * 0.55
+      );
+    }
+
+    let total = 0;
+    for (let i = 0; i < nVar; i++) total += buckets[i].length;
+    if (!total) return null;
+
+    const inst = new Float32Array(total);
+    const ranges = [];
+    let o = 0;
+    for (let i = 0; i < nVar; i++) {
+      inst.set(buckets[i], o);
+      ranges.push([o / 11, buckets[i].length / 11]);
+      o += buckets[i].length;
+    }
+    const view = TreeAsset.build(gl).instancedView(inst, TreeAsset.layout);
+    view.variantRanges = ranges;
+    return view;
   },
 
   /* --------------------------------------------------------------- shapes -- */
@@ -194,5 +318,9 @@ const Props = {
     }
   },
 
-  dispose(mesh) { if (mesh) mesh.dispose(); }
+  dispose(p) {
+    if (!p) return;
+    if (p.baked) p.baked.dispose();
+    if (p.trees) p.trees.dispose();
+  }
 };

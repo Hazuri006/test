@@ -140,7 +140,7 @@ function buildThrusterMesh(gl) {
       const t = i / SEG;
       /* Necks in just past the throat, then swells and tapers — the shape of
          an exhaust expanding into vacuum. */
-      const prof = er * (0.55 + 0.85 * Math.pow(t, 0.45)) * Math.pow(1 - t, 0.42);
+      const prof = er * (0.42 + 0.30 * Math.pow(t, 0.5)) * Math.pow(1 - t, 0.22);
       push(-1, t, 0, e[0], e[1], e[2], prof);
       push(1, t, 0, e[0], e[1], e[2], prof);
     }

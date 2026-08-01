@@ -2,9 +2,10 @@
 /* ============================================================================
    debris.js — orbital debris belts.
 
-   Roughly two worlds in five carry a belt: a shallow torus of rock and wreckage
+   Roughly four worlds in five carry a belt: a torus of rock and wreckage
    sitting above the atmosphere, tilted off the equator and slowly precessing.
-   You fly through it on the way down.
+   Two thirds of them are broad fields rather than tidy rings.  You fly through
+   it on the way down.
 
    One instanced draw call per planet.  The belt's rotation is a uniform rather
    than baked into the instance buffer, so it turns for free, and each rock's
@@ -16,25 +17,31 @@
    rocks — which reads as nothing at all.  These are deliberately concentrated
    into a thinner, narrower band so it registers both as a ring from orbit and
    as debris you are flying through when you are inside it. */
-const DEBRIS_QUALITY = { low: 1300, medium: 2700, high: 4600, ultra: 7200 };
+const DEBRIS_QUALITY = { low: 2200, medium: 4500, high: 7500, ultra: 12000 };
 
 const Debris = {
   /* Deterministic from the planet seed — the same world always has the same
      belt, and 'some planets' stays stable across sessions. */
   configFor(planet) {
     const rng = makeRNG((planet.seed ^ 0x5eb17e21) >>> 0);
-    if (rng() > 0.42) return null;
+    /* Most worlds carry something; a quarter are clean. */
+    if (rng() > 0.78) return null;
 
     const R = planet.radius;
-    const inner = Math.max(planet.atmoRadius * 1.12, R * (1.42 + rng() * 0.45));
-    const width = R * (0.10 + rng() * 0.26);
+    const inner = Math.max(planet.atmoRadius * 1.06, R * (1.24 + rng() * 0.30));
+    const width = R * (0.30 + rng() * 0.75);
+    /* Two thirds are broad fields wrapping the planet rather than tidy rings —
+       that is what a debris field actually looks like from inside it. */
+    const field = rng() < 0.66;
     const tiltA = (rng() - 0.5) * 0.9;
     const tiltB = (rng() - 0.5) * 0.9;
 
     const axis = V3.normalize(V3.new(), V3.new(Math.sin(tiltA), Math.cos(tiltA) * Math.cos(tiltB), Math.sin(tiltB)));
     return {
       inner, outer: inner + width,
-      thickness: R * (0.007 + rng() * 0.018),
+      field,
+      /* A field is nearly as thick as it is wide; a ring stays a band. */
+      thickness: field ? (width * (0.35 + rng() * 0.35)) : R * (0.008 + rng() * 0.022),
       axis,
       /* A few minutes per revolution: perceptible while you sit in it, never
          distracting. */

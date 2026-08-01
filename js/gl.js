@@ -231,6 +231,71 @@ class Mesh {
     gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, this.indexType, 0, n);
   }
 
+  /* A second VAO over this mesh's existing geometry plus a fresh instance
+     buffer.  Lets many chunks instance the same model without each one
+     duplicating the vertex data. */
+  instancedView(instData, instLayout) {
+    const gl = this.gl;
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+    for (let i = 0; i < this.layout.length; i++) {
+      const l = this.layout[i];
+      gl.enableVertexAttribArray(i);
+      gl.vertexAttribPointer(i, l.size, gl.FLOAT, false, this.stride, l.offset);
+      gl.vertexAttribDivisor(i, 0);
+    }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
+
+    let istride = 0;
+    for (const l of instLayout) { l.offset = istride; istride += l.size * 4; }
+    const ivbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, ivbo);
+    gl.bufferData(gl.ARRAY_BUFFER, instData, gl.STATIC_DRAW);
+    const base = this.layout.length;
+    for (let i = 0; i < instLayout.length; i++) {
+      const l = instLayout[i];
+      gl.enableVertexAttribArray(base + i);
+      gl.vertexAttribPointer(base + i, l.size, gl.FLOAT, false, istride, l.offset);
+      gl.vertexAttribDivisor(base + i, 1);
+    }
+    gl.bindVertexArray(null);
+
+    const mesh = this;
+    const ibytes = mesh.indexType === gl.UNSIGNED_INT ? 4 : 2;
+    return {
+      vao, ivbo,
+      count: instData.length / (istride / 4),
+      _instBase: 0,
+
+      /* One index range, drawn for a contiguous slice of the instances.  A
+         model baked as several variants needs both halves of that: the range
+         picks the variant's geometry, the slice picks the instances that chose
+         it.  WebGL 2 has no baseInstance, so the slice is done by re-pointing
+         the instance attributes — a few pointer calls, against a whole extra
+         VAO and instance buffer per variant. */
+      draw(indexStart, indexCount, instStart, instCount) {
+        if (indexCount <= 0) return;
+        const s = instStart || 0;
+        const n = instCount === undefined ? this.count - s : instCount;
+        if (n <= 0) return;
+        gl.bindVertexArray(vao);
+        if (s !== this._instBase) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, ivbo);
+          for (let i = 0; i < instLayout.length; i++) {
+            const l = instLayout[i];
+            gl.vertexAttribPointer(base + i, l.size, gl.FLOAT, false, istride,
+              l.offset + s * istride);
+          }
+          this._instBase = s;
+        }
+        gl.drawElementsInstanced(gl.TRIANGLES, indexCount, mesh.indexType,
+          indexStart * ibytes, n);
+      },
+      dispose() { gl.deleteVertexArray(vao); gl.deleteBuffer(ivbo); }
+    };
+  }
+
   dispose() {
     const gl = this.gl;
     if (this.vao) gl.deleteVertexArray(this.vao);
