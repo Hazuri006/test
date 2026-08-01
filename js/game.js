@@ -86,6 +86,8 @@ const Game = {
     this.prog = {
       terrain: GLU.program(SH.terrainVS, SH.terrainFS, 'terrain'),
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
+      ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
+      thruster: GLU.program(SH.thrusterVS, SH.thrusterFS, 'thruster'),
       sky: GLU.program(SH.fullVS, SH.skyFS, 'sky'),
       bright: GLU.program(SH.fullVS, SH.brightFS, 'bright'),
       blur: GLU.program(SH.fullVS, SH.blurFS, 'blur'),
@@ -116,14 +118,45 @@ const Game = {
     }
     this.newSystem(seed);
 
-    setProgress(0.90, 'assembling starship');
+    setProgress(0.88, 'assembling starship');
     await tick();
 
-    const rng = makeRNG(seed ^ 0x5f3759df);
-    this.shipMesh = buildShipMesh(this.gl, SHIP_PALETTES[(rng() * SHIP_PALETTES.length) | 0]);
+    this.shipMesh = buildShipMesh(this.gl);
+    this.thrusterMesh = buildThrusterMesh(this.gl);
+    this.shipTex = await this.loadShipTexture();
 
     setProgress(1.0, 'ready');
     await tick();
+  },
+
+  /* The hull atlas travels as a data: URI inside shipmodel.js, so it decodes
+     without a network request and the game still runs from file://. */
+  loadShipTexture() {
+    const gl = this.gl;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+        if (aniso) {
+          const max = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+          gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
+        }
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        resolve(t);
+      };
+      img.onerror = () => resolve(null);
+      img.src = SHIP_MODEL.tex;
+    });
   },
 
   newSystem(seed) {
@@ -241,7 +274,7 @@ const Game = {
       case 'KeyM': this.toggleMap(!this.mapOpen); break;
       case 'KeyH': this.hudHidden = !this.hudHidden; HUD.setHidden(this.hudHidden); break;
       case 'KeyC': this.view3rd = !this.view3rd; this.audio.ui(); break;
-      case 'KeyV': this.doScan(); break;
+      case 'KeyX': this.doScan(); break;
       case 'KeyF': this.input.landPressed = true; break;
       case 'KeyE': this.toggleFoot(); break;
       case 'F3': this.showStats = !this.showStats; HUD.el.fps.classList.toggle('on', this.showStats); break;
@@ -285,8 +318,10 @@ const Game = {
       inp.throttle = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
       inp.move.x = 0; inp.move.y = 0;
       this.ship.pulseWanted = !!k.Space;
+      this.ship.ultraWanted = !!k.KeyV;
       inp.jump = false;
     }
+    if (this.mode === 'foot') { this.ship.pulseWanted = false; this.ship.ultraWanted = false; }
 
     inp.boost = !!(k.ShiftLeft || k.ShiftRight);
     inp.brake = !!(k.ControlLeft || k.ControlRight);
@@ -532,6 +567,7 @@ const Game = {
         ? this.activePlanet.densityAt(Math.max(this.mode === 'foot' ? this.player.altitude : this.ship.altitude, 0))
         : 0,
       pulse: this.ship.pulse,
+      ultra: this.ship.ultra,
       onFoot: this.mode === 'foot',
       landed: this.ship.landed,
       jetting: this.player.jetting,
@@ -600,20 +636,22 @@ const Game = {
     } else {
       const s = this.ship;
       if (this.view3rd) {
-        /* Chase camera: pull back and up in ship space, then ease.  The ease
-           is what makes hard manoeuvres read as fast rather than jittery. */
-        const speedK = saturate(s.speed / 500);
-        const dist = 12.5 + speedK * 4.5 + s.pulse * 7.0;
-        const fwd = quatFwd(_gF, s.rot);
-        const up = quatUp(_gU, s.rot);
-        V3.addScaled(_gDesired, s.pos, fwd, -dist);
-        V3.addScaled(_gDesired, _gDesired, up, 3.4 + speedK * 0.8);
+        /* Chase camera.  Only the *orientation* is smoothed; the position is
+           then rigidly offset from that smoothed frame.  Easing the world
+           position instead makes the camera fall behind at speed — at 1 km/s
+           the ship outruns the ease and shrinks to a dot. */
+        Q4.slerp(this.camRot, this.camRot, s.rot, 1 - Math.exp(-dt * 9));
 
-        const k = 1 - Math.exp(-dt * 11);
-        if (this._camInit) V3.lerp(this.camPos, this.camPos, _gDesired, k);
-        else { V3.copy(this.camPos, _gDesired); this._camInit = true; }
+        const speedK = saturate(s.speed / 600);
+        const drive = Math.max(s.pulse, s.ultra);
+        const dist = 14.0 + speedK * 3.0 + drive * 9.0;
+        const height = 2.8 + speedK * 0.6;
 
-        Q4.slerp(this.camRot, this.camRot, s.rot, 1 - Math.exp(-dt * 13));
+        const back = quatFwd(_gF, this.camRot);
+        const up = quatUp(_gU, this.camRot);
+        V3.addScaled(this.camPos, s.pos, back, -dist);
+        V3.addScaled(this.camPos, this.camPos, up, height);
+        this._camInit = true;
       } else {
         /* Cockpit: sit inside the canopy.  The glass itself is clipped in the
            vertex shader, so the nose, wings and engine glow frame the view. */
@@ -823,35 +861,79 @@ const Game = {
   },
 
   drawShipPass(sun, sunCol, p) {
-    const gl = this.gl, op = this.prog.object;
+    const gl = this.gl;
+    const sh = this.ship;
     const cockpit = this.mode === 'ship' && !this.view3rd;
-    gl.useProgram(op.prog);
-    gl.uniformMatrix4fv(op.u.uViewProj, false, this.viewProj);
-    gl.uniform1f(op.u.uFcoefHalf, this.fcoefHalf);
-    gl.uniform1f(op.u.uTime, this.time);
-    gl.uniform1f(op.u.uThrust, this.ship.thrustVis);
-    gl.uniform1f(op.u.uGear, this.ship.gear);
-    gl.uniform1f(op.u.uHideCanopy, cockpit ? 1 : 0);
-    gl.uniform3f(op.u.uSunDir, sun[0], sun[1], sun[2]);
-    gl.uniform3fv(op.u.uSunColor, sunCol);
-    gl.uniform3fv(op.u.uAmbient, this.ambientColor(p));
-    if (p) {
-      gl.uniform3f(op.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
-      gl.uniform1f(op.u.uR, p.radius);
-    } else {
-      const s = this.sunDirScaled(_gTmp);
-      gl.uniform3f(op.u.uPlanetC, s[0], s[1], s[2]);
-      gl.uniform1f(op.u.uR, 1);
-    }
+    /* From inside the cockpit the hull would fill the frame; the plumes are
+       behind us either way. */
+    if (cockpit) return;
 
-    this.bindLight(op);
-    Q4.toMat3(_gMat3, this.ship.rot);
-    gl.uniformMatrix3fv(op.u.uModelRot, false, _gMat3);
-    gl.uniform3f(op.u.uOffset,
-      this.ship.pos[0] - this.camPos[0],
-      this.ship.pos[1] - this.camPos[1],
-      this.ship.pos[2] - this.camPos[2]);
+    const pr = this.prog.ship;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    }
+    this.bindLight(pr);
+    GLU.bindTex(pr, 'uTex', 0, this.shipTex, gl.TEXTURE_2D);
+
+    Q4.toMat3(_gMat3, sh.rot);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    const ox = sh.pos[0] - this.camPos[0];
+    const oy = sh.pos[1] - this.camPos[1];
+    const oz = sh.pos[2] - this.camPos[2];
+    gl.uniform3f(pr.u.uOffset, ox, oy, oz);
     this.shipMesh.draw();
+
+    this.drawThrusters(ox, oy, oz);
+  },
+
+  /* Exhaust plumes, drawn additively after the hull.  Depth test on so the
+     terrain can occlude them, depth write off so they never occlude anything. */
+  drawThrusters(ox, oy, oz) {
+    const gl = this.gl, sh = this.ship;
+    const drive = Math.max(sh.pulse, sh.ultra);
+    const power = clamp(sh.thrustVis * 0.85 + sh.boost * 0.5 + drive * 1.4 + sh.ultra * 1.2, 0, 3.2);
+    if (power < 0.04) return;
+
+    const pr = this.prog.thruster;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, ox, oy, oz);
+
+    /* Plume geometry: longer and thinner the harder the drive is pushing. */
+    gl.uniform1f(pr.u.uLen, 1.6 + power * 5.4 + sh.ultra * 13.0);
+    gl.uniform1f(pr.u.uRad, 0.42 + Math.min(power, 1.0) * 0.16);
+
+    /* Colour shifts with the drive: orange idle, blue-white under pulse,
+       violet at ultra. */
+    const t1 = saturate(drive), t2 = saturate(sh.ultra);
+    _gCore[0] = lerp(lerp(1.0, 0.62, t1), 0.85, t2);
+    _gCore[1] = lerp(lerp(0.72, 0.88, t1), 0.62, t2);
+    _gCore[2] = lerp(lerp(0.34, 1.00, t1), 1.00, t2);
+    _gTip[0] = lerp(lerp(1.0, 0.20, t1), 0.65, t2);
+    _gTip[1] = lerp(lerp(0.30, 0.45, t1), 0.18, t2);
+    _gTip[2] = lerp(lerp(0.06, 1.00, t1), 1.00, t2);
+    gl.uniform3fv(pr.u.uCore, _gCore);
+    gl.uniform3fv(pr.u.uTip, _gTip);
+    gl.uniform1f(pr.u.uIntensity, 0.40 + Math.min(power, 1.6) * 0.40);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    this.thrusterMesh.draw();
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
   },
 
   /* A stand-in "up" when there is no planet: point away from the star so the
@@ -1081,8 +1163,7 @@ const Game = {
     gl.uniform1f(pr.u.uBloomAmount, GLU.hdr ? 0.30 : 0.20);
     gl.uniform1f(pr.u.uExposure, this.exposure);
     gl.uniform1f(pr.u.uTime, this.time);
-    gl.uniform1f(pr.u.uHeat, this.mode === 'foot' ? 0 : this.ship.heat);
-    gl.uniform1f(pr.u.uPulse, this.mode === 'foot' ? 0 : this.ship.pulse);
+    gl.uniform1f(pr.u.uPulse, this.mode === 'foot' ? 0 : Math.max(this.ship.pulse, this.ship.ultra));
     gl.uniform1f(pr.u.uVignette, 0.38);
     gl.uniform1f(pr.u.uFlash, this.flash);
     gl.uniform2f(pr.u.uRes, this.canvas.width, this.canvas.height);
@@ -1125,5 +1206,7 @@ const _gAmb = new Float32Array(3);
 const _gDP = new Float32Array(32);
 const _gDPA = new Float32Array(32);
 const _gDPB = new Float32Array(32);
+const _gCore = new Float32Array(3);
+const _gTip = new Float32Array(3);
 
 window.addEventListener('DOMContentLoaded', () => Game.boot());

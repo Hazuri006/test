@@ -168,6 +168,78 @@ class GameAudio {
     this.noiseBurst(0.7, 70 + strength * 60, 0.8, 0.22 + strength * 0.3);
     this.blip(48, 0.6, 'sine', 0.18 * (0.4 + strength));
   }
+  /* Entering air: a rising, opening roar of wind over the hull. */
+  atmosphereEntry() {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf; src.loop = true;
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 0.65;
+    bp.frequency.setValueAtTime(180, t);
+    bp.frequency.exponentialRampToValueAtTime(2400, t + 1.5);
+    bp.frequency.exponentialRampToValueAtTime(900, t + 3.4);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.26, t + 1.1);
+    g.gain.setValueAtTime(0.26, t + 1.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.6);
+
+    /* A low body under the hiss so it lands as impact, not just noise. */
+    const rum = ctx.createBufferSource();
+    rum.buffer = this.noiseBuf; rum.loop = true; rum.playbackRate.value = 0.35;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 140; lp.Q.value = 2.0;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(0.20, t + 0.7);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+
+    src.connect(bp); bp.connect(g); g.connect(this.bus);
+    rum.connect(lp); lp.connect(rg); rg.connect(this.bus);
+    src.start(t); src.stop(t + 3.8);
+    rum.start(t); rum.stop(t + 3.4);
+  }
+
+  /* Leaving air: the same shape in reverse, thinning into silence. */
+  atmosphereExit() {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf; src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(1600, t);
+    bp.frequency.exponentialRampToValueAtTime(220, t + 2.2);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.16, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+    src.connect(bp); bp.connect(g); g.connect(this.bus);
+    src.start(t); src.stop(t + 2.6);
+  }
+
+  ultraEngage() {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const o = ctx.createOscillator();
+      o.type = i === 2 ? 'square' : 'sawtooth';
+      o.frequency.setValueAtTime(50 + i * 18, t);
+      o.frequency.exponentialRampToValueAtTime(1500 + i * 500, t + 0.75);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(0.09 / (i + 1), t + 0.3);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 3000; f.Q.value = 6;
+      o.connect(f); f.connect(g); g.connect(this.bus);
+      o.start(t); o.stop(t + 1.6);
+    }
+    this.noiseBurst(1.4, 300, 0.5, 0.20, 5200);
+  }
+
   pulseEngage() {
     if (!this.ready) return;
     const ctx = this.ctx, t = ctx.currentTime;
@@ -190,27 +262,28 @@ class GameAudio {
     const set = (param, v, tc) => param.setTargetAtTime(v, t, tc || 0.08);
 
     const {
-      throttle = 0, thrust = 0, speed = 0, density = 0, pulse = 0,
+      throttle = 0, thrust = 0, speed = 0, density = 0, pulse = 0, ultra = 0,
       onFoot = false, landed = false, jetting = false, inMenu = false
     } = state;
+    const drive = Math.max(pulse, ultra);
 
     const master = inMenu ? 0.35 : 1.0;
 
     /* engine */
-    let engLevel = onFoot ? (jetting ? 0.11 : 0.0) : (0.035 + thrust * 0.16 + pulse * 0.22);
+    let engLevel = onFoot ? (jetting ? 0.11 : 0.0) : (0.035 + thrust * 0.16 + drive * 0.22 + ultra * 0.10);
     if (landed) engLevel = 0.02;
     set(this.engGain.gain, engLevel * master, 0.12);
-    const pitch = 46 + thrust * 46 + pulse * 120 + Math.min(speed, 900) * 0.05;
+    const pitch = 46 + thrust * 46 + drive * 120 + ultra * 90 + Math.min(speed, 900) * 0.05;
     set(this.osc1.frequency, pitch, 0.15);
     set(this.osc2.frequency, pitch * 1.006, 0.15);
     set(this.osc3.frequency, pitch * 0.5, 0.15);
-    set(this.engFilter.frequency, 260 + thrust * 900 + pulse * 2600, 0.15);
-    set(this.engNoiseGain.gain, (onFoot ? (jetting ? 0.09 : 0) : 0.02 + thrust * 0.07 + pulse * 0.13) * master, 0.12);
-    set(this.engNoiseFilter.frequency, 110 + pulse * 700 + thrust * 180, 0.2);
+    set(this.engFilter.frequency, 260 + thrust * 900 + drive * 2600 + ultra * 1800, 0.15);
+    set(this.engNoiseGain.gain, (onFoot ? (jetting ? 0.09 : 0) : 0.02 + thrust * 0.07 + drive * 0.13 + ultra * 0.08) * master, 0.12);
+    set(this.engNoiseFilter.frequency, 110 + drive * 700 + thrust * 180, 0.2);
 
     /* wind — rises with dynamic pressure */
-    const q = Math.min(density * speed * speed * 4e-5, 1.4);
-    const windLevel = onFoot ? density * 0.05 + (landed ? 0 : 0) : q * 0.16;
+    const q = Math.min(density * speed * speed * 4e-5, 1.6);
+    const windLevel = onFoot ? density * 0.06 : q * 0.30;
     set(this.windGain.gain, windLevel * master, 0.15);
     set(this.windFilter.frequency, 300 + Math.min(speed, 700) * 2.6, 0.2);
     set(this.windFilter.Q, 0.4 + q * 1.4, 0.2);

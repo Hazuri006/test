@@ -923,6 +923,167 @@ void main(){
 `;
 
 /* ============================================================================
+   SHIP — textured glTF hull.  Its own program because the model carries UVs
+   and a base-colour atlas, where props carry per-vertex colour.
+   ============================================================================ */
+SH.shipVS = SH.head + SH.common + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+
+uniform mat4 uViewProj;
+uniform mat3 uModelRot;
+uniform vec3 uOffset;
+uniform float uFcoefHalf;
+
+out vec3 vPos;
+out vec3 vNormal;
+out vec2 vUV;
+out float vLogZ;
+
+void main(){
+  vec3 p = uModelRot * aPos + uOffset;
+  vPos = p;
+  vNormal = uModelRot * aNormal;
+  vUV = aUV;
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  gl_Position = cp;
+}
+`;
+
+SH.shipFS = SH.head + SH.common + `
+in vec3 vPos;
+in vec3 vNormal;
+in vec2 vUV;
+in float vLogZ;
+
+uniform sampler2D uTex;
+uniform vec3 uSunDir, uSunColor, uAmbient;
+uniform vec3 uPlanetC;
+uniform float uFcoefHalf;
+uniform vec4 uLightPos;
+uniform vec3 uLightCol;
+uniform vec3 uLightDir;
+
+out vec4 fragColor;
+
+void main(){
+  vec3 n = normalize(vNormal);
+  /* The hull is authored double-sided and is open at the exhausts, so from
+     behind you look straight into the fuselage.  Flipping the normal towards
+     the viewer lights those interior faces instead of leaving a black void in
+     the middle of the ship. */
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = normalize(-vPos);
+  vec3 up = normalize(vPos - uPlanetC);
+
+  vec3 albedo = texture(uTex, vUV).rgb;
+  /* The atlas is authored bright white; pull it down so sunlight has somewhere
+     to go before the tonemap clips. */
+  albedo *= 0.72;
+
+  float ndl = max(dot(n, uSunDir), 0.0);
+  float shade = smoothstep(-0.12, 0.10, dot(up, uSunDir));
+  vec3 col = albedo * uSunColor * ndl * shade;
+  col += albedo * uAmbient * (0.55 + 0.45 * dot(n, up));
+
+  vec3 h = normalize(uSunDir + v);
+  float spec = pow(max(dot(n, h), 0.0), 54.0);
+  col += uSunColor * spec * 0.40 * shade;
+
+  float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+  col += uAmbient * fres * 0.5;
+
+  /* landing light */
+  if (uLightPos.w > 0.0){
+    vec3 L = uLightPos.xyz - vPos;
+    float d = length(L);
+    if (d < uLightPos.w){
+      L /= d;
+      float att = 1.0 - d / uLightPos.w; att *= att;
+      float cone = smoothstep(0.32, 0.78, dot(-L, uLightDir));
+      col += albedo * uLightCol * max(dot(n, L), 0.0) * att * (0.22 + 0.78 * cone);
+    }
+  }
+
+  fragColor = vec4(col, 1.0);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+}
+`;
+
+/* ============================================================================
+   THRUSTERS — additive exhaust plumes anchored to the engine nozzles.
+   Geometry is baked once with a normalised axis; length, width and colour all
+   come from uniforms so the plume can stretch with the drive.
+   ============================================================================ */
+SH.thrusterVS = SH.head + SH.common + `
+layout(location=0) in vec3 aPos;      // xy: unit radial offset, z: 0..1 along the plume
+layout(location=1) in vec3 aCenter;   // nozzle position in ship space
+layout(location=2) in vec3 aInfo;     // x: t along plume, y: nozzle disc, z: radius
+
+uniform mat4 uViewProj;
+uniform mat3 uModelRot;
+uniform vec3 uOffset;
+uniform float uFcoefHalf;
+uniform float uLen;
+uniform float uRad;
+
+out float vT;
+out float vDisc;
+out float vR;
+out float vLogZ;
+
+void main(){
+  vec3 lp = vec3(aCenter.xy + aPos.xy * uRad, aCenter.z + aPos.z * uLen);
+  vec3 p = uModelRot * lp + uOffset;
+  vT = aInfo.x;
+  vDisc = aInfo.y;
+  vR = aInfo.z;
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  gl_Position = cp;
+}
+`;
+
+SH.thrusterFS = SH.head + SH.common + `
+in float vT;
+in float vDisc;
+in float vR;
+in float vLogZ;
+
+uniform vec3 uCore;        // colour at the nozzle
+uniform vec3 uTip;         // colour at the far end
+uniform float uIntensity;
+uniform float uTime;
+uniform float uFcoefHalf;
+
+out vec4 fragColor;
+
+void main(){
+  /* Flicker is what stops an exhaust plume looking like a plastic cone. */
+  float flick = 0.86 + 0.14 * sin(uTime * 47.0 + vT * 12.0)
+                     + 0.06 * sin(uTime * 113.0 + vT * 31.0);
+  /* The cone body is deliberately dim: seen end-on from the chase camera its
+     open throat is a hard-edged polygon, and at full brightness it clips to a
+     white rectangle.  The soft disc below carries the glow instead; the cone
+     is there to give the plume a shape from the side. */
+  float falloff = pow(max(1.0 - vT, 0.0), 1.7);
+  vec3 col = mix(uCore, uTip, vT) * falloff * flick * 0.42;
+  if (vDisc > 0.5){
+    /* Soft round glow at the throat — this is the face you see from the chase
+       camera, and a flat polygon there reads as a sticker. */
+    float soft = pow(max(1.0 - vR, 0.0), 2.2);
+    col = mix(uCore, vec3(1.0), 0.25) * (3.1 * soft) * flick;
+  }
+  fragColor = vec4(col * uIntensity, 1.0);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+}
+`;
+
+/* ============================================================================
    POST — bright pass, blur, composite
    ============================================================================ */
 SH.brightFS = SH.head + `
@@ -962,8 +1123,7 @@ uniform sampler2D uBloom;
 uniform float uBloomAmount;
 uniform float uExposure;
 uniform float uTime;
-uniform float uHeat;        // atmospheric-entry glow
-uniform float uPulse;       // pulse-drive warp streaks
+uniform float uPulse;       // pulse / ultra warp streaks
 uniform float uVignette;
 uniform float uFlash;       // white flash on impact / boost
 uniform vec2  uRes;
@@ -1002,14 +1162,6 @@ void main(){
   }
 
   col += texture(uBloom, uv).rgb * uBloomAmount;
-
-  /* Atmospheric entry: heat builds from the screen edges inward. */
-  if (uHeat > 0.001){
-    float edge = smoothstep(0.03, 0.30, r2);
-    vec3 hot = vec3(1.5, 0.45, 0.12) * (edge * 0.9 + 0.10);
-    float flicker = 0.82 + 0.18 * sin(uTime * 41.0 + uv.y * 60.0);
-    col += hot * uHeat * flicker * 0.85;
-  }
 
   col += vec3(1.0) * uFlash;
 

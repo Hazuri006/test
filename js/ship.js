@@ -19,88 +19,93 @@ const SHIP_CFG = {
   boostMul: 3.4,
   pulseSpeed: 480000,      // m/s — crosses a system in well under a minute
   pulseAccel: 60000,
+  /* Ultra drive: a hundred times the pulse drive.  At this speed a frame is
+     800 km, so it is only usable because travel is clamped against every
+     planet's approach sphere each step (see limitTravel below) — you arrive
+     instead of passing through. */
+  ultraMul: 100,
   maxSpaceSpeed: 1400,
   maxAtmoSpeed: 640,
   pitchRate: 1.5,
   yawRate: 1.1,
   rollRate: 2.4,
   hoverHeight: 4.2,
-  landHeight: 3.0
+  landHeight: 3.0,
+  approachRadii: 2.6       // ultra/pulse cut-out, in planet radii
 };
 
-function buildShipMesh(gl, palette) {
-  const B = new MeshBuilder();
-  const hull = palette.hull;
-  const dark = palette.dark;
-  const trim = palette.trim;
-  const glass = palette.glass;
-  const glow = palette.glow;
-
-  /* Body: nose to tail along -Z (GL forward).  The taper belongs at the nose
-     (z0), which is why box() takes an explicit end to narrow. */
-  B.box(-0.95, -0.55, -4.6, 0.95, 0.62, 1.9, hull, 0, 0, 0.34, true);
-  B.box(-0.72, -0.42, 1.9, 0.72, 0.55, 3.1, dark, 0, 0, 0.9);      // tail block
-  B.box(-1.15, -0.20, -1.4, 1.15, 0.18, 1.6, trim, 0, 0);          // spine strake
-
-  /* Canopy.  Part flag 2 so the cockpit camera can drop the glass — from
-     inside, an opaque emissive pane is a wall, not a windscreen. */
-  B.box(-0.52, 0.55, -2.5, 0.52, 1.12, -0.2, glass, 2, 1, 0.55);
-  B.box(-0.60, 0.44, -2.7, 0.60, 0.62, 0.2, dark, 0, 0, 0.7, true);
-
-  /* Wings — swept back, with a slight anhedral. */
-  const wing = (side) => {
-    const s = side;
-    B.quad(
-      [s * 0.9, 0.05, -0.9], [s * 4.5, -0.32, 1.5], [s * 4.5, -0.32, 2.4], [s * 0.9, 0.05, 1.7],
-      hull, 0
-    );
-    B.quad(
-      [s * 0.9, -0.08, 1.7], [s * 4.5, -0.45, 2.4], [s * 4.5, -0.45, 1.5], [s * 0.9, -0.08, -0.9],
-      dark, 0
-    );
-    // leading edge slab gives the wing thickness from the side
-    B.box(s * 0.9, -0.10, -1.0, s * 4.4, 0.06, 1.6, hull, 0, 0, 0.5);
-    // wingtip fin
-    B.box(s * 4.1, -0.30, 1.2, s * 4.45, 1.15, 2.5, trim, 0, 0, 0.35);
-    // navigation light
-    B.box(s * 4.15, 0.95, 1.9, s * 4.4, 1.15, 2.2, side > 0 ? [0.2, 1.0, 0.4] : [1.0, 0.25, 0.25], 0, 1);
-  };
-  wing(1); wing(-1);
-
-  /* Dorsal fin. */
-  B.box(-0.14, 0.55, 1.5, 0.14, 2.0, 3.0, trim, 0, 0, 0.4);
-
-  /* Engines. */
-  for (const s of [-1, 1]) {
-    B.cylinder(s * 1.35, -0.12, 0.4, 3.35, 0.52, 0.46, 12, dark, 0, 0, false, false);
-    B.cylinder(s * 1.35, -0.12, 3.35, 3.5, 0.46, 0.40, 12, glow, 0, 1, false, true);
-    B.box(s * 0.95, -0.28, 0.2, s * 1.75, 0.30, 1.0, hull, 0, 0, 0.8);
-  }
-  // central thruster
-  B.cylinder(0, -0.05, 2.9, 3.35, 0.34, 0.30, 10, glow, 0, 1, false, true);
-
-  /* Landing gear — flag 1 so the vertex shader can retract it into the hull. */
-  const leg = (x, z) => {
-    B.box(x - 0.10, -1.45, z - 0.12, x + 0.10, -0.45, z + 0.12, dark, 1, 0);
-    B.box(x - 0.30, -1.72, z - 0.42, x + 0.30, -1.42, z + 0.42, trim, 1, 0);
-  };
-  leg(-1.5, 1.5); leg(1.5, 1.5); leg(0, -2.6);
-
-  /* Underside running lights. */
-  B.box(-0.18, -0.60, -3.9, 0.18, -0.48, -3.4, [0.4, 0.85, 1.0], 0, 1);
-
-  return B.build(gl);
+/* ---------------------------------------------------------------------------
+   Hull mesh, decoded from the baked glTF in shipmodel.js.
+   --------------------------------------------------------------------------- */
+function decodeBase64(b64) {
+  const bin = atob(b64);
+  const buf = new ArrayBuffer(bin.length);
+  const view = new Uint8Array(buf);
+  for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+  return buf;
 }
 
-/* Albedos deliberately top out around 0.6.  Sunlight here is ~1.5x, so a 0.8
-   hull clips through the tonemap and every ship comes out looking like bare
-   plastic — the panelling only reads when the lit faces stay off the ceiling. */
-const SHIP_PALETTES = [
-  { hull: [0.58, 0.59, 0.62], dark: [0.15, 0.17, 0.20], trim: [0.62, 0.30, 0.09], glass: [0.07, 0.28, 0.36], glow: [0.30, 0.66, 0.95] },
-  { hull: [0.60, 0.52, 0.30], dark: [0.18, 0.15, 0.13], trim: [0.22, 0.27, 0.40], glass: [0.09, 0.26, 0.29], glow: [0.95, 0.55, 0.18] },
-  { hull: [0.34, 0.40, 0.47], dark: [0.12, 0.14, 0.17], trim: [0.56, 0.61, 0.66], glass: [0.12, 0.34, 0.38], glow: [0.45, 0.92, 0.66] },
-  { hull: [0.44, 0.20, 0.18], dark: [0.14, 0.11, 0.11], trim: [0.60, 0.55, 0.45], glass: [0.16, 0.12, 0.26], glow: [1.00, 0.46, 0.16] }
-];
+function buildShipMesh(gl) {
+  const M = SHIP_MODEL;
+  const buf = decodeBase64(M.geo);
+  const verts = new Float32Array(buf, 0, M.vertexCount * 8);
+  const idx = new Uint16Array(buf, M.vertexCount * 8 * 4, M.indexCount);
+  const mesh = new Mesh(gl, [
+    { name: 'aPos', size: 3 }, { name: 'aNormal', size: 3 }, { name: 'aUV', size: 2 }
+  ]);
+  mesh.upload(verts, idx);
+
+  /* Sit the hull on its own landing gear rather than a guessed height. */
+  SHIP_CFG.landHeight = -M.bounds.lo[1] + 0.55;
+  return mesh;
+}
+
+/* Exhaust plumes: one cone per nozzle plus a bright disc at the throat.
+   Baked with a normalised axis so length and width are pure uniforms. */
+function buildThrusterMesh(gl) {
+  const SEG = 18, RINGS = 7;
+  const v = [], idx = [];
+  /* aInfo = (t along plume, disc flag, normalised radius) — the radius is what
+     lets the fragment shader fade the nozzle glow out to a soft edge instead
+     of a visible polygon. */
+  const push = (ox, oy, t, cx, cy, cz, tt, disc, rn) => {
+    v.push(ox, oy, t, cx, cy, cz, tt, disc, rn);
+    return v.length / 9 - 1;
+  };
+
+  for (const e of SHIP_MODEL.engines) {
+    const base = v.length / 9;
+    for (let r = 0; r <= RINGS; r++) {
+      const t = r / RINGS;
+      const rad = Math.pow(1 - t, 0.65) * (1 - t * 0.15);
+      for (let i = 0; i <= SEG; i++) {
+        const a = i / SEG * TAU;
+        push(Math.cos(a) * rad, Math.sin(a) * rad, t, e[0], e[1], e[2], t, 0, 1);
+      }
+    }
+    for (let r = 0; r < RINGS; r++) {
+      for (let i = 0; i < SEG; i++) {
+        const a = base + r * (SEG + 1) + i, b = a + 1;
+        const c = a + (SEG + 1), d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    // soft glowing disc across the throat
+    const c0 = v.length / 9;
+    push(0, 0, 0.0, e[0], e[1], e[2], 0, 1, 0);
+    for (let i = 0; i <= SEG; i++) {
+      const a = i / SEG * TAU;
+      push(Math.cos(a) * 3.0, Math.sin(a) * 3.0, 0.0, e[0], e[1], e[2], 0, 1, 1);
+    }
+    for (let i = 0; i < SEG; i++) idx.push(c0, c0 + 1 + i, c0 + 2 + i);
+  }
+
+  const mesh = new Mesh(gl, [
+    { name: 'aPos', size: 3 }, { name: 'aCenter', size: 3 }, { name: 'aInfo', size: 3 }
+  ]);
+  mesh.upload(new Float32Array(v), new Uint16Array(idx));
+  return mesh;
+}
 
 /* ============================================================================
    Ship
@@ -116,6 +121,9 @@ class Ship {
     this.boost = 0;
     this.pulse = 0;                 // 0..1 pulse-drive engagement
     this.pulseWanted = false;
+    this.ultra = 0;                 // 0..1 ultra-drive engagement
+    this.ultraWanted = false;
+    this.inAtmoPrev = false;
     this.gear = 0;                  // 0 retracted .. 1 down
     this.landed = false;
     this.landing = false;
@@ -203,13 +211,23 @@ class Ship {
        also means eight thousand metres per frame.  Cutting out at a couple of
        planet radii is what turns "arriving" into an approach instead of an
        instantaneous pass straight through the world. */
-    const nearWorld = planet && (this.altitudeFromCentre - planet.radius) < planet.radius * 2.2;
+    const nearWorld = planet &&
+      (this.altitudeFromCentre - planet.radius) < planet.radius * (SHIP_CFG.approachRadii - 0.4);
     const pulseAllowed = !inAtmo && !nearWorld;
     if (this.pulseWanted && pulseAllowed) this.pulse = Math.min(1, this.pulse + dt * 0.55);
     else this.pulse = Math.max(0, this.pulse - dt * 2.2);
     if (this.pulse > 0.01 && !pulseAllowed) {
       game.notify(inAtmo ? 'PULSE DRIVE DISENGAGED — ATMOSPHERE'
         : 'PULSE DRIVE DISENGAGED — GRAVITY WELL', 'warn');
+    }
+
+    /* ---- ultra drive ---- */
+    if (this.ultraWanted && pulseAllowed) {
+      if (this.ultra < 0.01) game.audio.ultraEngage();
+      this.ultra = Math.min(1, this.ultra + dt * 1.6);
+    } else {
+      if (this.ultra > 0.01 && !pulseAllowed) game.notify('ULTRA DRIVE DISENGAGED — ARRIVING', 'warn');
+      this.ultra = Math.max(0, this.ultra - dt * 3.2);
     }
 
     /* ---- attitude ---- */
@@ -245,10 +263,12 @@ class Ship {
     let accel = _sAcc;
     V3.zero(accel);
 
-    if (this.pulse > 0.02) {
-      const target = SHIP_CFG.pulseSpeed * this.pulse;
+    if (this.pulse > 0.02 || this.ultra > 0.02) {
+      const drive = Math.max(this.pulse, this.ultra);
+      const mul = 1 + this.ultra * (SHIP_CFG.ultraMul - 1);
+      const target = SHIP_CFG.pulseSpeed * drive * mul;
       const cur = V3.dot(this.vel, fwd);
-      const a = clamp((target - cur), -SHIP_CFG.pulseAccel, SHIP_CFG.pulseAccel);
+      const a = clamp((target - cur), -SHIP_CFG.pulseAccel * mul, SHIP_CFG.pulseAccel * mul);
       V3.addScaled(accel, accel, fwd, a);
       /* Kill lateral drift so pulse flight tracks the nose exactly. */
       const lat = _sLat;
@@ -289,7 +309,8 @@ class Ship {
        dropping out of the pulse drive decelerates over half a second instead
        of stopping dead. */
     const normalMax = lerp(SHIP_CFG.maxSpaceSpeed, SHIP_CFG.maxAtmoSpeed, saturate(density * 3));
-    const maxV = lerp(normalMax, SHIP_CFG.pulseSpeed * 1.05, saturate(this.pulse));
+    const driveMax = SHIP_CFG.pulseSpeed * 1.05 * (1 + this.ultra * (SHIP_CFG.ultraMul - 1));
+    const maxV = lerp(normalMax, driveMax, saturate(Math.max(this.pulse, this.ultra)));
     const sp = V3.len(this.vel);
     if (sp > maxV) V3.scale(this.vel, this.vel, maxV / sp);
     if (input.brake) V3.scale(this.vel, this.vel, Math.exp(-dt * 2.4));
@@ -316,12 +337,23 @@ class Ship {
       }
     }
 
-    V3.addScaled(pos, pos, this.vel, dt);
+    /* At ultra speed one frame covers hundreds of kilometres, so integrating
+       blindly would put the ship on the far side of a planet before any
+       proximity check ran.  Shorten the step to stop exactly at the first
+       approach sphere on the path instead. */
+    let step = dt;
+    if (this.pulse > 0.02 || this.ultra > 0.02) step = this.limitTravel(dt, game);
+    V3.addScaled(pos, pos, this.vel, step);
     this.speed = V3.len(this.vel);
 
     /* ---- entry heating & buffet ---- */
     const q = density * this.speed * this.speed * 1.2e-5;
     this.heat = damp(this.heat, saturate(q - 0.12), 2.5, dt);
+
+    /* Crossing into air is an audible event, not just a visual one. */
+    if (inAtmo && !this.inAtmoPrev && this.speed > 60) game.audio.atmosphereEntry();
+    if (!inAtmo && this.inAtmoPrev && this.speed > 60) game.audio.atmosphereExit();
+    this.inAtmoPrev = inAtmo;
     this.shake = damp(this.shake, saturate(q * 0.9) + (this.pulse > 0.5 ? 0.06 : 0), 4, dt);
     this.thrustVis = damp(this.thrustVis, this.pulse > 0.02 ? 1 : this.throttle * (0.5 + this.boost * 0.5), 5, dt);
 
@@ -351,6 +383,36 @@ class Ship {
     }
 
     this.gear = damp(this.gear, this.canLand && altitude < 140 ? 1 : 0, 4, dt);
+  }
+
+  /* Largest fraction of dt we can travel without entering any planet's
+     approach sphere.  Returns dt unchanged when the path is clear. */
+  limitTravel(dt, game) {
+    const sp = V3.len(this.vel);
+    if (sp < 1e-3) return dt;
+    const dir = V3.scale(_sVd, this.vel, 1 / sp);
+    let maxDist = sp * dt;
+    let hit = false;
+
+    for (const p of game.system.planets) {
+      const R = p.radius * SHIP_CFG.approachRadii;
+      const ox = this.pos[0] - p.pos[0], oy = this.pos[1] - p.pos[1], oz = this.pos[2] - p.pos[2];
+      const b = ox * dir[0] + oy * dir[1] + oz * dir[2];
+      const c = ox * ox + oy * oy + oz * oz - R * R;
+      if (c <= 0) continue;                      // already inside; the drive is cutting out anyway
+      if (b >= 0) continue;                      // heading away
+      const h = b * b - c;
+      if (h < 0) continue;                       // path misses the sphere
+      const t = -b - Math.sqrt(h);               // distance to the approach shell
+      if (t < maxDist) { maxDist = Math.max(t, 0); hit = true; }
+    }
+
+    if (hit) {
+      this.pulse = 0;
+      this.ultra = 0;
+      V3.scale(this.vel, this.vel, Math.min(1, SHIP_CFG.maxSpaceSpeed / sp));
+    }
+    return maxDist / sp;
   }
 
   applyBodyRotation(dt) {

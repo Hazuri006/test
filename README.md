@@ -4,8 +4,8 @@ A procedural space-exploration game in a single page of WebGL 2. Fly from orbit
 down to the surface of generated worlds in one continuous motion, land, get out,
 and walk around.
 
-No engine, no libraries, no textures, no models, no audio files — every pixel
-and every sound is generated at runtime from a seed.
+No engine, no libraries, no build step, no audio files. Everything except the
+starship hull is generated at runtime from a seed.
 
 **Open `index.html` in a browser. That's the whole install.**
 
@@ -27,8 +27,11 @@ and every sound is generated at runtime from a seed.
   and an underwater look if you go below.
 - **Assisted landing and take-off** — see below.
 - **On-foot exploration** with a jetpack, walking correctly around a sphere.
-- **Procedural everything**: the starship hull, the rocks and flora, the star
-  field and nebula, the engine hum, the wind, the ambient score.
+- **Four-stage drive**: cruise, boost, pulse drive, and an ultra drive at a
+  hundred times pulse speed that crosses the system in seconds.
+- **Procedural everything except the hull**: the rocks and flora, the star
+  field and nebula, the engine exhaust, the engine hum, the wind, the ambient
+  score.
 
 ## Controls
 
@@ -39,10 +42,11 @@ and every sound is generated at runtime from a seed.
 | `A` `D` | Roll |
 | `Shift` | Boost / sprint |
 | `Space` | Pulse drive (in space) / jetpack (on foot) |
+| `V` | **Ultra drive** — 100x the pulse drive |
 | `Ctrl` | Brake |
 | `F` | Land / take off |
 | `E` | Disembark / board ship |
-| `V` | Scanner pulse |
+| `X` | Scanner pulse |
 | `M` | System map (click a world to set a nav target) |
 | `C` | Camera view |
 | `H` | Hide interface |
@@ -88,6 +92,13 @@ ship down level with the local horizon and deploys the gear. Fighting a physics
 sim for the last twenty metres is not the interesting part of arriving at a
 planet — the approach is.
 
+**Arriving at ten million metres a second.** At ultra speed a single frame
+covers 800 km, so integrating the position blindly would put the ship on the
+far side of a planet before any proximity check could run. Each step is
+instead clamped against every planet's approach sphere: point the nose at a
+world, hold `V`, and you decelerate to a stop two and a half radii out rather
+than passing through it.
+
 **Walking around a sphere.** The on-foot controller stores its heading as a
 vector and re-projects it onto the local tangent plane every frame, so you can
 walk a full circumference without the horizon rolling or the controls
@@ -109,17 +120,36 @@ available, and the renderer falls back to 8-bit colour when it is not.
 index.html          markup, interface styling, script tags
 js/math.js          vectors, quaternions, matrices, PRNG, simplex noise
 js/gl.js            WebGL2 helpers, meshes, procedural geometry builder
-js/shaders.js       all GLSL: terrain, objects, sky/atmosphere/ocean, post
+js/shaders.js       all GLSL: terrain, objects, ship, thrusters, sky, post
+js/shipmodel.js     the starship, baked from glTF and embedded as base64
 js/planets.js       biome archetypes, terrain functions, system generation
 js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
-js/ship.js          starship mesh, flight model, landing sequence
+js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis
 js/hud.js           interface, world markers, system map
 js/game.js          engine loop, renderer, camera, input, state machine
 tools/check.js      static checks
 ```
+
+## The starship model
+
+The hull is an X-wing supplied as a `.glb`. The bake in `js/shipmodel.js`
+applies the glTF node transform (Z-up to Y-up), recentres the model on its
+bounding box, scales it to 11 m, drops the tangents and the metallic-roughness
+and normal maps, and downsamples the base-colour atlas from 2048 to 1024 JPEG
+— 7.7 MB of glTF becomes a 780 KB JavaScript file.
+
+It is embedded as base64 rather than fetched, because `fetch` is blocked under
+`file://` and the game is meant to run by opening `index.html` directly. The
+four engine nozzles were located by clustering the rearmost vertices into
+quadrants, and the exhaust plumes are anchored to those positions.
+
+> The model is a third-party asset (its glTF metadata identifies it as a
+> Sketchfab export). Check its licence before redistributing this repository
+> publicly — everything else here is generated at runtime and carries no such
+> constraint.
 
 ## Development notes
 
