@@ -120,45 +120,46 @@ class ShipAnimator {
   }
 }
 
-/* Exhaust plume anchored to the model's own nozzle.  Baked with a normalised
-   axis so length and width stay pure uniforms. */
+/* Exhaust geometry: a strip along the exhaust axis whose width the vertex
+   shader turns to face the camera, plus a camera-facing disc at the throat for
+   the view from directly astern. */
 function buildThrusterMesh(gl) {
-  const SEG = 20, RINGS = 7;
+  const SEG = 40;
   const v = [], idx = [];
-  const push = (ox, oy, t, cx, cy, cz, tt, disc, rn) => {
-    v.push(ox, oy, t, cx, cy, cz, tt, disc, rn);
+  const push = (x, y, kind, cx, cy, cz, prof) => {
+    v.push(x, y, kind, 0, cx, cy, cz, prof, 0);
     return v.length / 9 - 1;
   };
 
   for (const e of SHIP_MODEL.engines) {
     const er = e[3] || 1;
+
+    // beam: two vertices per station along the axis
     const base = v.length / 9;
-    for (let r = 0; r <= RINGS; r++) {
-      const t = r / RINGS;
-      const rad = Math.pow(1 - t, 0.65) * (1 - t * 0.15) * er;
-      for (let i = 0; i <= SEG; i++) {
-        const a = i / SEG * TAU;
-        push(Math.cos(a) * rad, Math.sin(a) * rad, t, e[0], e[1], e[2], t, 0, 1);
-      }
-    }
-    for (let r = 0; r < RINGS; r++) {
-      for (let i = 0; i < SEG; i++) {
-        const a = base + r * (SEG + 1) + i, b = a + 1;
-        const c = a + (SEG + 1), d = c + 1;
-        idx.push(a, c, b, b, c, d);
-      }
-    }
-    const c0 = v.length / 9;
-    push(0, 0, 0.0, e[0], e[1], e[2], 0, 1, 0);
     for (let i = 0; i <= SEG; i++) {
-      const a = i / SEG * TAU;
-      push(Math.cos(a) * 3.0 * er, Math.sin(a) * 3.0 * er, 0.0, e[0], e[1], e[2], 0, 1, 1);
+      const t = i / SEG;
+      /* Necks in just past the throat, then swells and tapers — the shape of
+         an exhaust expanding into vacuum. */
+      const prof = er * (0.55 + 0.85 * Math.pow(t, 0.45)) * Math.pow(1 - t, 0.42);
+      push(-1, t, 0, e[0], e[1], e[2], prof);
+      push(1, t, 0, e[0], e[1], e[2], prof);
     }
-    for (let i = 0; i < SEG; i++) idx.push(c0, c0 + 1 + i, c0 + 2 + i);
+    for (let i = 0; i < SEG; i++) {
+      const a = base + i * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+
+    // throat disc, built in camera space by the vertex shader
+    const d0 = v.length / 9;
+    push(-1, -1, 1, e[0], e[1], e[2], er);
+    push(1, -1, 1, e[0], e[1], e[2], er);
+    push(1, 1, 1, e[0], e[1], e[2], er);
+    push(-1, 1, 1, e[0], e[1], e[2], er);
+    idx.push(d0, d0 + 1, d0 + 2, d0, d0 + 2, d0 + 3);
   }
 
   const mesh = new Mesh(gl, [
-    { name: 'aPos', size: 3 }, { name: 'aCenter', size: 3 }, { name: 'aInfo', size: 3 }
+    { name: 'aData', size: 4 }, { name: 'aCenter', size: 3 }, { name: 'aInfo', size: 2 }
   ]);
   mesh.upload(new Float32Array(v), new Uint16Array(idx));
   return mesh;

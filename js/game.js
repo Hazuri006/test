@@ -86,6 +86,7 @@ const Game = {
     this.prog = {
       terrain: GLU.program(SH.terrainVS, SH.terrainFS, 'terrain'),
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
+      debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
       ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
       thruster: GLU.program(SH.thrusterVS, SH.thrusterFS, 'thruster'),
       sky: GLU.program(SH.fullVS, SH.skyFS, 'sky'),
@@ -163,6 +164,7 @@ const Game = {
 
   newSystem(seed) {
     if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
+    if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
     this.system = generateSystem(seed);
     this.activePlanet = null;
     this.target = this.system.planets[0];
@@ -596,9 +598,12 @@ const Game = {
 
     if (active !== this.activePlanet) {
       if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
+      if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
       this.activePlanet = active;
       if (active) {
         this.terrain = new Terrain(this.gl, active, this.quality);
+        this.belt = Debris.build(this.gl, active, this.qualityName);
+        if (this.belt && !idle) this.notify('DEBRIS FIELD DETECTED', 'warn');
         if (!idle) this.notify('APPROACHING ' + (active.discovered ? active.name.toUpperCase() : 'UNCHARTED WORLD'));
       }
       HUD._statKey = null;
@@ -613,6 +618,7 @@ const Game = {
       this.drawTerrain = d < p.radius * 6.4;
 
       if (!idle && !p.discovered && d < p.radius * 2.6) this.discover(p);
+      Debris.update(this.belt, dt);
 
       if (this.drawTerrain && this.terrain) {
         V3.sub(_gCamLocal, this.camPos, p.pos);
@@ -649,7 +655,7 @@ const Game = {
         const speedK = saturate(s.speed / 600);
         const drive = Math.max(s.pulse, s.ultra);
         this._camBoost = damp(this._camBoost || 0, s.boost, 5, dt);
-        const dist = 15.5 + speedK * 3.5 + this._camBoost * 7.0 + drive * 12.0;
+        const dist = 15.5 + speedK * 3.0 + this._camBoost * 5.5 + drive * 11.0;
         const height = 3.2 + speedK * 0.7 - this._camBoost * 0.6;
 
         const back = quatFwd(_gF, this.camRot);
@@ -682,7 +688,7 @@ const Game = {
     /* Speed widens the field of view — cheap, effective sense of velocity. */
     const sp = this.mode === 'foot' ? this.player.speed : this.ship.speed;
     const fovBoost = saturate(sp / 700) * 8 * DEG
-      + (this._camBoost || 0) * 9 * DEG
+      + (this._camBoost || 0) * 5 * DEG
       + this.ship.pulse * 12 * DEG
       + this.ship.ultra * 10 * DEG;
     this.curFov = damp(this.curFov || this.fov, this.fov + fovBoost, 4, dt);
@@ -770,6 +776,7 @@ const Game = {
     this.updateLight(p);
 
     if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
+    if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
 
     /* ------------------------------------------------------ 2. sky pass -- */
@@ -868,6 +875,35 @@ const Game = {
     }
   },
 
+  drawDebrisPass(sun, sunCol, p) {
+    const gl = this.gl, pr = this.prog.debris, belt = this.belt;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    gl.uniform1f(pr.u.uR, p.radius);
+    this.bindLight(pr);
+
+    /* A rock never shrinks below about a pixel and a half, or the belt turns
+       into aliasing noise at any distance. */
+    const pixels = 2.2;
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * pixels / Math.max(this.rt.h, 1));
+
+    Q4.fromAxisAngle(_gQ, belt.cfg.axis, belt.angle);
+    Q4.toMat3(_gMat3, _gQ);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset,
+      p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    belt.mesh.drawInstanced();
+  },
+
   drawShipPass(sun, sunCol, p) {
     const gl = this.gl;
     const sh = this.ship;
@@ -941,8 +977,15 @@ const Game = {
     gl.uniform3f(pr.u.uOffset, ox, oy, oz);
 
     /* Plume geometry: longer and thinner the harder the drive is pushing. */
-    gl.uniform1f(pr.u.uLen, 1.6 + power * 5.4 + sh.ultra * 13.0);
-    gl.uniform1f(pr.u.uRad, 0.95 + Math.min(power, 1.0) * 0.22);
+    gl.uniform3f(pr.u.uCamRight, this.camRight[0], this.camRight[1], this.camRight[2]);
+    gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
+    GLU.bindTex(pr, 'uNoise', 0, this.noiseTex, gl.TEXTURE_3D);
+
+    gl.uniform1f(pr.u.uLen, 2.2 + power * 7.0 + sh.ultra * 16.0);
+    gl.uniform1f(pr.u.uRad, 0.85 + Math.min(power, 1.0) * 0.30);
+    /* Shock diamonds need a working drive and thin air to stand up in. */
+    const dens = this.activePlanet ? this.activePlanet.densityAt(Math.max(sh.altitude, 0)) : 0;
+    gl.uniform1f(pr.u.uShock, saturate(power * 0.9 - 0.25) * (1 - saturate(dens * 1.6)));
 
     /* Colour shifts with the drive: orange idle, blue-white under pulse,
        violet at ultra. */
@@ -955,7 +998,7 @@ const Game = {
     _gTip[2] = lerp(lerp(0.06, 1.00, t1), 1.00, t2);
     gl.uniform3fv(pr.u.uCore, _gCore);
     gl.uniform3fv(pr.u.uTip, _gTip);
-    gl.uniform1f(pr.u.uIntensity, 0.40 + Math.min(power, 1.6) * 0.40);
+    gl.uniform1f(pr.u.uIntensity, 0.62 + Math.min(power, 1.8) * 0.52);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);

@@ -28,7 +28,9 @@ starship hull is generated at runtime from a seed.
 - **Assisted landing and take-off** — see below.
 - **On-foot exploration** with a jetpack, walking correctly around a sphere.
 - **Four-stage drive**: cruise, boost, pulse drive, and an ultra drive at a
-  hundred times pulse speed that crosses the system in seconds.
+  hundred times the boost that crosses the system in seconds.
+- **Debris belts** around roughly two worlds in five — a tilted, slowly turning
+  band of rock above the atmosphere that you fly through on the way down.
 - **Procedural everything except the hull**: the rocks and flora, the star
   field and nebula, the engine exhaust, the engine hum, the wind, the ambient
   score.
@@ -101,6 +103,23 @@ clamped against every planet's approach sphere: point the nose at a world, hold
 `V`, and you decelerate to a stop two and a half radii out rather than passing
 through it.
 
+**The exhaust is a beam, not a cone.** A cone is wrong for a plume twice over:
+its silhouette is a hard polygon from every angle, and it collapses to a flat
+disc exactly when you are behind the ship — which is where the chase camera
+lives. The plume is built instead as a strip whose width the vertex shader
+turns to face the viewer, cross-fading into a camera-facing disc as the view
+lines up with the exhaust axis. Radial density, shock diamonds (which only
+stand up in thin air, and only once the drive is working) and scrolling
+turbulence are all evaluated per fragment.
+
+**A realistic debris belt is invisible.** Spaced the way real ones are, the
+rocks sit kilometres apart and read as nothing at all. The belts here are
+deliberately concentrated into a thinner, narrower band so they register both
+as a ring from orbit and as debris around you when you are inside. Each rock
+also has a floor on its apparent size, without which a belt dissolves into
+sub-pixel aliasing at distance instead of reading as a band. One instanced
+draw call per planet; the belt's rotation is a uniform, so it turns for free.
+
 **Walking around a sphere.** The on-foot controller stores its heading as a
 vector and re-projects it onto the local tangent plane every frame, so you can
 walk a full circumference without the horizon rolling or the controls
@@ -127,6 +146,7 @@ js/shipmodel.js     the starship, baked from glTF and embedded as base64
 js/planets.js       biome archetypes, terrain functions, system generation
 js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
+js/debris.js        orbital debris belts
 js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis

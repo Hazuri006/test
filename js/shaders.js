@@ -351,6 +351,7 @@ uniform vec3 uOffset;
 uniform float uFcoefHalf;
 uniform float uGear;                  // landing-gear extension 0..1
 uniform float uHideCanopy;            // 1 when the camera is inside the cockpit
+uniform float uMinAngular;            // smallest apparent radius, in radians
 
 out vec3 vPos;
 out vec3 vNormal;
@@ -369,9 +370,16 @@ void main(){
   float emis = floor(aFlag / 8.0);
 
 #ifdef INSTANCED
-  lp = qrot(iRot, lp * iTint.a);
-  nn = qrot(iRot, nn);
-  vec3 p = lp + iOffset + uOffset;
+  /* uModelRot carries the belt's rotation, so the whole field turns without
+     touching the instance buffer. */
+  vec3 centre = uModelRot * iOffset + uOffset;
+  float dist = length(centre);
+  /* Floor the apparent size: without it a belt dissolves into sub-pixel
+     flicker from orbit instead of reading as a band. */
+  float grow = max(1.0, dist * uMinAngular / max(iTint.a, 1e-4));
+  lp = uModelRot * qrot(iRot, lp * (iTint.a * grow));
+  nn = uModelRot * qrot(iRot, nn);
+  vec3 p = lp + centre;
   vColor = aColor * iTint.rgb;
 #else
   /* flag 1 marks landing-gear vertices: they retract into the hull. */
@@ -1017,33 +1025,66 @@ void main(){
 `;
 
 /* ============================================================================
-   THRUSTERS — additive exhaust plumes anchored to the engine nozzles.
-   Geometry is baked once with a normalised axis; length, width and colour all
-   come from uniforms so the plume can stretch with the drive.
+   THRUSTERS — a camera-facing exhaust beam rather than a cone.
+
+   A cone is wrong for a plume in two ways: its silhouette is a hard polygon
+   from every angle, and it collapses to a flat disc exactly when you are
+   behind the ship, which is where the chase camera lives.  This builds the
+   plume as a beam whose width always faces the viewer, cross-fading into a
+   camera-facing disc as the view lines up with the exhaust axis.  Density,
+   shock diamonds and turbulence are all evaluated per fragment.
    ============================================================================ */
 SH.thrusterVS = SH.head + SH.common + `
-layout(location=0) in vec3 aPos;      // xy: unit radial offset, z: 0..1 along the plume
+layout(location=0) in vec4 aData;     // beam: (side, t, 0, -); disc: (cx, cy, 1, -)
 layout(location=1) in vec3 aCenter;   // nozzle position in ship space
-layout(location=2) in vec3 aInfo;     // x: t along plume, y: nozzle disc, z: radius
+layout(location=2) in vec2 aInfo;     // x: radius profile at t
 
 uniform mat4 uViewProj;
 uniform mat3 uModelRot;
 uniform vec3 uOffset;
+uniform vec3 uCamRight, uCamUp;
 uniform float uFcoefHalf;
 uniform float uLen;
 uniform float uRad;
 
 out float vT;
-out float vDisc;
-out float vR;
+out vec2 vQuad;     // beam: (side, 0); disc: the 2D corner offset
+out float vKind;
+out float vAlign;
+out vec3 vLocal;
 out float vLogZ;
 
 void main(){
-  vec3 lp = vec3(aCenter.xy + aPos.xy * uRad, aCenter.z + aPos.z * uLen);
-  vec3 p = uModelRot * lp + uOffset;
-  vT = aInfo.x;
-  vDisc = aInfo.y;
-  vR = aInfo.z;
+  vec3 nozzle = uModelRot * aCenter + uOffset;
+  vec3 axis = normalize(uModelRot * vec3(0.0, 0.0, 1.0));   // +Z is aft
+  float kind = aData.z;
+
+  vec3 p;
+  if (kind < 0.5){
+    vec3 spine = nozzle + axis * (aData.y * uLen);
+    vec3 view = normalize(spine);
+    vec3 right = cross(axis, view);
+    float rl = length(right);
+    /* Looking straight down the exhaust the cross product degenerates; the
+       disc takes over there, so any stable fallback will do. */
+    right = rl > 1e-4 ? right / rl : normalize(cross(axis, vec3(0.0, 1.0, 0.0)) + vec3(1e-3));
+    p = spine + right * (aData.x * aInfo.x * uRad);
+    vAlign = abs(dot(axis, view));
+    vT = aData.y;
+    vQuad = vec2(aData.x, 0.0);
+    vLocal = spine;
+  } else {
+    p = nozzle + (uCamRight * aData.x + uCamUp * aData.y) * uRad * 3.2;
+    vAlign = abs(dot(axis, normalize(nozzle)));
+    vT = 0.0;
+    /* The 2D offset has to be interpolated and the radius taken per fragment;
+       passing its length from the vertex shader gives a constant across the
+       quad (every corner is the same distance out) and the glow vanishes. */
+    vQuad = aData.xy;
+    vLocal = nozzle;
+  }
+  vKind = kind;
+
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
   cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
@@ -1053,35 +1094,65 @@ void main(){
 
 SH.thrusterFS = SH.head + SH.common + `
 in float vT;
-in float vDisc;
-in float vR;
+in vec2 vQuad;
+in float vKind;
+in float vAlign;
+in vec3 vLocal;
 in float vLogZ;
 
-uniform vec3 uCore;        // colour at the nozzle
+uniform sampler3D uNoise;
+uniform vec3 uCore;        // colour at the throat
 uniform vec3 uTip;         // colour at the far end
 uniform float uIntensity;
+uniform float uShock;      // shock-diamond strength, 0 in vacuum idle
 uniform float uTime;
 uniform float uFcoefHalf;
 
 out vec4 fragColor;
 
 void main(){
-  /* Flicker is what stops an exhaust plume looking like a plastic cone. */
-  float flick = 0.86 + 0.14 * sin(uTime * 47.0 + vT * 12.0)
-                     + 0.06 * sin(uTime * 113.0 + vT * 31.0);
-  /* The cone body is deliberately dim: seen end-on from the chase camera its
-     open throat is a hard-edged polygon, and at full brightness it clips to a
-     white rectangle.  The soft disc below carries the glow instead; the cone
-     is there to give the plume a shape from the side. */
-  float falloff = pow(max(1.0 - vT, 0.0), 1.7);
-  vec3 col = mix(uCore, uTip, vT) * falloff * flick * 0.42;
-  if (vDisc > 0.5){
-    /* Soft round glow at the throat — this is the face you see from the chase
-       camera, and a flat polygon there reads as a sticker. */
-    float soft = pow(max(1.0 - vR, 0.0), 2.2);
-    col = mix(uCore, vec3(1.0), 0.25) * (3.1 * soft) * flick;
+  float a;
+  vec3 col;
+
+  if (vKind < 0.5){
+    float r = abs(vQuad.x);
+    float t = vT;
+
+    /* Radial density: a soft-shouldered profile, not a hard-edged polygon. */
+    float radial = pow(max(1.0 - r * r, 0.0), 1.7);
+
+    /* Turbulence, scrolling aft.  Sampling the shared volume is far cheaper
+       than evaluating noise, and the plume only needs to shimmer. */
+    vec3 np = vec3(t * 2.4 - uTime * 1.9, vQuad.x * 0.7, vLocal.z * 0.03);
+    float turb = texture(uNoise, np).g * 0.6 + texture(uNoise, np * 2.7 + 5.0).b * 0.4;
+
+    /* Shock diamonds: standing waves in an over-expanded exhaust.  They only
+       appear once the drive is actually working, and they fade downstream. */
+    float dia = 0.5 + 0.5 * sin(t * 34.0 - uTime * 6.0);
+    dia = pow(dia, 7.0) * uShock * exp(-t * 2.6);
+
+    /* White-hot at the throat, drive colour along the body, dark at the tip. */
+    float hot = exp(-t * 5.5);
+    col = mix(uCore, uTip, smoothstep(0.02, 0.65, t));
+    col = mix(col, vec3(1.0, 0.97, 0.92), hot * 0.85);
+    col += uCore * dia * 1.6;
+
+    a = radial * pow(max(1.0 - t, 0.0), 1.10) * (0.70 + 0.55 * turb);
+    /* Keep a real floor along the body — weighting this too heavily towards
+       the throat leaves the plume invisible a metre behind the nozzle. */
+    a *= 0.62 + 0.38 * hot + dia;
+    /* Fade the beam out as it turns edge-on to the viewer — the disc below
+       carries the look from directly behind. */
+    a *= 1.0 - pow(vAlign, 3.0);
+  } else {
+    float r = clamp(length(vQuad), 0.0, 1.0);
+    float glow = pow(max(1.0 - r, 0.0), 2.4);
+    float ring = exp(-pow((r - 0.30) * 5.5, 2.0)) * 0.55;
+    col = mix(uCore, vec3(1.0, 0.96, 0.90), 0.35) * (glow * 1.0 + ring);
+    a = (glow + ring * 0.8) * (0.35 + 0.65 * pow(vAlign, 2.0));
   }
-  fragColor = vec4(col * uIntensity, 1.0);
+
+  fragColor = vec4(col * a * uIntensity, 1.0);
   gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
 }
 `;
