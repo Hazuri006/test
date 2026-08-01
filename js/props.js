@@ -10,7 +10,7 @@
    ============================================================================ */
 
 const Props = {
-  maxPerChunk: 34,
+  maxPerChunk: 44,
 
   /* Deterministic per-chunk seed: the same patch always grows the same trees. */
   seedFor(chunk) {
@@ -31,9 +31,11 @@ const Props = {
     if (total <= 0.01) return null;
 
     /* Finest chunks get the full population, one level up gets a thinned one
-       so the transition outward is gradual rather than a hard ring. */
+       so the transition outward is gradual rather than a hard ring.  Biome
+       weight drives density too: a lush world should read as vegetated, a
+       barren one as scattered boulders. */
     const levelScale = chunk.level >= terrain.maxLevel ? 1.0 : 0.4;
-    const count = Math.round(this.maxPerChunk * levelScale);
+    const count = Math.round(this.maxPerChunk * levelScale * clamp(total, 0.35, 1.5));
     if (count < 1) return null;
 
     const rng = makeRNG(this.seedFor(chunk));

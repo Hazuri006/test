@@ -36,14 +36,16 @@ function buildShipMesh(gl, palette) {
   const glass = palette.glass;
   const glow = palette.glow;
 
-  /* Body: nose to tail along -Z (GL forward). */
-  B.box(-0.95, -0.55, -4.6, 0.95, 0.62, 1.9, hull, 0, 0, 0.38);   // main fuselage, tapered nose
+  /* Body: nose to tail along -Z (GL forward).  The taper belongs at the nose
+     (z0), which is why box() takes an explicit end to narrow. */
+  B.box(-0.95, -0.55, -4.6, 0.95, 0.62, 1.9, hull, 0, 0, 0.34, true);
   B.box(-0.72, -0.42, 1.9, 0.72, 0.55, 3.1, dark, 0, 0, 0.9);      // tail block
   B.box(-1.15, -0.20, -1.4, 1.15, 0.18, 1.6, trim, 0, 0);          // spine strake
 
-  /* Canopy. */
-  B.box(-0.52, 0.55, -2.5, 0.52, 1.12, -0.2, glass, 0, 1, 0.55);
-  B.box(-0.60, 0.44, -2.7, 0.60, 0.62, 0.2, dark, 0, 0, 0.7);
+  /* Canopy.  Part flag 2 so the cockpit camera can drop the glass — from
+     inside, an opaque emissive pane is a wall, not a windscreen. */
+  B.box(-0.52, 0.55, -2.5, 0.52, 1.12, -0.2, glass, 2, 1, 0.55);
+  B.box(-0.60, 0.44, -2.7, 0.60, 0.62, 0.2, dark, 0, 0, 0.7, true);
 
   /* Wings — swept back, with a slight anhedral. */
   const wing = (side) => {
@@ -97,7 +99,7 @@ const SHIP_PALETTES = [
   { hull: [0.58, 0.59, 0.62], dark: [0.15, 0.17, 0.20], trim: [0.62, 0.30, 0.09], glass: [0.07, 0.28, 0.36], glow: [0.30, 0.66, 0.95] },
   { hull: [0.60, 0.52, 0.30], dark: [0.18, 0.15, 0.13], trim: [0.22, 0.27, 0.40], glass: [0.09, 0.26, 0.29], glow: [0.95, 0.55, 0.18] },
   { hull: [0.34, 0.40, 0.47], dark: [0.12, 0.14, 0.17], trim: [0.56, 0.61, 0.66], glass: [0.12, 0.34, 0.38], glow: [0.45, 0.92, 0.66] },
-  { hull: [0.50, 0.22, 0.23], dark: [0.15, 0.11, 0.12], trim: [0.62, 0.58, 0.48], glass: [0.19, 0.13, 0.31], glow: [0.92, 0.30, 0.48] }
+  { hull: [0.44, 0.20, 0.18], dark: [0.14, 0.11, 0.11], trim: [0.60, 0.55, 0.45], glass: [0.16, 0.12, 0.26], glow: [1.00, 0.46, 0.16] }
 ];
 
 /* ============================================================================

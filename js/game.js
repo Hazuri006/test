@@ -12,10 +12,10 @@
    ============================================================================ */
 
 const QUALITY = {
-  low: { scale: 0.62, maxLevel: 9, splitFactor: 2.1, budgetMs: 4.0, atmoSteps: 8, cloudSteps: 0, bloom: 1 },
-  medium: { scale: 0.85, maxLevel: 10, splitFactor: 2.5, budgetMs: 6.0, atmoSteps: 12, cloudSteps: 14, bloom: 1 },
-  high: { scale: 1.00, maxLevel: 11, splitFactor: 2.8, budgetMs: 8.0, atmoSteps: 16, cloudSteps: 22, bloom: 1 },
-  ultra: { scale: 1.00, maxLevel: 12, splitFactor: 3.3, budgetMs: 11.0, atmoSteps: 22, cloudSteps: 34, bloom: 1 }
+  low:    { scale: 0.62, maxLevel: 9,  splitFactor: 2.1, budgetMs: 4.0,  atmoSteps: 8,  cloudSteps: 0,  bloom: 1 },
+  medium: { scale: 0.85, maxLevel: 10, splitFactor: 2.5, budgetMs: 6.0,  atmoSteps: 12, cloudSteps: 10, bloom: 1 },
+  high:   { scale: 1.00, maxLevel: 11, splitFactor: 2.8, budgetMs: 8.0,  atmoSteps: 16, cloudSteps: 18, bloom: 1 },
+  ultra:  { scale: 1.00, maxLevel: 12, splitFactor: 3.3, budgetMs: 11.0, atmoSteps: 22, cloudSteps: 30, bloom: 1 }
 };
 
 const FAR_PLANE = 1e8;
@@ -615,10 +615,12 @@ const Game = {
 
         Q4.slerp(this.camRot, this.camRot, s.rot, 1 - Math.exp(-dt * 13));
       } else {
+        /* Cockpit: sit inside the canopy.  The glass itself is clipped in the
+           vertex shader, so the nose, wings and engine glow frame the view. */
         const fwd = quatFwd(_gF, s.rot);
         const up = quatUp(_gU, s.rot);
-        V3.addScaled(this.camPos, s.pos, fwd, 1.1);
-        V3.addScaled(this.camPos, this.camPos, up, 0.92);
+        V3.addScaled(this.camPos, s.pos, fwd, 2.35);
+        V3.addScaled(this.camPos, this.camPos, up, 1.05);
         Q4.copy(this.camRot, s.rot);
         this._camInit = false;
       }
@@ -803,6 +805,7 @@ const Game = {
     gl.uniform1f(op.u.uTime, this.time);
     gl.uniform1f(op.u.uThrust, 0.4);
     gl.uniform1f(op.u.uGear, 1);
+    gl.uniform1f(op.u.uHideCanopy, 0);
     gl.uniform3f(op.u.uSunDir, sun[0], sun[1], sun[2]);
     gl.uniform3fv(op.u.uSunColor, sunCol);
     gl.uniform3fv(op.u.uAmbient, amb);
@@ -821,15 +824,14 @@ const Game = {
 
   drawShipPass(sun, sunCol, p) {
     const gl = this.gl, op = this.prog.object;
-    /* In cockpit view the hull would fill the screen; skip it. */
-    if (this.mode === 'ship' && !this.view3rd) return;
-
+    const cockpit = this.mode === 'ship' && !this.view3rd;
     gl.useProgram(op.prog);
     gl.uniformMatrix4fv(op.u.uViewProj, false, this.viewProj);
     gl.uniform1f(op.u.uFcoefHalf, this.fcoefHalf);
     gl.uniform1f(op.u.uTime, this.time);
     gl.uniform1f(op.u.uThrust, this.ship.thrustVis);
     gl.uniform1f(op.u.uGear, this.ship.gear);
+    gl.uniform1f(op.u.uHideCanopy, cockpit ? 1 : 0);
     gl.uniform3f(op.u.uSunDir, sun[0], sun[1], sun[2]);
     gl.uniform3fv(op.u.uSunColor, sunCol);
     gl.uniform3fv(op.u.uAmbient, this.ambientColor(p));

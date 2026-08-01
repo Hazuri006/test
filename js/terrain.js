@@ -203,6 +203,7 @@ class Chunk {
     this.mesh.upload(this.vertexData, this.indexData);
     this.vertexData = null;
     this.indexData = null;
+    this.t.liveChunks++;
     // Props are only worth scattering on the finest chunks.
     if (this.level >= this.t.maxLevel - 1) this.props = Props.scatter(this, gl);
   }
@@ -210,7 +211,7 @@ class Chunk {
   get ready() { return this.mesh !== null; }
 
   dispose(gl) {
-    if (this.mesh) { this.mesh.dispose(); this.mesh = null; }
+    if (this.mesh) { this.mesh.dispose(); this.mesh = null; this.t.liveChunks--; }
     if (this.props) { Props.dispose(this.props); this.props = null; }
     if (this.children) { for (const c of this.children) c.dispose(gl); this.children = null; }
     this.state = 2;
@@ -240,6 +241,7 @@ class Terrain {
     this.visible = [];
     this.frame = 0;
     this.pendingChunks = 0;
+    this.liveChunks = 0;
 
     for (let f = 0; f < 6; f++) {
       const c = new Chunk(this, f, 0, -1, -1, 2, null);
@@ -356,10 +358,13 @@ class Terrain {
     this.built = n;
   }
 
-  /* Reclaim chunks that have not been touched for a while. */
+  /* Reclaim chunks that have not been touched for a while.  Chunks are kept
+     around deliberately — flying back over ground you just crossed should not
+     re-generate it — but the cache has to have a ceiling, so the retention
+     window tightens once there are a lot of them live. */
   collect() {
     if (this.frame % 40 !== 0) return;
-    const cutoff = this.frame - 240;
+    const cutoff = this.frame - (this.liveChunks > 850 ? 50 : 240);
     const sweep = (node) => {
       if (!node.children) return;
       let stale = true;

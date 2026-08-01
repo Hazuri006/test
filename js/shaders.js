@@ -347,6 +347,7 @@ uniform mat3 uModelRot;
 uniform vec3 uOffset;
 uniform float uFcoefHalf;
 uniform float uGear;                  // landing-gear extension 0..1
+uniform float uHideCanopy;            // 1 when the camera is inside the cockpit
 
 out vec3 vPos;
 out vec3 vNormal;
@@ -372,6 +373,13 @@ void main(){
 #else
   /* flag 1 marks landing-gear vertices: they retract into the hull. */
   if (flag > 0.5 && flag < 1.5) lp.y += (1.0 - uGear) * 1.35;
+  /* flag 2 is canopy glass: clipped away when viewed from inside. */
+  if (uHideCanopy > 0.5 && flag > 1.5 && flag < 2.5){
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vPos = vec3(0.0); vNormal = vec3(0.0, 1.0, 0.0);
+    vColor = vec3(0.0); vFlag = 0.0; vLogZ = 1.0;
+    return;
+  }
   vec3 p = uModelRot * lp + uOffset;
   nn = uModelRot * nn;
   vColor = aColor;
@@ -703,14 +711,13 @@ vec4 marchClouds(vec3 ro, vec3 rd, float tMax){
     float r = length(lp);
     float d = cloudDensity(lp, r);
     if (d > 0.001){
-      /* three-tap shadow march towards the star */
-      float ls = (highR - lowR) * 0.25;
-      float sh = 0.0;
-      for (int j = 1; j <= 3; j++){
-        vec3 sp = lp + uSunDir * (ls * float(j));
-        sh += cloudDensity(sp, length(sp));
-      }
-      float light = exp(-sh * ls * 0.055);
+      /* Two-tap shadow march towards the star.  Each tap costs three volume
+         fetches, so this is the single most expensive term in the frame — a
+         third tap buys almost nothing visually. */
+      float ls = (highR - lowR) * 0.34;
+      float sh = cloudDensity(lp + uSunDir * ls, length(lp + uSunDir * ls))
+               + cloudDensity(lp + uSunDir * (ls * 2.0), length(lp + uSunDir * (ls * 2.0)));
+      float light = exp(-sh * ls * 0.075);
       float powder = 1.0 - exp(-d * 4.0);
       float sunUp = smoothstep(-0.18, 0.12, dot(normalize(lp), uSunDir));
 

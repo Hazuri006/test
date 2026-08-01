@@ -267,13 +267,16 @@ class MeshBuilder {
     this.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
 
-  /* Axis-aligned box between two corners, optionally tapered in X/Y at +Z. */
-  box(x0, y0, z0, x1, y1, z1, col, flag, emissive, taper) {
+  /* Axis-aligned box between two corners, optionally tapered in X/Y at one
+     end.  `taperAtZ0` picks which end narrows — a hull needs the taper at the
+     nose, an engine nacelle at the tail. */
+  box(x0, y0, z0, x1, y1, z1, col, flag, emissive, taper, taperAtZ0) {
     const t = taper === undefined ? 1 : taper;
+    const tz = taperAtZ0 ? z0 : z1;
     const cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5;
     const sx = (x1 - x0) * 0.5, sy = (y1 - y0) * 0.5;
     const P = (fx, fy, z) => {
-      const s = (z === z1) ? t : 1;
+      const s = (z === tz) ? t : 1;
       return [cx + fx * sx * s, cy + fy * sy * s, z];
     };
     const a = P(-1, -1, z0), b = P(1, -1, z0), c = P(1, 1, z0), d = P(-1, 1, z0);

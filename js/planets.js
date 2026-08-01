@@ -251,33 +251,36 @@ class Planet {
   /* Terrain radius (planet centre to surface) for a unit direction. */
   surfaceRadius(dx, dy, dz, lod) { return this.radius + this.heightAt(dx, dy, dz, lod); }
 
-  /* Geometric normal by central differences on the sphere. */
+  /* Surface normal by finite differences.  `eps` is a distance along the
+     ground in METRES; `dir` is a unit vector, so the offset has to be divided
+     by the radius before it is added.  Offsetting a unit vector by a raw metre
+     value displaces the sample by tens of degrees and returns a normal that is
+     roughly perpendicular to the real one. */
   normalAt(dir, out, eps) {
     const e = eps || Math.max(this.radius * 2e-5, 1.0);
-    // build a tangent frame
-    const t1 = _tmpN1, t2 = _tmpN2, a = _tmpN3;
+    const t1 = _tmpN1, t2 = _tmpN2, a = _tmpN3, p = _tmpN4;
     V3.set(a, 0, 1, 0);
     if (Math.abs(V3.dot(dir, a)) > 0.9) V3.set(a, 1, 0, 0);
     V3.normalize(t1, V3.cross(t1, a, dir));
     V3.normalize(t2, V3.cross(t2, dir, t1));
 
-    const inv = 1 / e;
-    const p = _tmpN4;
+    const step = e / this.radius;          // angular offset worth e metres
     const sample = (sx, sy) => {
-      p[0] = dir[0] + t1[0] * sx * e + t2[0] * sy * e;
-      p[1] = dir[1] + t1[1] * sx * e + t2[1] * sy * e;
-      p[2] = dir[2] + t1[2] * sx * e + t2[2] * sy * e;
+      p[0] = dir[0] + t1[0] * sx * step + t2[0] * sy * step;
+      p[1] = dir[1] + t1[1] * sx * step + t2[1] * sy * step;
+      p[2] = dir[2] + t1[2] * sx * step + t2[2] * sy * step;
       V3.normalize(p, p);
       return this.surfaceRadius(p[0], p[1], p[2]);
     };
-    const r0 = this.surfaceRadius(dir[0], dir[1], dir[2]);
-    const rx = sample(1, 0), ry = sample(0, 1);
 
-    // tangent vectors on the displaced surface
-    const dx1 = (rx - r0) * inv, dy1 = (ry - r0) * inv;
-    out[0] = dir[0] - (t1[0] * dx1 + t2[0] * dy1);
-    out[1] = dir[1] - (t1[1] * dx1 + t2[1] * dy1);
-    out[2] = dir[2] - (t1[2] * dx1 + t2[2] * dy1);
+    /* Central differences: less biased than forward differences on a ridge. */
+    const inv = 1 / (2 * e);
+    const dhdx = (sample(1, 0) - sample(-1, 0)) * inv;
+    const dhdy = (sample(0, 1) - sample(0, -1)) * inv;
+
+    out[0] = dir[0] - (t1[0] * dhdx + t2[0] * dhdy);
+    out[1] = dir[1] - (t1[1] * dhdx + t2[1] * dhdy);
+    out[2] = dir[2] - (t1[2] * dhdx + t2[2] * dhdy);
     return V3.normalize(out, out);
   }
 
