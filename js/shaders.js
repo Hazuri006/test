@@ -960,6 +960,8 @@ in vec2 vUV;
 in float vLogZ;
 
 uniform sampler2D uTex;
+uniform sampler2D uEmissive;
+uniform float uEmissiveAmt;
 uniform vec3 uSunDir, uSunColor, uAmbient;
 uniform vec3 uPlanetC;
 uniform float uFcoefHalf;
@@ -979,10 +981,7 @@ void main(){
   vec3 v = normalize(-vPos);
   vec3 up = normalize(vPos - uPlanetC);
 
-  vec3 albedo = texture(uTex, vUV).rgb;
-  /* The atlas is authored bright white; pull it down so sunlight has somewhere
-     to go before the tonemap clips. */
-  albedo *= 0.72;
+  vec3 albedo = texture(uTex, vUV).rgb * 0.95;
 
   float ndl = max(dot(n, uSunDir), 0.0);
   float shade = smoothstep(-0.12, 0.10, dot(up, uSunDir));
@@ -1007,6 +1006,10 @@ void main(){
       col += albedo * uLightCol * max(dot(n, L), 0.0) * att * (0.22 + 0.78 * cone);
     }
   }
+
+  /* Emissive map: engine cores and running lights.  Driven by the drive state
+     so the ship visibly spools up rather than glowing at a constant level. */
+  col += texture(uEmissive, vUV).rgb * uEmissiveAmt;
 
   fragColor = vec4(col, 1.0);
   gl_FragDepth = logDepth(vLogZ, uFcoefHalf);

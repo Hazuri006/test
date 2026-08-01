@@ -121,9 +121,11 @@ const Game = {
     setProgress(0.88, 'assembling starship');
     await tick();
 
-    this.shipMesh = buildShipMesh(this.gl);
+    this.shipParts = buildShipMesh(this.gl);
+    this.shipAnim = new ShipAnimator();
     this.thrusterMesh = buildThrusterMesh(this.gl);
-    this.shipTex = await this.loadShipTexture();
+    this.shipTex = await this.loadTexture(SHIP_MODEL.tex);
+    this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
 
     setProgress(1.0, 'ready');
     await tick();
@@ -131,7 +133,7 @@ const Game = {
 
   /* The hull atlas travels as a data: URI inside shipmodel.js, so it decodes
      without a network request and the game still runs from file://. */
-  loadShipTexture() {
+  loadTexture(src) {
     const gl = this.gl;
     return new Promise((resolve) => {
       const img = new Image();
@@ -155,7 +157,7 @@ const Game = {
         resolve(t);
       };
       img.onerror = () => resolve(null);
-      img.src = SHIP_MODEL.tex;
+      img.src = src;
     });
   },
 
@@ -642,10 +644,13 @@ const Game = {
            the ship outruns the ease and shrinks to a dot. */
         Q4.slerp(this.camRot, this.camRot, s.rot, 1 - Math.exp(-dt * 9));
 
+        /* Boost pulls the camera back and drops it slightly — the sense of
+           speed comes from the framing opening up, not from the numbers. */
         const speedK = saturate(s.speed / 600);
         const drive = Math.max(s.pulse, s.ultra);
-        const dist = 14.0 + speedK * 3.0 + drive * 9.0;
-        const height = 2.8 + speedK * 0.6;
+        this._camBoost = damp(this._camBoost || 0, s.boost, 5, dt);
+        const dist = 15.5 + speedK * 3.5 + this._camBoost * 7.0 + drive * 12.0;
+        const height = 3.2 + speedK * 0.7 - this._camBoost * 0.6;
 
         const back = quatFwd(_gF, this.camRot);
         const up = quatUp(_gU, this.camRot);
@@ -657,8 +662,8 @@ const Game = {
            vertex shader, so the nose, wings and engine glow frame the view. */
         const fwd = quatFwd(_gF, s.rot);
         const up = quatUp(_gU, s.rot);
-        V3.addScaled(this.camPos, s.pos, fwd, 3.00);
-        V3.addScaled(this.camPos, this.camPos, up, 1.10);
+        V3.addScaled(this.camPos, s.pos, fwd, 3.20);
+        V3.addScaled(this.camPos, this.camPos, up, SHIP_MODEL.bounds.hi[1] + 0.55);
         Q4.copy(this.camRot, s.rot);
         this._camInit = false;
       }
@@ -676,7 +681,10 @@ const Game = {
 
     /* Speed widens the field of view — cheap, effective sense of velocity. */
     const sp = this.mode === 'foot' ? this.player.speed : this.ship.speed;
-    const fovBoost = saturate(sp / 700) * 9 * DEG + this.ship.pulse * 12 * DEG;
+    const fovBoost = saturate(sp / 700) * 8 * DEG
+      + (this._camBoost || 0) * 9 * DEG
+      + this.ship.pulse * 12 * DEG
+      + this.ship.ultra * 10 * DEG;
     this.curFov = damp(this.curFov || this.fov, this.fov + fovBoost, 4, dt);
 
     quatFwd(this.camFwd, this.camRot);
@@ -884,13 +892,33 @@ const Game = {
     this.bindLight(pr);
     GLU.bindTex(pr, 'uTex', 0, this.shipTex, gl.TEXTURE_2D);
 
-    Q4.toMat3(_gMat3, sh.rot);
-    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    /* Emissive spools up with the drive. */
+    const driveNow = Math.max(sh.pulse, sh.ultra);
+    const emis = SHIP_MODEL.emissiveStrength *
+      (0.30 + sh.thrustVis * 0.55 + sh.boost * 0.5 + driveNow * 1.3);
+    gl.uniform1f(pr.u.uEmissiveAmt, emis);
+    GLU.bindTex(pr, 'uEmissive', 1, this.shipEmissive, gl.TEXTURE_2D);
+
     const ox = sh.pos[0] - this.camPos[0];
     const oy = sh.pos[1] - this.camPos[1];
     const oz = sh.pos[2] - this.camPos[2];
-    gl.uniform3f(pr.u.uOffset, ox, oy, oz);
-    this.shipMesh.draw();
+
+    /* Each part carries its own animated transform, composed with the hull's
+       orientation.  Scales came out uniform in the bake, so a mat3 is enough
+       and normals need no inverse-transpose. */
+    this.shipAnim.sample(this.time);
+    Q4.toMat3(_gMat3, sh.rot);
+    for (let k = 0; k < this.shipParts.length; k++) {
+      Q4.mul(_gPartQ, sh.rot, this.shipAnim.rot[k]);
+      Q4.toMat3(_gPartM, _gPartQ);
+      const sc = this.shipAnim.scale[k];
+      for (let i = 0; i < 9; i++) _gPartM[i] *= sc;
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gPartM);
+
+      V3.rotQuat(_gPartT, this.shipAnim.pos[k], sh.rot);
+      gl.uniform3f(pr.u.uOffset, ox + _gPartT[0], oy + _gPartT[1], oz + _gPartT[2]);
+      this.shipParts[k].draw();
+    }
 
     this.drawThrusters(ox, oy, oz);
   },
@@ -908,12 +936,13 @@ const Game = {
     gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
     gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
     gl.uniform1f(pr.u.uTime, this.time);
+    Q4.toMat3(_gMat3, sh.rot);
     gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
     gl.uniform3f(pr.u.uOffset, ox, oy, oz);
 
     /* Plume geometry: longer and thinner the harder the drive is pushing. */
     gl.uniform1f(pr.u.uLen, 1.6 + power * 5.4 + sh.ultra * 13.0);
-    gl.uniform1f(pr.u.uRad, 0.42 + Math.min(power, 1.0) * 0.16);
+    gl.uniform1f(pr.u.uRad, 0.95 + Math.min(power, 1.0) * 0.22);
 
     /* Colour shifts with the drive: orange idle, blue-white under pulse,
        violet at ultra. */
@@ -1208,5 +1237,8 @@ const _gDPA = new Float32Array(32);
 const _gDPB = new Float32Array(32);
 const _gCore = new Float32Array(3);
 const _gTip = new Float32Array(3);
+const _gPartM = new Float32Array(9);
+const _gPartQ = Q4.new();
+const _gPartT = V3.new();
 
 window.addEventListener('DOMContentLoaded', () => Game.boot());

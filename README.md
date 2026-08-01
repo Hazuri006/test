@@ -42,7 +42,7 @@ starship hull is generated at runtime from a seed.
 | `A` `D` | Roll |
 | `Shift` | Boost / sprint |
 | `Space` | Pulse drive (in space) / jetpack (on foot) |
-| `V` | **Ultra drive** — 100x the pulse drive |
+| `V` | **Ultra drive** — the boost, times a hundred |
 | `Ctrl` | Brake |
 | `F` | Land / take off |
 | `E` | Disembark / board ship |
@@ -92,12 +92,14 @@ ship down level with the local horizon and deploys the gear. Fighting a physics
 sim for the last twenty metres is not the interesting part of arriving at a
 planet — the approach is.
 
-**Arriving at ten million metres a second.** At ultra speed a single frame
-covers 800 km, so integrating the position blindly would put the ship on the
-far side of a planet before any proximity check could run. Each step is
-instead clamped against every planet's approach sphere: point the nose at a
-world, hold `V`, and you decelerate to a stop two and a half radii out rather
-than passing through it.
+**Arriving at ten million metres a second.** `V` is the boost with a hundred
+times the multiplier, and it engages wherever Shift would — thick air damps it,
+nothing else gates it. At that speed a single frame covers hundreds of
+kilometres, so integrating the position blindly would put the ship on the far
+side of a planet before any proximity check could run. Each step is instead
+clamped against every planet's approach sphere: point the nose at a world, hold
+`V`, and you decelerate to a stop two and a half radii out rather than passing
+through it.
 
 **Walking around a sphere.** The on-foot controller stores its heading as a
 vector and re-projects it onto the local tangent plane every frame, so you can
@@ -135,16 +137,30 @@ tools/check.js      static checks
 
 ## The starship model
 
-The hull is an X-wing supplied as a `.glb`. The bake in `js/shipmodel.js`
-applies the glTF node transform (Z-up to Y-up), recentres the model on its
-bounding box, scales it to 11 m, drops the tangents and the metallic-roughness
-and normal maps, and downsamples the base-colour atlas from 2048 to 1024 JPEG
-— 7.7 MB of glTF becomes a 780 KB JavaScript file.
+The hull is a 137k-triangle gunship supplied as a `.glb`, with a running engine
+animation and an emissive map for the engine cores.
+
+**The animation was the interesting part.** The source rig drives a bone
+hierarchy, but the meshes carry no joint weights — each of the 15 parts is
+rigidly parented to a single bone. So rather than ship a skeleton and an
+animation evaluator, the bake walks the hierarchy at 24 Hz and stores a plain
+translation / rotation / scale per part per frame. The runtime interpolates
+between two frames and issues one draw per part. Scales came out uniform, so a
+`mat3` suffices and normals need no inverse-transpose.
+
+The bake also rotates the model (its nose pointed along +X), recentres it,
+scales it to 16 m, drops the tangents, the second UV set and the
+metallic-roughness, occlusion and normal maps, and re-encodes the base-colour
+and emissive atlases as JPEG. Vertex data is quantised — positions to int16
+against each part's own bounding box, normals to int8, UVs to uint16 — which is
+what keeps 133k vertices inside a few megabytes. 11.4 MB of glTF becomes a
+3.7 MB JavaScript file.
 
 It is embedded as base64 rather than fetched, because `fetch` is blocked under
 `file://` and the game is meant to run by opening `index.html` directly. The
-four engine nozzles were located by clustering the rearmost vertices into
-quadrants, and the exhaust plumes are anchored to those positions.
+engine nozzle is found by taking the aft-most part whose centre sits near the
+axis; the exhaust plume is anchored to it, and the emissive map's strength
+tracks the drive state so the ship visibly spools up.
 
 > The model is a third-party asset (its glTF metadata identifies it as a
 > Sketchfab export). Check its licence before redistributing this repository

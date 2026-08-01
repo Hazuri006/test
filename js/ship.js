@@ -35,7 +35,11 @@ const SHIP_CFG = {
 };
 
 /* ---------------------------------------------------------------------------
-   Hull mesh, decoded from the baked glTF in shipmodel.js.
+   Hull, decoded from the baked glTF in shipmodel.js.
+
+   The model is one rigid part per animated bone, so it draws as a short list
+   of meshes each carrying its own transform.  Vertex data arrives quantised;
+   it is expanded once here rather than dequantised per-frame in a shader.
    --------------------------------------------------------------------------- */
 function decodeBase64(b64) {
   const bin = atob(b64);
@@ -47,37 +51,91 @@ function decodeBase64(b64) {
 
 function buildShipMesh(gl) {
   const M = SHIP_MODEL;
-  const buf = decodeBase64(M.geo);
-  const verts = new Float32Array(buf, 0, M.vertexCount * 8);
-  const idx = new Uint16Array(buf, M.vertexCount * 8 * 4, M.indexCount);
-  const mesh = new Mesh(gl, [
-    { name: 'aPos', size: 3 }, { name: 'aNormal', size: 3 }, { name: 'aUV', size: 2 }
-  ]);
-  mesh.upload(verts, idx);
+  const pos = new Int16Array(decodeBase64(M.pos));
+  const nrm = new Int8Array(decodeBase64(M.nrm));
+  const uv = new Uint16Array(decodeBase64(M.uv));
+  const idx = new Uint16Array(decodeBase64(M.idx));
 
-  /* Sit the hull on its own landing gear rather than a guessed height. */
-  SHIP_CFG.landHeight = -M.bounds.lo[1] + 0.55;
-  return mesh;
+  const parts = [];
+  let vo = 0, io = 0;
+  for (const p of M.parts) {
+    const v = new Float32Array(p.vc * 8);
+    for (let i = 0; i < p.vc; i++) {
+      const s = i * 8, q = (vo + i) * 3, u = (vo + i) * 2;
+      v[s]     = pos[q]     / 32767 * p.ph[0] + p.pc[0];
+      v[s + 1] = pos[q + 1] / 32767 * p.ph[1] + p.pc[1];
+      v[s + 2] = pos[q + 2] / 32767 * p.ph[2] + p.pc[2];
+      v[s + 3] = nrm[q]     / 127;
+      v[s + 4] = nrm[q + 1] / 127;
+      v[s + 5] = nrm[q + 2] / 127;
+      v[s + 6] = uv[u]      / 65535 * p.uh[0] + p.uc[0];
+      v[s + 7] = uv[u + 1]  / 65535 * p.uh[1] + p.uc[1];
+    }
+    const mesh = new Mesh(gl, [
+      { name: 'aPos', size: 3 }, { name: 'aNormal', size: 3 }, { name: 'aUV', size: 2 }
+    ]);
+    mesh.upload(v, idx.slice(io, io + p.ic));
+    parts.push(mesh);
+    vo += p.vc; io += p.ic;
+  }
+
+  SHIP_CFG.landHeight = -M.bounds.lo[1] + 0.75;
+  return parts;
 }
 
-/* Exhaust plumes: one cone per nozzle plus a bright disc at the throat.
-   Baked with a normalised axis so length and width are pure uniforms. */
+/* Per-part transforms for the baked animation, interpolated between the two
+   nearest sampled frames. */
+class ShipAnimator {
+  constructor() {
+    const M = SHIP_MODEL;
+    this.data = new Float32Array(decodeBase64(M.anim));
+    this.count = M.parts.length;
+    this.frames = M.frameCount;
+    this.rate = M.frameRate;
+    this.pos = [];
+    this.rot = [];
+    this.scale = new Float32Array(this.count);
+    for (let i = 0; i < this.count; i++) { this.pos.push(V3.new()); this.rot.push(Q4.new()); }
+    this._qa = Q4.new(); this._qb = Q4.new();
+  }
+
+  sample(time) {
+    const t = (time * this.rate) % this.frames;
+    const f0 = Math.floor(t);
+    const f1 = (f0 + 1) % this.frames;
+    const u = t - f0;
+    const d = this.data, n = this.count;
+    for (let k = 0; k < n; k++) {
+      const a = (f0 * n + k) * 8, b = (f1 * n + k) * 8;
+      const p = this.pos[k];
+      p[0] = d[a] + (d[b] - d[a]) * u;
+      p[1] = d[a + 1] + (d[b + 1] - d[a + 1]) * u;
+      p[2] = d[a + 2] + (d[b + 2] - d[a + 2]) * u;
+      const qa = this._qa, qb = this._qb;
+      qa[0] = d[a + 3]; qa[1] = d[a + 4]; qa[2] = d[a + 5]; qa[3] = d[a + 6];
+      qb[0] = d[b + 3]; qb[1] = d[b + 4]; qb[2] = d[b + 5]; qb[3] = d[b + 6];
+      Q4.slerp(this.rot[k], qa, qb, u);
+      this.scale[k] = d[a + 7] + (d[b + 7] - d[a + 7]) * u;
+    }
+  }
+}
+
+/* Exhaust plume anchored to the model's own nozzle.  Baked with a normalised
+   axis so length and width stay pure uniforms. */
 function buildThrusterMesh(gl) {
-  const SEG = 18, RINGS = 7;
+  const SEG = 20, RINGS = 7;
   const v = [], idx = [];
-  /* aInfo = (t along plume, disc flag, normalised radius) — the radius is what
-     lets the fragment shader fade the nozzle glow out to a soft edge instead
-     of a visible polygon. */
   const push = (ox, oy, t, cx, cy, cz, tt, disc, rn) => {
     v.push(ox, oy, t, cx, cy, cz, tt, disc, rn);
     return v.length / 9 - 1;
   };
 
   for (const e of SHIP_MODEL.engines) {
+    const er = e[3] || 1;
     const base = v.length / 9;
     for (let r = 0; r <= RINGS; r++) {
       const t = r / RINGS;
-      const rad = Math.pow(1 - t, 0.65) * (1 - t * 0.15);
+      const rad = Math.pow(1 - t, 0.65) * (1 - t * 0.15) * er;
       for (let i = 0; i <= SEG; i++) {
         const a = i / SEG * TAU;
         push(Math.cos(a) * rad, Math.sin(a) * rad, t, e[0], e[1], e[2], t, 0, 1);
@@ -90,12 +148,11 @@ function buildThrusterMesh(gl) {
         idx.push(a, c, b, b, c, d);
       }
     }
-    // soft glowing disc across the throat
     const c0 = v.length / 9;
     push(0, 0, 0.0, e[0], e[1], e[2], 0, 1, 0);
     for (let i = 0; i <= SEG; i++) {
       const a = i / SEG * TAU;
-      push(Math.cos(a) * 3.0, Math.sin(a) * 3.0, 0.0, e[0], e[1], e[2], 0, 1, 1);
+      push(Math.cos(a) * 3.0 * er, Math.sin(a) * 3.0 * er, 0.0, e[0], e[1], e[2], 0, 1, 1);
     }
     for (let i = 0; i < SEG; i++) idx.push(c0, c0 + 1 + i, c0 + 2 + i);
   }
@@ -221,12 +278,16 @@ class Ship {
         : 'PULSE DRIVE DISENGAGED — GRAVITY WELL', 'warn');
     }
 
-    /* ---- ultra drive ---- */
-    if (this.ultraWanted && pulseAllowed) {
+    /* ---- ultra drive ----
+       This behaves like the boost, not like the pulse drive: it engages
+       wherever holding Shift would, so pressing V always does something.
+       Only two things damp it — thick air, and being inside a gravity well
+       close enough that the travel clamp is about to stop you anyway. */
+    const ultraCeiling = inAtmo ? lerp(1.0, 0.12, saturate(density * 2.2)) : 1.0;
+    if (this.ultraWanted) {
       if (this.ultra < 0.01) game.audio.ultraEngage();
-      this.ultra = Math.min(1, this.ultra + dt * 1.6);
+      this.ultra = Math.min(ultraCeiling, this.ultra + dt * 2.2);
     } else {
-      if (this.ultra > 0.01 && !pulseAllowed) game.notify('ULTRA DRIVE DISENGAGED — ARRIVING', 'warn');
       this.ultra = Math.max(0, this.ultra - dt * 3.2);
     }
 
@@ -276,7 +337,9 @@ class Ship {
       V3.addScaled(accel, accel, lat, -2.2);
     } else {
       const baseThrust = lerp(SHIP_CFG.thrustSpace, SHIP_CFG.thrustAtmo, saturate(density));
-      const t = baseThrust * this.throttle * (1 + this.boost * (SHIP_CFG.boostMul - 1));
+      const boostMul = 1 + this.boost * (SHIP_CFG.boostMul - 1)
+                         + this.ultra * (SHIP_CFG.ultraMul - 1);
+      const t = baseThrust * Math.max(this.throttle, this.ultra) * boostMul;
       V3.addScaled(accel, accel, fwd, t);
     }
 
@@ -309,8 +372,9 @@ class Ship {
        dropping out of the pulse drive decelerates over half a second instead
        of stopping dead. */
     const normalMax = lerp(SHIP_CFG.maxSpaceSpeed, SHIP_CFG.maxAtmoSpeed, saturate(density * 3));
-    const driveMax = SHIP_CFG.pulseSpeed * 1.05 * (1 + this.ultra * (SHIP_CFG.ultraMul - 1));
-    const maxV = lerp(normalMax, driveMax, saturate(Math.max(this.pulse, this.ultra)));
+    const ultraMax = normalMax * (1 + this.ultra * (SHIP_CFG.ultraMul - 1));
+    const pulseMax = SHIP_CFG.pulseSpeed * 1.05;
+    const maxV = Math.max(lerp(normalMax, pulseMax, saturate(this.pulse)), ultraMax);
     const sp = V3.len(this.vel);
     if (sp > maxV) V3.scale(this.vel, this.vel, maxV / sp);
     if (input.brake) V3.scale(this.vel, this.vel, Math.exp(-dt * 2.4));
@@ -320,7 +384,7 @@ class Ship {
        descent rate.  It is the difference between "approach and set down" and
        "fight the physics for the last twenty metres", and it makes arriving at
        a planet reliable rather than a coin flip. */
-    if (planet && altitude < 260 && !this.pulse) {
+    if (planet && altitude < 260 && this.pulse < 0.02 && this.ultra < 0.02) {
       const near = 1 - smoothstep(90, 260, altitude);
       if (near > 0) {
         const cap = lerp(150, 70, near);
