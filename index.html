@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NO MAN'S CLAUDE — an infinite sky</title>
+<meta name="description" content="A procedural space-exploration game: fly from orbit to the surface of hand-free generated worlds, land, and walk around. Pure WebGL2, no assets.">
+<style>
+/* ==========================================================================
+   Design language: thin geometry, wide letter-spacing, amber + cyan on near
+   black.  Nothing is a raster asset — every line here is CSS.
+   ========================================================================== */
+:root{
+  --amber:#ffa142;
+  --amber-dim:#7a4d1e;
+  --cyan:#63e3ff;
+  --cyan-dim:#215a68;
+  --ink:#05070c;
+  --paper:#e8f2f8;
+  --warn:#ff6b57;
+  --ok:#7dffa6;
+  --hud-bg:rgba(6,10,16,.55);
+  --line:rgba(255,161,66,.30);
+  --font-ui:"Eurostile","Bahnschrift","DIN Alternate","Segoe UI",system-ui,-apple-system,sans-serif;
+  --font-num:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono",Menlo,Consolas,monospace;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:#000;overflow:hidden;
+  font-family:var(--font-ui);color:var(--paper);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{touch-action:none;user-select:none;-webkit-user-select:none}
+
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background:#000}
+
+/* ---------------------------------------------------------------- HUD ---- */
+#hud{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .5s ease}
+#hud.on{opacity:1}
+#hud.hidden{opacity:0 !important}
+
+.panel{
+  position:absolute;padding:11px 14px;
+  background:linear-gradient(180deg,rgba(8,13,20,.62),rgba(8,13,20,.34));
+  border:1px solid var(--line);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  box-shadow:0 0 28px rgba(0,0,0,.5), inset 0 0 22px rgba(255,161,66,.045);
+}
+/* clipped corner, the single motif repeated across the UI */
+.panel::after{content:"";position:absolute;right:-1px;bottom:-1px;
+  width:13px;height:13px;background:var(--ink);
+  border-left:1px solid var(--line);border-top:1px solid var(--line);
+  transform:translate(0,0) rotate(0deg);clip-path:polygon(100% 0,100% 100%,0 100%)}
+
+.k{color:var(--amber);opacity:.62;font-size:9.5px;letter-spacing:.2em;display:block;margin-bottom:2px}
+.v{font-family:var(--font-num);font-size:15px;letter-spacing:.06em;color:var(--paper);line-height:1.15}
+.v small{font-size:9.5px;opacity:.55;letter-spacing:.12em;margin-left:3px}
+.row{display:flex;gap:22px}
+.row>div{min-width:0}
+
+#planetPanel{top:22px;left:22px;min-width:214px}
+#planetName{font-size:19px;letter-spacing:.22em;color:var(--paper);
+  text-shadow:0 0 22px rgba(255,161,66,.5);margin-bottom:2px}
+#planetType{font-size:10px;letter-spacing:.26em;color:var(--amber)}
+#planetStats{margin-top:11px;display:grid;grid-template-columns:1fr 1fr;gap:9px 14px}
+.stat{font-size:9.5px;letter-spacing:.14em}
+.stat b{display:block;font-family:var(--font-num);font-size:12px;
+  font-weight:400;color:var(--paper);letter-spacing:.04em;margin-top:1px}
+.stat.warn b{color:var(--warn)}
+.stat.ok b{color:var(--ok)}
+
+#flightPanel{left:22px;bottom:22px;min-width:250px}
+#altBar{position:relative;height:4px;margin-top:9px;background:rgba(255,255,255,.09);overflow:hidden}
+#altFill{position:absolute;inset:0 100% 0 0;background:linear-gradient(90deg,var(--amber-dim),var(--amber));
+  transition:right .12s linear;box-shadow:0 0 12px rgba(255,161,66,.7)}
+#throttleWrap{margin-top:11px}
+#throttleBar{position:relative;height:4px;background:rgba(255,255,255,.09)}
+#throttleFill{position:absolute;inset:0 100% 0 0;background:linear-gradient(90deg,var(--cyan-dim),var(--cyan));
+  box-shadow:0 0 12px rgba(99,227,255,.6)}
+#throttleBar.pulse #throttleFill{background:linear-gradient(90deg,#8a4dff,#e05bff);
+  box-shadow:0 0 18px rgba(224,91,255,.85)}
+
+#statusPanel{right:22px;bottom:22px;min-width:186px;text-align:right}
+#statusPanel .k{text-align:right}
+
+#systemPanel{right:22px;top:22px;min-width:186px;text-align:right}
+
+/* ------------------------------------------------------------ reticle ---- */
+#reticle{position:absolute;left:50%;top:50%;width:120px;height:120px;
+  transform:translate(-50%,-50%);opacity:.9}
+#reticle svg{width:100%;height:100%;overflow:visible}
+.ret-line{stroke:var(--amber);stroke-width:1.1;fill:none;opacity:.85;
+  filter:drop-shadow(0 0 4px rgba(255,161,66,.75))}
+.ret-arc{stroke:var(--cyan);stroke-width:1.4;fill:none;opacity:.9;
+  filter:drop-shadow(0 0 6px rgba(99,227,255,.8));
+  transition:stroke-dashoffset .1s linear}
+.ret-dot{fill:var(--amber);filter:drop-shadow(0 0 5px rgba(255,161,66,.9))}
+#reticle.foot .ret-arc{opacity:0}
+
+/* ------------------------------------------------------------ markers ---- */
+#markers{position:absolute;inset:0}
+.marker{position:absolute;transform:translate(-50%,-50%);
+  font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--cyan);white-space:nowrap;text-align:center;
+  text-shadow:0 0 10px rgba(99,227,255,.8);transition:opacity .25s}
+.marker .ring{width:19px;height:19px;margin:0 auto 4px;border:1px solid var(--cyan);
+  transform:rotate(45deg);box-shadow:0 0 12px rgba(99,227,255,.5)}
+.marker .ring.sel{background:rgba(99,227,255,.28);border-color:#fff}
+.marker .dist{opacity:.6;font-family:var(--font-num);letter-spacing:.04em;font-size:9px}
+.marker.ship{color:var(--amber);text-shadow:0 0 10px rgba(255,161,66,.85)}
+.marker.ship .ring{border-color:var(--amber);border-radius:50%;
+  box-shadow:0 0 12px rgba(255,161,66,.55)}
+
+/* ------------------------------------------------------------ prompts ---- */
+#prompt{position:absolute;left:50%;bottom:20%;transform:translateX(-50%);
+  text-align:center;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
+  opacity:0;transition:opacity .25s ease}
+#prompt.on{opacity:1}
+#prompt .key{display:inline-block;min-width:22px;padding:3px 7px;margin-right:9px;
+  border:1px solid var(--amber);color:var(--amber);font-family:var(--font-num);
+  font-size:11px;letter-spacing:0;box-shadow:0 0 16px rgba(255,161,66,.32)}
+
+#toasts{position:absolute;left:50%;top:11%;transform:translateX(-50%);
+  display:flex;flex-direction:column;gap:7px;align-items:center}
+.toast{padding:7px 18px;border:1px solid var(--line);background:rgba(6,10,16,.72);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;
+  animation:toastIn .35s cubic-bezier(.2,.9,.3,1) both;white-space:nowrap}
+.toast.warn{border-color:rgba(255,107,87,.6);color:var(--warn);
+  box-shadow:0 0 26px rgba(255,107,87,.22)}
+.toast.ok{border-color:rgba(125,255,166,.5);color:var(--ok);
+  box-shadow:0 0 26px rgba(125,255,166,.18)}
+.toast.out{animation:toastOut .4s ease forwards}
+@keyframes toastIn{from{opacity:0;transform:translateY(-12px) scaleX(.9)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-8px)}}
+
+/* ---------------------------------------------------------- discovery ---- */
+#discovery{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+  text-align:center;opacity:0;pointer-events:none}
+#discovery.on{animation:disc 5.2s ease forwards}
+#discovery .eyebrow{font-size:10px;letter-spacing:.55em;color:var(--cyan);margin-bottom:12px}
+#discovery .name{font-size:44px;letter-spacing:.20em;line-height:1;
+  text-shadow:0 0 40px rgba(99,227,255,.55)}
+#discovery .sub{margin-top:14px;font-size:10.5px;letter-spacing:.32em;opacity:.72}
+#discovery .rule{width:0;height:1px;margin:20px auto 0;background:var(--cyan);
+  box-shadow:0 0 14px var(--cyan);animation:rule 5.2s ease forwards}
+@keyframes disc{
+  0%{opacity:0;transform:translate(-50%,-46%)}
+  12%{opacity:1;transform:translate(-50%,-50%)}
+  78%{opacity:1}
+  100%{opacity:0}
+}
+@keyframes rule{0%{width:0}18%{width:280px}80%{width:280px}100%{width:0}}
+
+/* --------------------------------------------------------- damage/vig ---- */
+#vignette{position:fixed;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse at center,transparent 42%,rgba(255,70,40,.55) 100%);
+  transition:opacity .18s ease}
+
+/* --------------------------------------------------------- map overlay ---- */
+#mapOverlay{position:fixed;inset:0;background:rgba(2,4,8,.82);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  display:none;place-items:center;z-index:40}
+#mapOverlay.on{display:grid}
+#mapWrap{width:min(90vw,880px);text-align:center}
+#mapTitle{font-size:12px;letter-spacing:.5em;color:var(--amber);margin-bottom:6px}
+#mapSystem{font-size:30px;letter-spacing:.28em;margin-bottom:22px;
+  text-shadow:0 0 34px rgba(255,161,66,.4)}
+#mapCanvas{width:100%;max-width:820px;aspect-ratio:2/1;border:1px solid var(--line);
+  background:radial-gradient(ellipse at center,rgba(20,14,8,.55),rgba(4,6,10,.9));
+  cursor:crosshair;display:block;margin:0 auto}
+#mapInfo{margin-top:18px;font-size:10.5px;letter-spacing:.22em;
+  text-transform:uppercase;min-height:34px;opacity:.85;line-height:1.7}
+#mapHint{margin-top:14px;font-size:9.5px;letter-spacing:.28em;opacity:.42}
+
+/* ------------------------------------------------------------- screens ---- */
+/* Deliberately translucent: the renderer keeps running behind the menus, so
+   you watch a real generated world drift past while reading the controls. */
+.screen{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
+  background:
+    radial-gradient(ellipse at 50% 118%,rgba(60,26,8,.42),transparent 58%),
+    linear-gradient(180deg,rgba(2,3,8,.86) 0%,rgba(2,3,8,.62) 42%,rgba(2,3,8,.88) 100%);
+  backdrop-filter:blur(2px) saturate(.9);-webkit-backdrop-filter:blur(2px) saturate(.9)}
+.screen.hide{display:none}
+#pause{background:rgba(2,3,8,.72);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+
+#title .inner{width:min(92vw,940px);padding:0 24px}
+.brand{font-size:clamp(34px,7.4vw,84px);letter-spacing:.16em;line-height:.98;
+  margin:0 0 6px;font-weight:400;
+  background:linear-gradient(180deg,#fff 0%,#ffd7a8 46%,#ff9a35 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 44px rgba(255,140,40,.42))}
+.tagline{font-size:clamp(9px,1.4vw,12px);letter-spacing:.62em;color:var(--cyan);
+  text-transform:uppercase;margin-bottom:34px;opacity:.85}
+.rule-h{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);margin:26px 0}
+
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
+  gap:11px 26px;text-align:left;margin:0 auto;max-width:820px}
+.ctrl{display:flex;align-items:baseline;gap:11px;font-size:10.5px;
+  letter-spacing:.16em;text-transform:uppercase;opacity:.86}
+.ctrl kbd{font-family:var(--font-num);font-size:10px;letter-spacing:0;
+  padding:2px 7px;border:1px solid var(--line);color:var(--amber);
+  min-width:26px;text-align:center;flex:none}
+.ctrl span{opacity:.7}
+
+.btn{display:inline-block;margin-top:34px;padding:14px 54px;cursor:pointer;
+  border:1px solid var(--amber);color:var(--amber);background:transparent;
+  font-family:inherit;font-size:12px;letter-spacing:.42em;text-transform:uppercase;
+  transition:all .22s ease;box-shadow:0 0 0 rgba(255,161,66,0)}
+.btn:hover{background:rgba(255,161,66,.13);box-shadow:0 0 34px rgba(255,161,66,.34);
+  letter-spacing:.5em}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{border-color:var(--line);color:var(--paper);font-size:10.5px;
+  padding:10px 28px;letter-spacing:.26em;margin-top:0}
+.btn.ghost:hover{background:rgba(255,255,255,.06);box-shadow:none;letter-spacing:.3em}
+
+.opts{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+.opt{display:flex;align-items:center;gap:9px;font-size:9.5px;letter-spacing:.2em;
+  text-transform:uppercase;opacity:.8}
+.opt select,.opt input[type=range]{font-family:var(--font-num);font-size:10px;
+  background:rgba(255,255,255,.05);color:var(--paper);border:1px solid var(--line);
+  padding:5px 7px;outline:none;letter-spacing:.06em}
+.opt input[type=range]{padding:0;width:96px;accent-color:var(--amber)}
+.seedbox{font-family:var(--font-num);font-size:10px;background:rgba(255,255,255,.05);
+  color:var(--cyan);border:1px solid var(--line);padding:5px 8px;width:110px;
+  outline:none;letter-spacing:.08em}
+
+#pause .inner{text-align:center;width:min(92vw,640px)}
+#pause h2{font-size:26px;letter-spacing:.4em;margin:0 0 8px;font-weight:400}
+#pause .sub{font-size:10px;letter-spacing:.3em;opacity:.55;margin-bottom:30px}
+#pauseBtns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* ------------------------------------------------------------- loading ---- */
+#loading{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:#02030a}
+#loading.hide{display:none}
+#loading .inner{text-align:center;width:min(88vw,460px)}
+#loadTitle{font-size:11px;letter-spacing:.6em;color:var(--amber);margin-bottom:22px}
+#loadBar{height:1px;background:rgba(255,255,255,.12);position:relative;overflow:hidden}
+#loadFill{position:absolute;inset:0 100% 0 0;background:var(--amber);
+  box-shadow:0 0 20px var(--amber);transition:right .25s ease}
+#loadMsg{margin-top:16px;font-size:9.5px;letter-spacing:.28em;opacity:.5;
+  font-family:var(--font-num);text-transform:uppercase}
+
+/* --------------------------------------------------------------- misc ---- */
+#fps{position:fixed;right:8px;top:8px;z-index:30;font-family:var(--font-num);
+  font-size:9px;letter-spacing:.06em;color:rgba(255,255,255,.34);
+  text-align:right;line-height:1.5;pointer-events:none;display:none;white-space:pre}
+#fps.on{display:block}
+
+#unsupported{position:fixed;inset:0;z-index:99;display:none;place-items:center;
+  background:#02030a;text-align:center;padding:30px}
+#unsupported.on{display:grid}
+#unsupported h1{font-size:22px;letter-spacing:.3em;font-weight:400}
+#unsupported p{font-size:12px;opacity:.6;letter-spacing:.1em;max-width:520px;line-height:1.9}
+
+@media (max-width:720px){
+  .panel{font-size:10px;padding:9px 11px}
+  #planetPanel,#systemPanel{min-width:auto}
+  #statusPanel{display:none}
+  .brand{letter-spacing:.1em}
+}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<div id="vignette"></div>
+
+<!-- ============================== HUD ============================== -->
+<div id="hud">
+  <div id="markers"></div>
+
+  <div id="reticle">
+    <svg viewBox="0 0 120 120" aria-hidden="true">
+      <!-- outer throttle arc -->
+      <circle class="ret-arc" id="arcBg" cx="60" cy="60" r="40"
+              stroke="rgba(99,227,255,.16)" stroke-dasharray="188.5 251.3"
+              transform="rotate(140 60 60)"/>
+      <circle class="ret-arc" id="arcFill" cx="60" cy="60" r="40"
+              stroke-dasharray="188.5 251.3" stroke-dashoffset="188.5"
+              transform="rotate(140 60 60)" stroke-linecap="round"/>
+      <!-- crosshair -->
+      <path class="ret-line" d="M60 42 L60 51 M60 69 L60 78 M42 60 L51 60 M69 60 L78 60"/>
+      <circle class="ret-dot" cx="60" cy="60" r="1.6"/>
+      <path class="ret-line" d="M46 46 L52 46 M46 46 L46 52
+                                M74 46 L68 46 M74 46 L74 52
+                                M46 74 L52 74 M46 74 L46 68
+                                M74 74 L68 74 M74 74 L74 68" opacity=".5"/>
+    </svg>
+  </div>
+
+  <div class="panel" id="planetPanel">
+    <div id="planetName">—</div>
+    <div id="planetType">SCANNING</div>
+    <div id="planetStats"></div>
+  </div>
+
+  <div class="panel" id="systemPanel">
+    <span class="k">System</span>
+    <div class="v" id="systemName">—</div>
+    <span class="k" style="margin-top:9px">Target</span>
+    <div class="v" id="targetName" style="font-size:12px">NONE</div>
+    <div class="v" id="targetDist" style="font-size:11px;opacity:.6">—</div>
+  </div>
+
+  <div class="panel" id="flightPanel">
+    <div class="row">
+      <div>
+        <span class="k">Velocity</span>
+        <div class="v"><span id="speedVal">0</span><small id="speedUnit">m/s</small></div>
+      </div>
+      <div>
+        <span class="k">Altitude</span>
+        <div class="v"><span id="altVal">—</span><small id="altUnit">m</small></div>
+      </div>
+    </div>
+    <div id="altBar"><div id="altFill"></div></div>
+    <div id="throttleWrap">
+      <span class="k" id="throttleLabel">Throttle</span>
+      <div id="throttleBar"><div id="throttleFill"></div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="statusPanel">
+    <span class="k">Environment</span>
+    <div class="v" id="envVal" style="font-size:12px">—</div>
+    <span class="k" style="margin-top:9px">Atmosphere</span>
+    <div class="v" id="atmoVal" style="font-size:12px">—</div>
+    <span class="k" style="margin-top:9px">Life Support</span>
+    <div class="v" id="lifeVal" style="font-size:12px;color:var(--ok)">NOMINAL</div>
+  </div>
+
+  <div id="prompt"><span class="key" id="promptKey">F</span><span id="promptText"></span></div>
+  <div id="toasts"></div>
+
+  <div id="discovery">
+    <div class="eyebrow">New Planet Discovered</div>
+    <div class="name" id="discName">—</div>
+    <div class="sub" id="discSub">—</div>
+    <div class="rule"></div>
+  </div>
+</div>
+
+<div id="fps"></div>
+
+<!-- ============================== MAP ============================== -->
+<div id="mapOverlay">
+  <div id="mapWrap">
+    <div id="mapTitle">Local System</div>
+    <div id="mapSystem">—</div>
+    <canvas id="mapCanvas" width="1640" height="820"></canvas>
+    <div id="mapInfo">Select a world to set a navigation target.</div>
+    <div id="mapHint">Click a world to target &nbsp;·&nbsp; M or ESC to close</div>
+  </div>
+</div>
+
+<!-- ============================ SCREENS ============================ -->
+<div class="screen" id="title">
+  <div class="inner" style="text-align:center">
+    <h1 class="brand">NO MAN'S CLAUDE</h1>
+    <div class="tagline">Fly · Descend · Land · Walk</div>
+
+    <div class="rule-h"></div>
+
+    <div class="controls">
+      <div class="ctrl"><kbd>Mouse</kbd><span>Steer / look</span></div>
+      <div class="ctrl"><kbd>W S</kbd><span>Throttle up / down</span></div>
+      <div class="ctrl"><kbd>A D</kbd><span>Roll</span></div>
+      <div class="ctrl"><kbd>Shift</kbd><span>Boost / sprint</span></div>
+      <div class="ctrl"><kbd>Space</kbd><span>Pulse drive / jetpack</span></div>
+      <div class="ctrl"><kbd>Ctrl</kbd><span>Brake</span></div>
+      <div class="ctrl"><kbd>F</kbd><span>Land / take off</span></div>
+      <div class="ctrl"><kbd>E</kbd><span>Exit / board ship</span></div>
+      <div class="ctrl"><kbd>V</kbd><span>Scanner pulse</span></div>
+      <div class="ctrl"><kbd>M</kbd><span>System map</span></div>
+      <div class="ctrl"><kbd>C</kbd><span>Camera view</span></div>
+      <div class="ctrl"><kbd>H</kbd><span>Hide interface</span></div>
+    </div>
+
+    <div class="opts">
+      <label class="opt">Quality
+        <select id="optQuality">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </label>
+      <label class="opt">Sensitivity
+        <input type="range" id="optSens" min="20" max="300" value="100">
+      </label>
+      <label class="opt">Volume
+        <input type="range" id="optVol" min="0" max="100" value="70">
+      </label>
+      <label class="opt">Invert Y
+        <input type="checkbox" id="optInvert">
+      </label>
+      <label class="opt">Seed
+        <input class="seedbox" id="optSeed" value="" placeholder="random">
+      </label>
+    </div>
+
+    <button class="btn" id="beginBtn">Begin</button>
+  </div>
+</div>
+
+<div class="screen hide" id="pause">
+  <div class="inner">
+    <h2>PAUSED</h2>
+    <div class="sub" id="pauseSub">—</div>
+    <div id="pauseBtns">
+      <button class="btn ghost" id="resumeBtn">Resume</button>
+      <button class="btn ghost" id="newSysBtn">New System</button>
+      <button class="btn ghost" id="quitBtn">Main Menu</button>
+      <button class="btn ghost" id="perfBtn">Toggle Stats</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading">
+  <div class="inner">
+    <div id="loadTitle">Initialising</div>
+    <div id="loadBar"><div id="loadFill"></div></div>
+    <div id="loadMsg">warming up</div>
+  </div>
+</div>
+
+<div id="unsupported">
+  <div>
+    <h1>WEBGL 2 REQUIRED</h1>
+    <p>This game needs a WebGL&nbsp;2 context. Try a current version of Chrome,
+       Edge, Firefox or Safari, and make sure hardware acceleration is enabled.</p>
+  </div>
+</div>
+
+<script src="js/math.js"></script>
+<script src="js/gl.js"></script>
+<script src="js/shaders.js"></script>
+<script src="js/planets.js"></script>
+<script src="js/terrain.js"></script>
+<script src="js/props.js"></script>
+<script src="js/ship.js"></script>
+<script src="js/player.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+'use strict';
+/* ============================================================================
+   player.js — on-foot exploration.
+
+   The walker keeps a heading/pitch pair relative to the local "up" of whatever
+   planet it is standing on, so walking a full circle around a 60 km world
+   never gimbal-locks or rolls the horizon.
+   ============================================================================ */
+
+const FOOT = {
+  eyeHeight: 1.72,
+  walkSpeed: 6.4,
+  sprintSpeed: 13.5,
+  accel: 34,
+  jumpSpeed: 5.6,
+  jetThrust: 17.0,
+  jetFuelMax: 2.6,
+  jetRefill: 0.55,
+  boardRange: 26
+};
+
+class Player {
+  constructor() {
+    this.pos = V3.new();
+    this.vel = V3.new();
+    this.up = V3.new(0, 1, 0);
+    this.fwd = V3.new(0, 0, -1);
+    this.right = V3.new(1, 0, 0);
+    this.yaw = 0;
+    this.pitch = 0;
+    this.grounded = false;
+    this.jetFuel = FOOT.jetFuelMax;
+    this.jetting = false;
+    this.bob = 0;
+    this.headBob = 0;
+    this.active = false;
+    this.rot = Q4.new();
+    this.speed = 0;
+    this.altitude = 0;
+  }
+
+  /* Drop the player beside the ship, facing it. */
+  disembark(ship, planet) {
+    V3.sub(_pRel, ship.pos, planet.pos);
+    const dir = V3.normalize(_pDir, _pRel);
+    V3.copy(this.up, dir);
+
+    const right = ship.right(_pTmp);
+    V3.planeProject(right, right, dir);
+    V3.normalize(right, right);
+
+    const ground = planet.surfaceRadius(dir[0], dir[1], dir[2]);
+    V3.addScaled(this.pos, planet.pos, dir, ground + FOOT.eyeHeight);
+    V3.addScaled(this.pos, this.pos, right, 6.5);
+
+    // re-seat onto the terrain at the (slightly different) offset direction
+    V3.sub(_pRel, this.pos, planet.pos);
+    V3.normalize(_pDir, _pRel);
+    const g2 = planet.surfaceRadius(_pDir[0], _pDir[1], _pDir[2]);
+    V3.addScaled(this.pos, planet.pos, _pDir, g2 + FOOT.eyeHeight);
+    V3.copy(this.up, _pDir);
+
+    // face the ship
+    V3.sub(_pTmp, ship.pos, this.pos);
+    V3.planeProject(_pTmp, _pTmp, this.up);
+    V3.normalize(_pTmp, _pTmp);
+    this.setHeading(_pTmp);
+
+    V3.zero(this.vel);
+    this.grounded = true;
+    this.jetFuel = FOOT.jetFuelMax;
+    this.active = true;
+  }
+
+  setHeading(dirWorld) {
+    /* Store the heading as an explicit forward vector; yaw input then rotates
+       it about the local up each frame. */
+    V3.copy(this.fwd, dirWorld);
+    V3.cross(this.right, this.fwd, this.up);
+    V3.normalize(this.right, this.right);
+    this.pitch = 0;
+  }
+
+  update(dt, input, planet, game) {
+    if (!planet) return;
+
+    V3.sub(_pRel, this.pos, planet.pos);
+    const r = V3.len(_pRel);
+    const dir = V3.scale(_pDir, _pRel, 1 / r);
+
+    /* Re-derive the local frame; `up` changes continuously as we walk. */
+    const prevUp = V3.copy(_pPrevUp, this.up);
+    V3.copy(this.up, dir);
+
+    /* Carry the heading across the change in up so walking doesn't drift. */
+    V3.planeProject(this.fwd, this.fwd, this.up);
+    if (V3.lenSq(this.fwd) < 1e-8) {
+      V3.cross(this.fwd, this.up, _pAxis);
+      if (V3.lenSq(this.fwd) < 1e-8) V3.set(this.fwd, 1, 0, 0);
+    }
+    V3.normalize(this.fwd, this.fwd);
+
+    /* ---- look ---- */
+    const yawAmt = -input.look.x * 2.6;
+    if (Math.abs(yawAmt) > 1e-9) {
+      Q4.fromAxisAngle(_pQ, this.up, yawAmt);
+      V3.rotQuat(this.fwd, this.fwd, _pQ);
+      V3.normalize(this.fwd, this.fwd);
+    }
+    this.pitch = clamp(this.pitch - input.look.y * 2.6, -1.45, 1.45);
+    V3.cross(this.right, this.fwd, this.up);
+    V3.normalize(this.right, this.right);
+
+    /* ---- ground ---- */
+    const groundR = planet.surfaceRadius(dir[0], dir[1], dir[2]);
+    const seaR = planet.hasWater ? planet.seaRadius : -1;
+    const floorR = Math.max(groundR, seaR > 0 ? seaR - 0.4 : -1e9);
+    const feetR = r - FOOT.eyeHeight;
+    const altitude = feetR - floorR;
+    this.altitude = altitude;
+    this.inWater = seaR > 0 && feetR < seaR;
+
+    const gravity = planet.gravity * Math.pow(planet.radius / r, 2);
+
+    /* ---- movement ---- */
+    const wish = _pWish;
+    V3.zero(wish);
+    V3.addScaled(wish, wish, this.fwd, input.move.y);
+    V3.addScaled(wish, wish, this.right, input.move.x);
+    const wl = V3.len(wish);
+    if (wl > 1) V3.scale(wish, wish, 1 / wl);
+
+    const sprint = input.boost && input.move.y > 0.1;
+    const target = (sprint ? FOOT.sprintSpeed : FOOT.walkSpeed) * (this.inWater ? 0.55 : 1);
+
+    /* Split velocity into surface-tangential and vertical parts. */
+    const vUp = V3.dot(this.vel, this.up);
+    const vTan = _pTan;
+    V3.addScaled(vTan, this.vel, this.up, -vUp);
+
+    const control = this.grounded ? 1 : 0.28;
+    const desired = _pDes;
+    V3.scale(desired, wish, target);
+    V3.lerp(vTan, vTan, desired, 1 - Math.exp(-FOOT.accel * control * dt / Math.max(target, 1)));
+
+    let newVUp = vUp - gravity * dt * (this.inWater ? 0.25 : 1);
+
+    /* ---- jetpack ---- */
+    this.jetting = false;
+    if (input.jump && this.jetFuel > 0.02) {
+      if (this.grounded && this.jetFuel > FOOT.jetFuelMax * 0.98) {
+        newVUp = FOOT.jumpSpeed;
+        this.grounded = false;
+        game.audio.jump();
+      } else {
+        newVUp += FOOT.jetThrust * dt;
+        this.jetFuel = Math.max(0, this.jetFuel - dt);
+        this.jetting = true;
+      }
+    } else if (this.grounded) {
+      this.jetFuel = Math.min(FOOT.jetFuelMax, this.jetFuel + dt * FOOT.jetRefill * 3.5);
+    } else {
+      this.jetFuel = Math.min(FOOT.jetFuelMax, this.jetFuel + dt * FOOT.jetRefill * 0.5);
+    }
+    if (this.inWater) newVUp += gravity * 0.85 * dt;    // buoyancy
+
+    V3.addScaled(this.vel, vTan, this.up, newVUp);
+    V3.addScaled(this.pos, this.pos, this.vel, dt);
+
+    /* ---- resolve against the terrain ---- */
+    V3.sub(_pRel, this.pos, planet.pos);
+    const r2 = V3.len(_pRel);
+    V3.scale(_pDir, _pRel, 1 / r2);
+    const g2 = planet.surfaceRadius(_pDir[0], _pDir[1], _pDir[2]);
+    const targetR = g2 + FOOT.eyeHeight;
+
+    if (r2 <= targetR) {
+      V3.addScaled(this.pos, planet.pos, _pDir, targetR);
+      const vn = V3.dot(this.vel, _pDir);
+      if (vn < 0) {
+        if (vn < -18 && !this.inWater) game.impact(Math.min(1, -vn / 45) * 0.5);
+        V3.addScaled(this.vel, this.vel, _pDir, -vn);
+      }
+      if (!this.grounded) game.audio.land();
+      this.grounded = true;
+      /* Friction only once we're actually on the ground. */
+      V3.scale(this.vel, this.vel, Math.exp(-dt * (wl > 0.05 ? 1.2 : 9.0)));
+    } else {
+      this.grounded = altitude < 0.25;
+    }
+
+    this.speed = V3.len(this.vel);
+
+    /* ---- head bob & footsteps ---- */
+    const planar = Math.hypot(
+      this.vel[0] - this.up[0] * V3.dot(this.vel, this.up),
+      this.vel[1] - this.up[1] * V3.dot(this.vel, this.up),
+      this.vel[2] - this.up[2] * V3.dot(this.vel, this.up)
+    );
+    if (this.grounded && planar > 0.6) {
+      const prev = this.bob;
+      this.bob += dt * planar * 1.15;
+      if (Math.floor(prev / PI) !== Math.floor(this.bob / PI)) game.audio.step(this.inWater);
+    }
+    this.headBob = damp(this.headBob, this.grounded ? Math.sin(this.bob) * Math.min(planar / 8, 1) * 0.11 : 0, 12, dt);
+
+    /* ---- orientation quaternion for the camera ---- */
+    const look = _pLook;
+    V3.scale(look, this.fwd, Math.cos(this.pitch));
+    V3.addScaled(look, look, this.up, Math.sin(this.pitch));
+    V3.normalize(look, look);
+    const rgt = _pRight2;
+    V3.cross(rgt, look, this.up);
+    if (V3.lenSq(rgt) < 1e-8) V3.copy(rgt, this.right);
+    V3.normalize(rgt, rgt);
+    const upv = _pUp2;
+    V3.cross(upv, rgt, look);
+    V3.normalize(upv, upv);
+    Q4.fromBasis(this.rot, rgt, upv, look);
+
+    /* ---- can we board? ---- */
+    this.nearShip = V3.dist(this.pos, game.ship.pos) < FOOT.boardRange;
+  }
+
+  eyePos(out) {
+    V3.addScaled(out, this.pos, this.up, this.headBob);
+    return out;
+  }
+}
+
+const _pRel = V3.new(), _pDir = V3.new(), _pTmp = V3.new(), _pWish = V3.new();
+const _pTan = V3.new(), _pDes = V3.new(), _pLook = V3.new(), _pRight2 = V3.new();
+const _pUp2 = V3.new(), _pPrevUp = V3.new(), _pAxis = V3.new(1, 0, 0);
+const _pQ = Q4.new();
