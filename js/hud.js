@@ -267,18 +267,22 @@ const HUD = {
 
   mapLayout() {
     const g = this.game, c = this.el.mapCanvas;
-    const maxOrbit = Math.max(...g.system.planets.map(p => V3.len(p.pos))) * 1.12;
+    const maxOrbit = Math.max(...g.system.planets.map(p => this.orbitRadius(p.pos))) * 1.12;
     const cx = c.width * 0.5, cy = c.height * 0.5;
     const scale = Math.min(c.width, c.height * 2) * 0.44 / maxOrbit;
     return { cx, cy, scale, maxOrbit };
   },
 
+  /* Straight top-down projection foreshortened in Z.  Adding an inclination
+     offset here would push planets off the flat orbit ellipses drawn below. */
   mapPos(worldPos, L) {
     return {
       x: L.cx + worldPos[0] * L.scale,
-      y: L.cy + worldPos[2] * L.scale * 0.5 - worldPos[1] * L.scale * 0.34
+      y: L.cy + worldPos[2] * L.scale * 0.5
     };
   },
+
+  orbitRadius(worldPos) { return Math.hypot(worldPos[0], worldPos[2]); },
 
   drawMap(hoverIdx) {
     const g = this.game, ctx = this.mapCtx, c = this.el.mapCanvas;
@@ -288,7 +292,7 @@ const HUD = {
     // orbit rings
     ctx.lineWidth = 1;
     for (const p of g.system.planets) {
-      const r = V3.len(p.pos) * L.scale;
+      const r = this.orbitRadius(p.pos) * L.scale;
       ctx.strokeStyle = 'rgba(255,161,66,.12)';
       ctx.beginPath();
       ctx.ellipse(L.cx, L.cy, r, r * 0.5, 0, 0, TAU);

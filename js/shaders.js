@@ -170,7 +170,10 @@ vec3 surfaceAlbedo(float alt, float slope, float lat, float variation,
   float polar = smoothstep(0.74 + v*0.05, 0.93, lat);
   col = mix(col, cPolar, polar * (1.0 - smoothstep(0.4, 0.8, slope)));
 
-  col *= 0.86 + variation * 0.28;
+  /* Patchiness.  Without it a biome's low ground is one flat colour across a
+     whole continent, which reads as untextured rather than as grassland. */
+  col = mix(col, cMid, smoothstep(0.62, 0.95, variation) * 0.40);
+  col *= 0.80 + variation * 0.42;
   return col;
 }
 
@@ -908,10 +911,10 @@ void main(){
   if (uScan.w > 0.0 && dist < 1e19){
     vec3 hitP = rd * dist;
     float dd = length(hitP - uScan.xyz);
-    float ring = 1.0 - smoothstep(0.0, 14.0, abs(dd - uScan.w));
-    float fade = 1.0 - smoothstep(0.0, 420.0, uScan.w);
-    col += vec3(0.25, 0.85, 1.0) * ring * fade * 1.6;
-    float wash = (1.0 - smoothstep(uScan.w - 60.0, uScan.w, dd)) * fade * 0.16;
+    float ring = 1.0 - smoothstep(0.0, 26.0, abs(dd - uScan.w));
+    float fade = 1.0 - smoothstep(60.0, 520.0, uScan.w);
+    col += vec3(0.25, 0.85, 1.0) * ring * ring * fade * 2.8;
+    float wash = (1.0 - smoothstep(uScan.w - 90.0, uScan.w, dd)) * fade * 0.24;
     col = mix(col, col * vec3(0.55, 0.95, 1.25) + vec3(0.02, 0.09, 0.13), wash);
   }
 

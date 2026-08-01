@@ -619,8 +619,8 @@ const Game = {
            vertex shader, so the nose, wings and engine glow frame the view. */
         const fwd = quatFwd(_gF, s.rot);
         const up = quatUp(_gU, s.rot);
-        V3.addScaled(this.camPos, s.pos, fwd, 2.35);
-        V3.addScaled(this.camPos, this.camPos, up, 1.05);
+        V3.addScaled(this.camPos, s.pos, fwd, 3.00);
+        V3.addScaled(this.camPos, this.camPos, up, 1.10);
         Q4.copy(this.camRot, s.rot);
         this._camInit = false;
       }
