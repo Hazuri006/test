@@ -47,6 +47,8 @@ const Game = {
 
     this.mode = 'ship';           // 'ship' | 'foot'
     this.view3rd = true;
+    this.credits = 2500;
+    this.menu = null;            // 'ships' | 'shop' | null
     this.paused = true;
     this.started = false;
     this.hudHidden = false;
@@ -126,12 +128,14 @@ const Game = {
 
     this.shipParts = buildShipMesh(this.gl);
     this.shipAnim = new ShipAnimator();
-    this.thrusterMesh = buildThrusterMesh(this.gl);
+    await Ships.init(this.gl, this);
+    this.thrusterMesh = buildThrusterMesh(this.gl, Ships.engines());
     this.shipTex = await this.loadTexture(SHIP_MODEL.tex);
     this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
     this.treeBark = await this.loadTexture(TREE_MODEL.bark, true);
     this.treeAtlas = await this.loadTexture(TREE_MODEL.atlas, false);
 
+    Combat.build(this.gl);
     this.playerModel = new SkinnedModel(this.gl, PLAYER_MODEL);
     this.playerAnim = new PlayerAnimator(this.playerModel);
     this.playerTex = await this.loadTexture(PLAYER_MODEL.tex, false);
@@ -256,9 +260,15 @@ const Game = {
         this.canvas.requestPointerLock();
       }
     });
+    /* Left click fires in the arena.  The pointer is already locked for
+       looking, so mousedown on the canvas is free. */
+    window.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !this.started || this.paused || this.menu) return;
+      if (this.mode === 'foot' && Combat.state === 'fight') Combat.fire(this);
+    });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
-      if (!this.locked && this.started && !this.mapOpen) this.setPaused(true);
+      if (!this.locked && this.started && !this.mapOpen && !this.menu) this.setPaused(true);
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -279,6 +289,7 @@ const Game = {
   onKey(c) {
     if (!this.started) return;
     if (c === 'Escape') {
+      if (this.menu) { this.toggleMenu(this.menu); return; }
       if (this.mapOpen) this.toggleMap(false);
       else this.setPaused(!this.paused);
       return;
@@ -292,6 +303,13 @@ const Game = {
       case 'KeyX': this.doScan(); break;
       case 'KeyF': this.input.landPressed = true; break;
       case 'KeyE': this.interact(); break;
+      case 'Tab': this.toggleMenu('ships'); break;
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
+        const wi = +e.code.slice(5) - 1;
+        if (Ships.weaponsOwned[wi]) { Ships.weapon = wi; this.audio.ui();
+          this.notify('WEAPON: ' + WEAPON_SPECS[wi].name.toUpperCase()); }
+        break;
+      }
       case 'F3': this.showStats = !this.showStats; HUD.el.fps.classList.toggle('on', this.showStats); break;
     }
   },
@@ -459,12 +477,40 @@ const Game = {
   /* E does three things depending on where you are standing, in the order you
      would expect: get off the animal, get on the animal, board the ship. */
   interact() {
+    if (this.mode === 'foot' && this.player.station) {
+      const k = Station.kioskAt(this.player.pos, this.player.room);
+      if (k) {
+        if (k.id === 'shop') { this.toggleMenu('shop'); return; }
+        if (k.id === 'arena') { Combat.enter(this); return; }
+        if (k.id === 'leave') { Combat.leave(this, Combat.state === 'won'); return; }
+      }
+    }
     if (this.mode === 'foot') {
       if (this.player.mount) { this.dismount(); return; }
       const c = Fauna.mountable(this.player.pos);
       if (c) { this.mount(c); return; }
     }
     this.toggleFoot();
+  },
+
+  /* Tab and the outfitter both open a panel; opening one closes the other, and
+     either releases the pointer so you can click the list. */
+  toggleMenu(which) {
+    this.menu = this.menu === which ? null : which;
+    HUD.showMenu(this, this.menu);
+    if (this.menu && document.pointerLockElement) document.exitPointerLock();
+    this.audio.ui();
+  },
+
+  /* F while on foot: the ship flies over and lands next to you. */
+  summonShip() {
+    if (this.mode !== 'foot') return;
+    if (this.player.station) { this.notify('NOT INSIDE A STATION', 'warn'); return; }
+    if (!this.activePlanet) return;
+    const sh = this.ship;
+    if (sh.summon > 0) return;
+    if (V3.dist(sh.pos, this.player.pos) < 14) { this.notify('SHIP ALREADY HERE'); return; }
+    sh.beginSummon(this.activePlanet, this.player, this);
   },
 
   mount(c) {
@@ -587,18 +633,27 @@ const Game = {
   update(dt) {
     this.gatherInput(dt);
 
+    if (this.menu) { this.input.move.x = 0; this.input.move.y = 0; this.input.look.x = 0; this.input.look.y = 0; }
     if (this.mode === 'foot') {
       this.player.update(dt, this.input, this.activePlanet, this);
+      Combat.update(dt, this);
       this.playerAnim.update(dt, this.player.groundSpeed, this.player.grounded,
         this.player.climbRate, this.player.turnRate, !!this.player.mount);
     } else {
       this.ship.update(dt, this.input, this.activePlanet, this);
     }
+    if (this.input.landPressed && this.mode === 'foot') {
+      this.summonShip();
+    }
     this.input.landPressed = false;
 
     /* When on foot, keep the ship parked exactly on the ground — unless it is
        sitting on a station pad, where it is already welded to something. */
-    if (this.mode === 'foot' && this.activePlanet && !this.ship.dockedAt) {
+    /* The ship still needs its own update while you are on foot if it is
+       flying itself over to you — nothing else calls it in this mode. */
+    if (this.mode === 'foot' && this.ship.summon > 0 && this.activePlanet) {
+      this.ship.updateSummon(dt, this.activePlanet, this);
+    } else if (this.mode === 'foot' && this.activePlanet && !this.ship.dockedAt) {
       const p = this.activePlanet;
       V3.sub(_gRel, this.ship.pos, p.pos);
       V3.normalize(_gDir, _gRel);
@@ -734,8 +789,9 @@ const Game = {
         const speedK = saturate(s.speed / 600);
         const drive = Math.max(s.pulse, s.ultra);
         this._camBoost = damp(this._camBoost || 0, s.boost, 5, dt);
-        const dist = 15.5 + speedK * 3.0 + this._camBoost * 5.5 + drive * 11.0;
-        const height = 3.2 + speedK * 0.7 - this._camBoost * 0.6;
+        const hullLen = Ships.length();
+        const dist = hullLen * 1.15 + 9.0 + speedK * 3.0 + this._camBoost * 5.5 + drive * 11.0;
+        const height = hullLen * 0.17 + 1.2 + speedK * 0.7 - this._camBoost * 0.6;
 
         const back = quatFwd(_gF, this.camRot);
         const up = quatUp(_gU, this.camRot);
@@ -747,8 +803,10 @@ const Game = {
            vertex shader, so the nose, wings and engine glow frame the view. */
         const fwd = quatFwd(_gF, s.rot);
         const up = quatUp(_gU, s.rot);
-        V3.addScaled(this.camPos, s.pos, fwd, 3.20);
-        V3.addScaled(this.camPos, this.camPos, up, SHIP_MODEL.bounds.hi[1] + 0.55);
+        const hull = Ships.hull();
+        V3.addScaled(this.camPos, s.pos, fwd, hull ? -hull.bounds.lo[2] * 0.45 : 3.20);
+        V3.addScaled(this.camPos, this.camPos, up,
+          (hull ? hull.bounds.hi[1] * 0.70 : SHIP_MODEL.bounds.hi[1]) + 0.55);
         Q4.copy(this.camRot, s.rot);
         this._camInit = false;
       }
@@ -858,6 +916,7 @@ const Game = {
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     if (p) this.drawFaunaPass(sun, sunCol, p);
     this.drawStationPass(sun, sunCol, p);
+    this.drawCombatPass(sun, sunCol, p);
     this.drawTrafficPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
     this.drawPlayerPass(sun, sunCol, p);
@@ -1119,6 +1178,44 @@ const Game = {
     }
   },
 
+  /* Arena drones and bolts: the same instanced object shader as everything
+     else that comes in quantity, with the bolts and the impact sparks sharing
+     one mesh — which is why a hit reads as the bolt stopping. */
+  drawCombatPass(sun, sunCol, p) {
+    if (Combat.state === 'off' || !Combat.droneMesh) return;
+    const gl = this.gl, pr = this.prog.debris;
+    Combat.fillInstances(this.camPos);
+    if (!Combat.droneCount && !Combat.boltCount) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 1);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    const v = this.sunDirScaled(_gTmp);
+    gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    gl.uniform1f(pr.u.uR, 1);
+    this.bindLight(pr);
+    gl.uniform1f(pr.u.uMinAngular, 0);
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    if (Combat.droneCount) {
+      Combat.droneMesh.updateInstances(Combat.droneInst);
+      Combat.droneMesh.drawInstanced(Combat.droneCount);
+    }
+    if (Combat.boltCount) {
+      Combat.boltMesh.updateInstances(Combat.boltInst);
+      Combat.boltMesh.drawInstanced(Combat.boltCount);
+    }
+  },
+
   /* Wildlife.  Two instanced draws per species — body and leg — with the
      instance buffers rewritten from the simulation each frame.  Instance
      offsets are already camera-relative, so the model transform is identity. */
@@ -1195,6 +1292,21 @@ const Game = {
     const ox = sh.pos[0] - this.camPos[0];
     const oy = sh.pos[1] - this.camPos[1];
     const oz = sh.pos[2] - this.camPos[2];
+
+    /* Bought hulls are static single meshes, so they take the same shader with
+       one identity part transform and no emissive map — the animation is the
+       only thing that distinguishes the gunship's draw from theirs. */
+    const hi = Ships.spec().hull;
+    if (hi >= 0) {
+      GLU.bindTex(pr, 'uTex', 0, Ships.textures[hi], gl.TEXTURE_2D);
+      gl.uniform1f(pr.u.uEmissiveAmt, 0);
+      Q4.toMat3(_gMat3, sh.rot);
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+      gl.uniform3f(pr.u.uOffset, ox, oy, oz);
+      Ships.meshes[hi].draw();
+      this.drawThrusters(ox, oy, oz);
+      return;
+    }
 
     /* Each part carries its own animated transform, composed with the hull's
        orientation.  Scales came out uniform in the bake, so a mat3 is enough
@@ -1408,16 +1520,17 @@ const Game = {
        light panels up there would actually be doing. */
     const inside = Station.interiorFade(this.camPos);
     if (inside > 0.01) {
-      V3.set(_gTmp, 0, STATION.bayRoof - 6, (STATION.collarZ1 + STATION.bayBack) * 0.5);
+      const rm = STATION.rooms[this.player.room] || STATION.rooms.bay;
+      V3.set(_gTmp, 0, rm.roof - 30, (rm.front + rm.back) * 0.5);
       Station.toWorld(_gRel, _gTmp);
       L.pos[0] = _gRel[0] - this.camPos[0];
       L.pos[1] = _gRel[1] - this.camPos[1];
       L.pos[2] = _gRel[2] - this.camPos[2];
-      L.pos[3] = 260;
+      L.pos[3] = 1200;
       V3.set(_gTmp, 0, -1, 0);
       Station.axis(_gDir, _gTmp);
       L.dir[0] = _gDir[0]; L.dir[1] = _gDir[1]; L.dir[2] = _gDir[2];
-      const k = inside * 1.35;
+      const k = inside * 1.55;
       L.col[0] = 0.86 * k; L.col[1] = 0.92 * k; L.col[2] = 1.0 * k;
       return L;
     }

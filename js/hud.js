@@ -21,6 +21,8 @@ const HUD = {
       'altFill', 'throttleFill', 'throttleBar', 'throttleLabel', 'envVal',
       'atmoVal', 'lifeVal', 'prompt', 'promptKey', 'promptText', 'toasts',
       'discovery', 'discName', 'discSub', 'markers', 'arcFill', 'reticle',
+      'creditVal', 'creditPanel', 'arenaPanel', 'arenaWave', 'arenaState', 'hpFill',
+      'arenaWeapon', 'hitMark', 'hurt', 'menu', 'menuTitle', 'menuSub', 'menuList',
       'vignette', 'fps', 'mapOverlay', 'mapCanvas', 'mapSystem', 'mapInfo',
       'statusPanel', 'flightPanel', 'planetPanel', 'systemPanel'];
     for (const id of ids) this.el[id] = $(id);
@@ -151,6 +153,7 @@ const HUD = {
       this.el.lifeVal.style.color = 'var(--ok)';
     }
 
+    this.updateEconomy(game);
     this.updateMarkers(game);
     this.updatePrompt(game);
   },
@@ -231,9 +234,88 @@ const HUD = {
     for (const [k, m] of this.markers) if (!seen.has(k)) m.style.opacity = '0';
   },
 
+  /* ------------------------------------------------------ credits / arena -- */
+  updateEconomy(game) {
+    this.set('creditVal', Math.round(game.credits).toLocaleString());
+    const on = Combat.state !== 'off';
+    this.el.arenaPanel.classList.toggle('on', on);
+    if (on) {
+      const w = Combat.wave + 1, n = ARENA.waves.length;
+      this.set('arenaWave', Combat.state === 'brief' ? 'Next wave' : 'Wave ' + w + ' / ' + n);
+      this.set('arenaState',
+        Combat.state === 'brief' ? Math.ceil(Combat.timer) + '' :
+        Combat.state === 'won' ? 'CLEARED' :
+        Combat.enemies.length + ' HOSTILE');
+      this.el.hpFill.style.right = (100 - Combat.hp / ARENA.playerHp * 100) + '%';
+      this.set('arenaWeapon', Ships.weaponSpec().name.toUpperCase() +
+        '  ·  ' + Combat.earned.toLocaleString() + ' CR BANKED');
+    }
+    this.el.hitMark.style.opacity = Combat.hitFlash > 0 ? '1' : '0';
+    this.el.hurt.style.opacity = (Combat.hurtFlash * 0.9).toFixed(2);
+  },
+
+  /* --------------------------------------------------------------- menu -- */
+  /* One panel serves the ship hangar and the outfitter; the rows differ, the
+     chrome does not. */
+  showMenu(game, which) {
+    const el = this.el;
+    el.menu.classList.toggle('on', !!which);
+    if (!which) return;
+    const rows = [];
+    if (which === 'ships') {
+      this.set('menuTitle', 'Hangar');
+      this.set('menuSub', 'Ships you own — click to fly');
+      SHIP_SPECS.forEach((s, i) => rows.push({
+        name: s.name, sub: s.blurb,
+        stat: 'THRUST ' + s.thrust.toFixed(2) + '  ·  TOP ' + s.top.toFixed(2),
+        price: s.price, owned: Ships.owned[i], cur: Ships.index === i,
+        act: () => { if (Ships.owned[i]) Ships.select(i, game); }
+      }));
+    } else {
+      this.set('menuTitle', 'Outfitter');
+      this.set('menuSub', 'Ships and weapons — click to buy');
+      SHIP_SPECS.forEach((s, i) => rows.push({
+        name: s.name, sub: s.blurb,
+        stat: 'THRUST ' + s.thrust.toFixed(2) + '  ·  TOP ' + s.top.toFixed(2),
+        price: s.price, owned: Ships.owned[i], cur: Ships.index === i,
+        act: () => { if (Ships.buy(i, game) === 'ok') this.showMenu(game, which); }
+      }));
+      WEAPON_SPECS.forEach((w, i) => rows.push({
+        name: w.name, sub: w.blurb,
+        stat: 'DMG ' + (w.dmg * w.pellets) + '  ·  ' + (1 / w.rate).toFixed(1) + '/S  ·  ' + w.range + ' M',
+        price: w.price, owned: Ships.weaponsOwned[i], cur: Ships.weapon === i,
+        act: () => {
+          if (Ships.weaponsOwned[i]) { Ships.weapon = i; game.audio.ui(); }
+          else Ships.buyWeapon(i, game);
+          this.showMenu(game, which);
+        }
+      }));
+    }
+
+    el.menuList.innerHTML = '';
+    for (const r of rows) {
+      const d = document.createElement('div');
+      d.className = 'item' + (r.cur ? ' cur' : '') + (r.owned ? '' : ' locked');
+      d.innerHTML = '<div class="nm"><b></b><span></span></div>' +
+        '<div class="st"></div><div class="pz"></div>';
+      d.children[0].children[0].textContent = r.name;
+      d.children[0].children[1].textContent = r.sub;
+      d.children[1].textContent = r.stat;
+      d.children[2].textContent = r.owned ? 'OWNED' : r.price.toLocaleString() + ' CR';
+      d.children[2].className = 'pz' + (r.owned ? ' own' : '');
+      d.onclick = r.act;
+      el.menuList.appendChild(d);
+    }
+  },
+
   /* ------------------------------------------------------------- prompt -- */
   updatePrompt(game) {
     let key = null, text = null;
+    if (game.mode === 'foot' && game.player.station) {
+      const kk = Station.kioskAt(game.player.pos, game.player.room);
+      if (kk) { this.el.prompt.classList.add('on'); this.set('promptKey', 'E');
+        this.set('promptText', kk.label); return; }
+    }
     if (game.mode === 'foot') {
       /* Same order the E key uses: dismount, mount, board. */
       const mnt = game.player.mount;

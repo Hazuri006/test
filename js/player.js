@@ -54,6 +54,7 @@ class Player {
     /* Set while walking inside a station: the walker swaps its sphere for a
        room with one up vector and four walls. */
     this.station = null;
+    this.room = 'bay';
   }
 
   /* Riding raises the eyes to the animal's back and lifts every speed limit to
@@ -124,8 +125,9 @@ class Player {
     V3.planeProject(right, right, this.up);
     V3.normalize(right, right);
 
+    this.room = 'bay';
     Station.toLocal(_pLocal, ship.pos);
-    _pLocal[1] = STATION.bayFloor + FOOT.eyeHeight;
+    _pLocal[1] = STATION.rooms.bay.floor + FOOT.eyeHeight;
     Station.toWorld(this.pos, _pLocal);
     V3.addScaled(this.pos, this.pos, right, 9.5);
 
@@ -147,6 +149,7 @@ class Player {
      collision differ. */
   updateInStation(dt, input, game) {
     const S = STATION;
+    const R = STATION.rooms[this.room] || STATION.rooms.bay;
     V3.set(_pTmp, 0, 1, 0);
     Station.axis(this.up, _pTmp);
     V3.normalize(this.up, this.up);
@@ -181,7 +184,7 @@ class Player {
     V3.scale(_pDes, wish, target);
     V3.lerp(vTan, vTan, _pDes, 1 - Math.exp(-FOOT.accel * control * dt / Math.max(target, 1)));
 
-    let newVUp = vUp - STATION.gravity * dt;
+    let newVUp = vUp - S.gravity * dt;
     this.jetting = false;
     if (input.jump && this.jetFuel > 0.02) {
       if (this.grounded && this.jetFuel > FOOT.jetFuelMax * 0.98) {
@@ -203,7 +206,7 @@ class Player {
     /* Collide in the station's own frame, then take the velocity component
        along whichever axis was clamped back out. */
     Station.toLocal(_pLocal, this.pos);
-    const eyeY = S.bayFloor + FOOT.eyeHeight;
+    const eyeY = R.floor + FOOT.eyeHeight;
     const wasAir = !this.grounded;
     this.grounded = false;
     if (_pLocal[1] <= eyeY + 0.02) {
@@ -213,18 +216,18 @@ class Player {
       if (vn < 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
       if (wasAir) game.audio.land();
       V3.scale(this.vel, this.vel, Math.exp(-dt * (wl > 0.05 ? 1.2 : 9.0)));
-    } else if (_pLocal[1] > S.bayRoof - 0.5) {
-      _pLocal[1] = S.bayRoof - 0.5;
+    } else if (_pLocal[1] > R.roof - 0.5) {
+      _pLocal[1] = R.roof - 0.5;
       const vn = V3.dot(this.vel, this.up);
       if (vn > 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
     }
-    const wallX = clamp(_pLocal[0], -S.bayX + 2.5, S.bayX - 2.5);
+    const wallX = clamp(_pLocal[0], -R.x + 2.5, R.x - 2.5);
     if (wallX !== _pLocal[0]) {
       _pLocal[0] = wallX;
       V3.set(_pTmp, 1, 0, 0); Station.axis(_pTmp2, _pTmp);
       V3.addScaled(this.vel, this.vel, _pTmp2, -V3.dot(this.vel, _pTmp2));
     }
-    const wallZ = clamp(_pLocal[2], S.collarZ1 + 2.5, S.bayBack - 2.5);
+    const wallZ = clamp(_pLocal[2], R.front + 2.5, R.back - 2.5);
     if (wallZ !== _pLocal[2]) {
       _pLocal[2] = wallZ;
       V3.set(_pTmp, 0, 0, 1); Station.axis(_pTmp2, _pTmp);

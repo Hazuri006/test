@@ -2,10 +2,10 @@
 /* ============================================================================
    station.js — the orbital station.
 
-   One per system, hanging above a world: a sphere a hundred and fifty metres
-   across with a rectangular docking port cut into one face, a hangar bay behind
-   it, and a crew.  You fly at the port, the station takes the ship off you and
-   flies it in, and you can get out and walk around.
+   One per system, hanging above a world: a sphere three kilometres across with
+   a rectangular docking port cut into one face, a hangar bay behind it, and a
+   combat arena further in.  You fly at the port, the station takes the ship off
+   you and flies it in, and you can get out and walk around.
 
    Three things about the construction are worth knowing.
 
@@ -13,8 +13,8 @@
    quads are skipped where the door window falls, and the ragged edge that
    leaves is covered by a collar that overlaps it by a good margin — which is
    also, conveniently, what a docking port looks like.  There is no inner shell:
-   the bay is a closed box, so from inside you never see the sphere, and from
-   outside the sphere hides the box.  Half the shell triangles for nothing.
+   the rooms are closed boxes, so from inside you never see the sphere, and from
+   outside the sphere hides the boxes.  Half the shell triangles for nothing.
 
    The docking sequence is scripted, for the same reason the planetary landing
    is.  Fighting a physics sim through a hole in a wall is not the interesting
@@ -22,34 +22,49 @@
    through the door, down the throat, into the bay and onto a free pad, and the
    last leg turns the ship around so it is pointing back out when it settles.
 
-   The traffic uses the same pads and the same path.  That is most of what makes
-   the place feel inhabited: ships you did not fly arriving and leaving on their
-   own schedule, in the room you are standing in.
+   Walking is done room by room rather than by a general collision system.  Each
+   room is an axis-aligned box in station space, the walker clamps to whichever
+   one it is in, and the arena is reached from a transit pad rather than by a
+   corridor — a kilometre of corridor is a kilometre of walking.
    ============================================================================ */
 
 const STATION = {
-  R: 150,                 // hull radius
-  doorW: 26, doorH: 15,   // half-size of the opening you fly through
-  holeW: 52, holeH: 34,   // half-size of the window cut in the shell
-  collarW: 66, collarH: 46,
-  collarZ0: -164,         // outer face of the docking port
-  collarZ1: -96,          // where it meets the bay's front wall
-  bayX: 88, bayFloor: -50, bayRoof: 54, bayBack: 80,
-  padY: -50,
-  dockRange: 260,         // how close to the port before it takes the ship
-  gravity: 9.4,           // whatever the deck plating is set to
-  crew: 5
+  R: 1500,                 // hull radius — ten times what it started at
+  doorW: 150, doorH: 92,   // half-size of the opening you fly through
+  holeW: 300, holeH: 205,  // half-size of the window cut in the shell
+  collarW: 380, collarH: 275,
+  collarZ0: -1640,         // outer face of the docking port
+  collarZ1: -640,          // where the throat meets the bay's front wall
+
+  /* Rooms, in station-local metres.  `front`/`back` are along Z. */
+  rooms: {
+    bay:   { x: 300, floor: -260, roof: 220, front: -640, back: 260 },
+    arena: { x: 240, floor: -260, roof: 130, front: 460, back: 1000 }
+  },
+
+  dockRange: 900,          // how close to the port before it takes the ship
+  gravity: 9.4,            // whatever the deck plating is set to
+  crew: 7,
+  padR: 26
 };
 
-/* Pads, in station-local metres. */
+/* Pads, in station-local metres.  Pad 0 is kept for whoever is flying. */
 const STATION_PADS = [
-  [-58, 18], [0, 22], [58, 18], [-32, 62], [32, 62]
+  [-170, -380], [0, -380], [170, -380],
+  [-215, -180], [-72, -180], [72, -180], [215, -180]
 ];
+
+/* Where you stand to use each of the station's facilities. */
+const STATION_KIOSKS = [
+  { id: 'shop', label: 'Outfitter', x: -230, z: 60, col: [0.35, 0.9, 1.0] },
+  { id: 'arena', label: 'Arena Transit', x: 230, z: 60, col: [1.0, 0.42, 0.3] }
+];
+const STATION_ARENA_EXIT = { x: 0, z: 500 };
 
 /* --------------------------------------------------------------------------
    Geometry.
    -------------------------------------------------------------------------- */
-function buildStationMesh(gl, rng) {
+function buildStationMesh(gl) {
   const S = STATION, R = S.R;
   const B = new MeshBuilder();
   const hull = [0.36, 0.38, 0.42];
@@ -59,7 +74,7 @@ function buildStationMesh(gl, rng) {
   const amber = [1.0, 0.55, 0.16];
 
   /* ---- shell, with the door window skipped ---- */
-  const LAT = 26, LON = 52;
+  const LAT = 30, LON = 60;
   const inWindow = (x, y, z) =>
     z < -R * 0.55 && Math.abs(x) < S.holeW && Math.abs(y) < S.holeH;
   const sp = (i, j) => {
@@ -74,9 +89,9 @@ function buildStationMesh(gl, rng) {
       const cy = (a[1] + b[1] + c[1] + d[1]) / 4;
       const cz = (a[2] + b[2] + c[2] + d[2]) / 4;
       if (inWindow(cx, cy, cz)) continue;
-      /* Panelling: alternating plates, with a band of windows round the
-         equator so the thing reads as inhabited from a kilometre out. */
-      const band = Math.abs(cy) < R * 0.13 && (j % 3 === 0);
+      /* Panelling, with bands of windows so the thing reads as inhabited from
+         tens of kilometres out. */
+      const band = (Math.abs(cy) < R * 0.10 || Math.abs(Math.abs(cy) - R * 0.42) < R * 0.05) && (j % 3 === 0);
       const col = band ? lit : (((i + j) & 1) ? hull : hull2);
       B.quad(a, b, c, d, col, 0, band ? 1 : 0);
     }
@@ -85,14 +100,10 @@ function buildStationMesh(gl, rng) {
   /* ---- docking collar: covers the ragged window edge and makes the port ---- */
   const cw = S.collarW, ch = S.collarH, dw = S.doorW, dh = S.doorH;
   const z0 = S.collarZ0, z1 = S.collarZ1;
-  const rect = (w, h, z) => [[-w, -h, z], [w, -h, z], [w, h, z], [-w, h, z]];
-  const of0 = rect(cw, ch, z0), if0 = rect(dw, dh, z0);
-  /* front face as four plates around the opening */
   B.quad([-cw, -ch, z0], [cw, -ch, z0], [cw, -dh, z0], [-cw, -dh, z0], hull2, 0, 0);
   B.quad([-cw, dh, z0], [cw, dh, z0], [cw, ch, z0], [-cw, ch, z0], hull2, 0, 0);
   B.quad([-cw, -dh, z0], [-dw, -dh, z0], [-dw, dh, z0], [-cw, dh, z0], hull2, 0, 0);
   B.quad([dw, -dh, z0], [cw, -dh, z0], [cw, dh, z0], [dw, dh, z0], hull2, 0, 0);
-  /* outer walls of the port */
   B.quad([-cw, -ch, z0], [-cw, -ch, z1], [-cw, ch, z1], [-cw, ch, z0], trim, 0, 0);
   B.quad([cw, -ch, z0], [cw, ch, z0], [cw, ch, z1], [cw, -ch, z1], trim, 0, 0);
   B.quad([-cw, ch, z0], [-cw, ch, z1], [cw, ch, z1], [cw, ch, z0], trim, 0, 0);
@@ -103,23 +114,56 @@ function buildStationMesh(gl, rng) {
   B.quad([-dw, dh, z0], [dw, dh, z0], [dw, dh, z1], [-dw, dh, z1], hull, 0, 0);
   B.quad([-dw, -dh, z0], [-dw, -dh, z1], [dw, -dh, z1], [dw, -dh, z0], hull, 0, 0);
   /* the lit rim: the one thing you steer at from a distance */
-  const rimT = 2.6;
-  B.box(-dw - rimT, -dh - rimT, z0 - 1.4, dw + rimT, -dh, z0 + 1.0, amber, 0, 1);
-  B.box(-dw - rimT, dh, z0 - 1.4, dw + rimT, dh + rimT, z0 + 1.0, amber, 0, 1);
-  B.box(-dw - rimT, -dh, z0 - 1.4, -dw, dh, z0 + 1.0, amber, 0, 1);
-  B.box(dw, -dh, z0 - 1.4, dw + rimT, dh, z0 + 1.0, amber, 0, 1);
+  const rimT = 16;
+  B.box(-dw - rimT, -dh - rimT, z0 - 9, dw + rimT, -dh, z0 + 7, amber, 0, 1);
+  B.box(-dw - rimT, dh, z0 - 9, dw + rimT, dh + rimT, z0 + 7, amber, 0, 1);
+  B.box(-dw - rimT, -dh, z0 - 9, -dw, dh, z0 + 7, amber, 0, 1);
+  B.box(dw, -dh, z0 - 9, dw + rimT, dh, z0 + 7, amber, 0, 1);
   /* approach strobes marching down the throat */
-  for (let k = 0; k < 6; k++) {
-    const z = lerp(z0 + 6, z1 - 6, k / 5);
-    B.box(-dw + 0.2, -dh + 0.2, z - 0.7, -dw + 2.2, -dh + 3.2, z + 0.7, lit, 0, 1);
-    B.box(dw - 2.2, -dh + 0.2, z - 0.7, dw - 0.2, -dh + 3.2, z + 0.7, lit, 0, 1);
+  for (let k = 0; k < 12; k++) {
+    const z = lerp(z0 + 40, z1 - 40, k / 11);
+    B.box(-dw + 1, -dh + 1, z - 5, -dw + 13, -dh + 20, z + 5, lit, 0, 1);
+    B.box(dw - 13, -dh + 1, z - 5, dw - 1, -dh + 20, z + 5, lit, 0, 1);
   }
 
-  /* ---- hangar bay: a closed box with the throat opening in its front ---- */
-  const bx = S.bayX, fy = S.bayFloor, ry = S.bayRoof, bz = S.bayBack;
+  buildRoom(B, S.rooms.bay, true, hull, hull2, lit, amber);
+  buildArena(B, S.rooms.arena, hull, hull2, lit);
+
+  /* ---- landing pads ---- */
+  const fy = S.rooms.bay.floor;
+  for (const p of STATION_PADS) {
+    const [px, pz] = p;
+    B.cylinderY(px, pz, fy + 0.1, fy + 1.1, S.padR, S.padR - 0.8, 26, [0.26, 0.27, 0.30], 0, 0, true, false);
+    B.cylinderY(px, pz, fy + 1.1, fy + 1.9, S.padR - 0.2, S.padR - 1.4, 26, amber, 0, 1, false, false);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      B.box(px + Math.cos(a) * (S.padR + 5) - 1.4, fy, pz + Math.sin(a) * (S.padR + 5) - 1.4,
+        px + Math.cos(a) * (S.padR + 5) + 1.4, fy + 3.6, pz + Math.sin(a) * (S.padR + 5) + 1.4, lit, 0, 1);
+    }
+  }
+
+  /* ---- kiosks: the two things there are to do here ---- */
+  for (const k of STATION_KIOSKS) {
+    B.cylinderY(k.x, k.z, fy + 0.1, fy + 0.8, 9, 9, 20, [0.22, 0.23, 0.26], 0, 0, true, false);
+    B.cylinderY(k.x, k.z, fy + 0.8, fy + 1.4, 8.6, 7.8, 20, k.col, 0, 1, false, false);
+    B.box(k.x - 2.6, fy + 0.8, k.z - 1.4, k.x + 2.6, fy + 5.2, k.z + 1.4, [0.25, 0.26, 0.30], 0, 0);
+    B.box(k.x - 2.2, fy + 5.2, k.z - 1.0, k.x + 2.2, fy + 8.6, k.z + 1.0, k.col, 0, 1);
+  }
+  /* the way back out of the arena */
+  const ay = S.rooms.arena.floor;
+  B.cylinderY(STATION_ARENA_EXIT.x, STATION_ARENA_EXIT.z, ay + 0.1, ay + 0.8, 9, 9, 20, [0.22, 0.23, 0.26], 0, 0, true, false);
+  B.cylinderY(STATION_ARENA_EXIT.x, STATION_ARENA_EXIT.z, ay + 0.8, ay + 1.4, 8.6, 7.8, 20, [0.35, 0.9, 1.0], 0, 1, false, false);
+
+  return B.build(gl);
+}
+
+/* A closed box room: floor plates, ceiling panels, four walls.  `hasDoor`
+   punches the docking throat through the front wall. */
+function buildRoom(B, r, hasDoor, hull, hull2, lit, amber) {
+  const S = STATION;
+  const bx = r.x, fy = r.floor, ry = r.roof, z1 = r.front, bz = r.back;
   const floorA = [0.20, 0.21, 0.24], floorB = [0.15, 0.16, 0.19];
-  /* floor, as plates so it reads as a surface rather than a plane */
-  const NX = 10, NZ = 10;
+  const NX = 12, NZ = 14;
   for (let i = 0; i < NX; i++) {
     for (let j = 0; j < NZ; j++) {
       const x0 = lerp(-bx, bx, i / NX), x1 = lerp(-bx, bx, (i + 1) / NX);
@@ -128,64 +172,70 @@ function buildStationMesh(gl, rng) {
         ((i + j) & 1) ? floorA : floorB, 0, 0);
     }
   }
-  /* ceiling, with light panels */
-  for (let i = 0; i < 6; i++) {
-    for (let j = 0; j < 6; j++) {
-      const x0 = lerp(-bx, bx, i / 6), x1 = lerp(-bx, bx, (i + 1) / 6);
-      const zz0 = lerp(z1, bz, j / 6), zz1 = lerp(z1, bz, (j + 1) / 6);
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 9; j++) {
+      const x0 = lerp(-bx, bx, i / 8), x1 = lerp(-bx, bx, (i + 1) / 8);
+      const zz0 = lerp(z1, bz, j / 9), zz1 = lerp(z1, bz, (j + 1) / 9);
       const panel = ((i + j) & 1) === 0;
       B.quad([x0, ry, zz1], [x0, ry, zz0], [x1, ry, zz0], [x1, ry, zz1],
         panel ? [0.75, 0.86, 1.0] : hull2, 0, panel ? 1 : 0);
     }
   }
-  /* side walls, back wall, and the front wall with the throat opening */
   B.quad([-bx, fy, z1], [-bx, ry, z1], [-bx, ry, bz], [-bx, fy, bz], hull2, 0, 0);
   B.quad([bx, fy, z1], [bx, fy, bz], [bx, ry, bz], [bx, ry, z1], hull2, 0, 0);
   B.quad([-bx, fy, bz], [-bx, ry, bz], [bx, ry, bz], [bx, fy, bz], hull, 0, 0);
-  B.quad([-bx, fy, z1], [bx, fy, z1], [bx, -dh, z1], [-bx, -dh, z1], hull, 0, 0);
-  B.quad([-bx, dh, z1], [bx, dh, z1], [bx, ry, z1], [-bx, ry, z1], hull, 0, 0);
-  B.quad([-bx, -dh, z1], [-dw, -dh, z1], [-dw, dh, z1], [-bx, dh, z1], hull, 0, 0);
-  B.quad([dw, -dh, z1], [bx, -dh, z1], [bx, dh, z1], [dw, dh, z1], hull, 0, 0);
+  if (hasDoor) {
+    const dw = S.doorW, dh = S.doorH;
+    B.quad([-bx, fy, z1], [bx, fy, z1], [bx, -dh, z1], [-bx, -dh, z1], hull, 0, 0);
+    B.quad([-bx, dh, z1], [bx, dh, z1], [bx, ry, z1], [-bx, ry, z1], hull, 0, 0);
+    B.quad([-bx, -dh, z1], [-dw, -dh, z1], [-dw, dh, z1], [-bx, dh, z1], hull, 0, 0);
+    B.quad([dw, -dh, z1], [bx, -dh, z1], [bx, dh, z1], [dw, dh, z1], hull, 0, 0);
+  } else {
+    B.quad([-bx, fy, z1], [bx, fy, z1], [bx, ry, z1], [-bx, ry, z1], hull, 0, 0);
+  }
 
-  /* wall galleries and light strips, so the bay is not an empty box */
+  /* galleries, light strips and consoles, so it is not an empty box */
   for (const sx of [-1, 1]) {
-    B.box(sx * bx - sx * 12, fy + 16, z1 + 10, sx * bx, fy + 20, bz - 10, hull, 0, 0);
-    B.box(sx * bx - sx * 11.4, fy + 20, z1 + 12, sx * bx - sx * 10.6, fy + 21.2, bz - 12, lit, 0, 1);
-    for (let k = 0; k < 7; k++) {
-      const z = lerp(z1 + 16, bz - 16, k / 6);
-      B.box(sx * bx - sx * 3.2, fy + 26, z - 5, sx * bx, ry - 8, z + 5, hull2, 0, 0);
-      B.box(sx * bx - sx * 3.6, fy + 30, z - 3, sx * bx - sx * 3.2, fy + 40, z + 3, amber, 0, 1);
+    B.box(sx * bx - sx * 34, fy + 60, z1 + 40, sx * bx, fy + 70, bz - 40, hull, 0, 0);
+    B.box(sx * bx - sx * 32, fy + 70, z1 + 46, sx * bx - sx * 29, fy + 74, bz - 46, lit, 0, 1);
+    const n = Math.max(4, Math.round((bz - z1) / 110));
+    for (let k = 0; k < n; k++) {
+      const z = lerp(z1 + 60, bz - 60, k / (n - 1));
+      B.box(sx * bx - sx * 11, fy + 90, z - 18, sx * bx, ry - 26, z + 18, hull2, 0, 0);
+      B.box(sx * bx - sx * 13, fy + 104, z - 11, sx * bx - sx * 11, fy + 140, z + 11, amber || lit, 0, 1);
     }
   }
-  /* a bank of consoles along the back wall — somewhere for the crew to be */
-  for (let k = 0; k < 7; k++) {
-    const x = lerp(-bx + 16, bx - 16, k / 6);
-    B.box(x - 6, fy, bz - 9, x + 6, fy + 3.6, bz - 2, hull2, 0, 0);
-    B.box(x - 5, fy + 3.6, bz - 8.4, x + 5, fy + 6.4, bz - 6.4, [0.4, 0.9, 1.0], 0, 1);
+  const nb = Math.max(5, Math.round(bx / 40));
+  for (let k = 0; k < nb; k++) {
+    const x = lerp(-bx + 55, bx - 55, k / (nb - 1));
+    B.box(x - 20, fy, bz - 32, x + 20, fy + 12, bz - 7, hull2, 0, 0);
+    B.box(x - 17, fy + 12, bz - 30, x + 17, fy + 21, bz - 23, [0.4, 0.9, 1.0], 0, 1);
   }
+}
 
-  /* ---- landing pads ---- */
-  for (const p of STATION_PADS) {
-    const [px, pz] = p;
-    /* Only the rim glows.  An emissive disc the size of a landing pad turns the
-       whole bay orange and washes out everything standing on it. */
-    B.cylinderY(px, pz, fy + 0.05, fy + 0.55, 13, 12.6, 22, [0.26, 0.27, 0.30], 0, 0, true, false);
-    B.cylinderY(px, pz, fy + 0.55, fy + 0.95, 12.9, 12.3, 22, amber, 0, 1, false, false);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * TAU;
-      B.box(px + Math.cos(a) * 15 - 0.7, fy, pz + Math.sin(a) * 15 - 0.7,
-        px + Math.cos(a) * 15 + 0.7, fy + 1.8, pz + Math.sin(a) * 15 + 0.7, lit, 0, 1);
-    }
+/* The arena: the same shell as a room, plus cover to fight around. */
+function buildArena(B, r, hull, hull2, lit) {
+  buildRoom(B, r, false, hull, hull2, lit, [1.0, 0.35, 0.28]);
+  const fy = r.floor;
+  const cover = [0.23, 0.24, 0.27], edge = [1.0, 0.35, 0.28];
+  const blocks = [
+    [-150, 600, 34, 22], [150, 600, 34, 22], [0, 700, 46, 16],
+    [-90, 820, 26, 30], [90, 820, 26, 30], [0, 930, 60, 12],
+    [-190, 740, 22, 26], [190, 740, 22, 26]
+  ];
+  for (const [x, z, w, h] of blocks) {
+    B.box(x - w, fy, z - w * 0.6, x + w, fy + h, z + w * 0.6, cover, 0, 0);
+    B.box(x - w, fy + h, z - w * 0.6, x + w, fy + h + 1.4, z + w * 0.6, edge, 0, 1);
   }
-
-  return B.build(gl);
+  /* a stripe down the middle of the floor so the space reads as a court */
+  B.box(-3, fy + 0.1, r.front + 40, 3, fy + 0.4, r.back - 40, edge, 0, 1);
 }
 
 /* The shield across the doorway: additive, so it glows without hiding what is
    behind it.  Its own mesh because it is the only part that is not opaque. */
 function buildShieldMesh(gl) {
   const S = STATION, B = new MeshBuilder();
-  const z = S.collarZ0 + 2.0;
+  const z = S.collarZ0 + 14;
   B.quad([-S.doorW, -S.doorH, z], [S.doorW, -S.doorH, z],
     [S.doorW, S.doorH, z], [-S.doorW, S.doorH, z], [1.0, 0.52, 0.14], 0, 1);
   return B.build(gl);
@@ -206,7 +256,7 @@ const Station = {
     const dir = V3.new();
     const z = rng() * 2 - 1, a = rng() * TAU, r = Math.sqrt(Math.max(0, 1 - z * z));
     V3.set(dir, Math.cos(a) * r, Math.sin(a) * r, z);
-    const orbit = Math.max(host.radius * 2.15, host.atmoRadius + 4000);
+    const orbit = Math.max(host.radius * 2.15, host.atmoRadius + 12000);
 
     const pos = V3.new();
     V3.addScaled(pos, host.pos, dir, orbit);
@@ -220,14 +270,12 @@ const Station = {
     V3.planeProject(up, up, fwd); V3.normalize(up, up);
     const right = V3.new(); V3.normalize(right, V3.cross(right, fwd, up));
     const rot = Q4.new();
-    /* Local -Z is the way the ship flies when it leaves, so the door faces
-       -fwd: the station looks back along its own approach. */
     Q4.fromBasis(rot, right, up, fwd);
 
     this.active = {
       pos, rot, host,
       name: stationName(rng),
-      mesh: buildStationMesh(gl, rng),
+      mesh: buildStationMesh(gl),
       shield: buildShieldMesh(gl),
       pads: STATION_PADS.map((p, i) => ({ i, x: p[0], z: p[1], holder: null })),
       crew: [],
@@ -243,14 +291,14 @@ const Station = {
      hangar with people crossing it reads as somewhere, and an empty one reads
      as a model. */
   buildCrew(rng) {
-    const s = this.active, S = STATION;
-    for (let i = 0; i < S.crew; i++) {
-      const x = lerp(-S.bayX + 20, S.bayX - 20, rng());
-      const z = lerp(S.collarZ1 + 30, S.bayBack - 14, rng());
+    const s = this.active, r = STATION.rooms.bay;
+    for (let i = 0; i < STATION.crew; i++) {
+      const x = lerp(-r.x + 60, r.x - 60, rng());
+      const z = lerp(r.front + 120, r.back - 40, rng());
       s.crew.push({
-        pos: V3.new(x, S.bayFloor, z),
+        pos: V3.new(x, r.floor, z),
         home: [x, z],
-        target: V3.new(x, S.bayFloor, z),
+        target: V3.new(x, r.floor, z),
         fwd: V3.new(Math.cos(rng() * TAU), 0, Math.sin(rng() * TAU)),
         speed: 0,
         wait: rng() * 6,
@@ -261,28 +309,24 @@ const Station = {
   },
 
   updateCrew(dt, s) {
-    const S = STATION;
+    const r = STATION.rooms.bay;
     for (const c of s.crew) {
       c.wait -= dt;
       V3.sub(_stCTo, c.target, c.pos);
       _stCTo[1] = 0;
       const d = V3.len(_stCTo);
-      if (d < 1.5 || c.wait <= 0) {
-        if (d < 1.5 && c.wait > -1e5 && c.wait > 0) {
-          /* arrived early: stand about for a bit */
-        } else {
-          const r = Math.random;
-          V3.set(c.target,
-            clamp(c.home[0] + (r() - 0.5) * 70, -S.bayX + 14, S.bayX - 14),
-            S.bayFloor,
-            clamp(c.home[1] + (r() - 0.5) * 70, S.collarZ1 + 20, S.bayBack - 12));
-          c.wait = 6 + r() * 12;
-        }
+      if (d < 3 || c.wait <= 0) {
+        const rn = Math.random;
+        V3.set(c.target,
+          clamp(c.home[0] + (rn() - 0.5) * 260, -r.x + 40, r.x - 40),
+          r.floor,
+          clamp(c.home[1] + (rn() - 0.5) * 260, r.front + 90, r.back - 30));
+        c.wait = 10 + rn() * 20;
       }
       V3.sub(_stCTo, c.target, c.pos);
       _stCTo[1] = 0;
       const dist = V3.len(_stCTo);
-      const want = dist > 2.5 ? 2.4 : 0;
+      const want = dist > 4 ? 3.0 : 0;
       c.speed = damp(c.speed, want, 2.5, dt);
       if (dist > 1e-4) {
         V3.scale(_stCTo, _stCTo, 1 / dist);
@@ -324,8 +368,7 @@ const Station = {
 
   /* Where a ship sitting on pad `p` belongs, and how it should be facing. */
   padPose(p, outPos, outRot) {
-    const s = this.active;
-    V3.set(_stL, p.x, STATION.padY + SHIP_CFG.landHeight, p.z);
+    V3.set(_stL, p.x, STATION.rooms.bay.floor + Ships.landHeight(), p.z);
     this.toWorld(outPos, _stL);
     /* Nose toward the door, so launching is a straight run out. */
     V3.set(_stL, 0, 0, -1); this.axis(_stFwd, _stL);
@@ -337,14 +380,14 @@ const Station = {
   /* The path in: outside the door, down the throat, into the bay, onto the
      pad.  Returned in world space. */
   dockPath(p) {
-    const S = STATION;
+    const S = STATION, r = S.rooms.bay;
     const pts = [
-      [0, 0, S.collarZ0 - S.dockRange - 90],
-      [0, 0, S.collarZ0 - 30],
-      [0, 0, S.collarZ1 - 20],
-      [p.x * 0.35, S.padY + 46, S.collarZ1 + 46],
-      [p.x, S.padY + 34, p.z],
-      [p.x, S.padY + SHIP_CFG.landHeight, p.z]
+      [0, 0, S.collarZ0 - S.dockRange - 300],
+      [0, 0, S.collarZ0 - 160],
+      [0, 0, S.collarZ1 - 120],
+      [p.x * 0.35, r.floor + 260, S.collarZ1 + 220],
+      [p.x, r.floor + 180, p.z],
+      [p.x, r.floor + Ships.landHeight(), p.z]
     ];
     return pts.map(l => {
       const w = V3.new();
@@ -353,21 +396,18 @@ const Station = {
     });
   },
 
-  /* Is `worldPos` close enough, and lined up enough, for the station to take
-     the ship?  The dot product is what stops it grabbing you as you fly past
-     the back of the hull. */
   inCatchment(worldPos, vel) {
     const s = this.active;
     if (!s) return false;
     this.toLocal(_stL, worldPos);
-    if (_stL[2] > STATION.collarZ0 + 10) return false;
+    if (_stL[2] > STATION.collarZ0 + 60) return false;
     /* Distance out in front of the port face.  collarZ0 is negative, so this
        is a subtraction, not an addition — getting it the wrong way round makes
        the catchment recede as you approach and it never fires. */
     const back = STATION.collarZ0 - _stL[2];
     if (back <= 0 || back > STATION.dockRange) return false;
     const d = Math.hypot(_stL[0], _stL[1]);
-    if (d > 60 + back * 0.35) return false;
+    if (d > 300 + back * 0.35) return false;
     /* Heading in, not out: otherwise the station grabs its own departures back
        the moment they clear the door. */
     if (vel && V3.lenSq(vel) > 4) {
@@ -378,17 +418,34 @@ const Station = {
     return true;
   },
 
-  /* 1 well inside the bay, 0 outside the hull, with a short ramp through the
-     door so the fill light does not snap on as you cross the threshold. */
+  /* 1 well inside a room, 0 outside the hull, with a ramp through the door so
+     the fill light does not snap on as you cross the threshold. */
   interiorFade(worldPos) {
     const s = this.active;
     if (!s) return 0;
     if (V3.distSq(worldPos, s.pos) > STATION.R * STATION.R * 1.6) return 0;
     this.toLocal(_stL, worldPos);
-    const S = STATION;
-    if (Math.abs(_stL[0]) > S.bayX + 6 || _stL[1] < S.bayFloor - 4 ||
-        _stL[1] > S.bayRoof + 4 || _stL[2] > S.bayBack + 6) return 0;
-    return saturate((_stL[2] - S.collarZ0) / 90);
+    for (const key in STATION.rooms) {
+      const r = STATION.rooms[key];
+      if (Math.abs(_stL[0]) > r.x + 40 || _stL[1] < r.floor - 30 ||
+          _stL[1] > r.roof + 30 || _stL[2] < r.front - 20 || _stL[2] > r.back + 40) continue;
+      return key === 'bay' ? saturate((_stL[2] - STATION.collarZ0) / 500) : 1;
+    }
+    return 0;
+  },
+
+  /* Which kiosk, if any, is within reach of `worldPos`. */
+  kioskAt(worldPos, room) {
+    if (!this.active) return null;
+    this.toLocal(_stL, worldPos);
+    if (room === 'arena') {
+      const d = Math.hypot(_stL[0] - STATION_ARENA_EXIT.x, _stL[2] - STATION_ARENA_EXIT.z);
+      return d < 13 ? { id: 'leave', label: 'Return to Hangar' } : null;
+    }
+    for (const k of STATION_KIOSKS) {
+      if (Math.hypot(_stL[0] - k.x, _stL[2] - k.z) < 13) return k;
+    }
+    return null;
   },
 
   update(dt, game) {

@@ -111,6 +111,49 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 .marker.ship .ring{border-color:var(--amber);border-radius:50%;
   box-shadow:0 0 12px rgba(255,161,66,.55)}
 
+/* ------------------------------------------------------- credits / arena -- */
+#creditPanel{left:50%;top:22px;transform:translateX(-50%);min-width:130px;text-align:center}
+#creditPanel .v{color:var(--amber);text-shadow:0 0 16px rgba(255,161,66,.5)}
+
+#arenaPanel{left:50%;bottom:22px;transform:translateX(-50%);min-width:300px;text-align:center;display:none}
+#arenaPanel.on{display:block}
+#hpBar{position:relative;height:5px;margin-top:9px;background:rgba(255,255,255,.10)}
+#hpFill{position:absolute;inset:0 100% 0 0;background:linear-gradient(90deg,#ff6b57,#ffd07a);
+  box-shadow:0 0 14px rgba(255,107,87,.7);transition:right .12s linear}
+#arenaWeapon{margin-top:8px;font-size:9.5px;letter-spacing:.2em;color:var(--cyan)}
+#hitMark{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%) rotate(45deg);
+  opacity:0;transition:opacity .12s}
+#hitMark i{position:absolute;background:#fff;box-shadow:0 0 8px #fff}
+#hitMark i:nth-child(1){left:0;top:11px;width:9px;height:2px}
+#hitMark i:nth-child(2){right:0;top:11px;width:9px;height:2px}
+#hitMark i:nth-child(3){top:0;left:11px;width:2px;height:9px}
+#hitMark i:nth-child(4){bottom:0;left:11px;width:2px;height:9px}
+#hurt{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse at center,rgba(255,0,0,0) 40%,rgba(255,30,20,.55) 100%)}
+
+/* ---------------------------------------------------------------- menu ---- */
+#menu{position:fixed;inset:0;display:none;place-items:center;z-index:40;
+  background:rgba(3,5,9,.72);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+#menu.on{display:grid}
+#menuBox{width:min(880px,92vw);max-height:82vh;overflow:auto;padding:26px 30px;
+  border:1px solid var(--line);background:linear-gradient(180deg,rgba(8,13,20,.92),rgba(8,13,20,.78));
+  box-shadow:0 0 60px rgba(0,0,0,.7)}
+#menuTitle{font-size:17px;letter-spacing:.30em;text-transform:uppercase;color:var(--paper)}
+#menuSub{font-size:10px;letter-spacing:.24em;color:var(--amber);opacity:.75;margin-top:5px}
+#menuList{margin-top:20px;display:flex;flex-direction:column;gap:9px}
+.item{display:flex;align-items:center;gap:16px;padding:11px 14px;border:1px solid rgba(255,161,66,.18);
+  background:rgba(255,255,255,.02);cursor:pointer;transition:background .15s,border-color .15s}
+.item:hover{background:rgba(99,227,255,.07);border-color:rgba(99,227,255,.45)}
+.item.cur{border-color:var(--cyan);background:rgba(99,227,255,.11)}
+.item.locked{opacity:.55}
+.item .nm{flex:1;min-width:0}
+.item .nm b{display:block;font-size:12.5px;letter-spacing:.16em;font-weight:400;text-transform:uppercase}
+.item .nm span{display:block;font-size:9.5px;letter-spacing:.1em;opacity:.6;margin-top:3px;text-transform:none}
+.item .st{font-family:var(--font-num);font-size:11px;letter-spacing:.06em;white-space:nowrap;opacity:.75}
+.item .pz{font-family:var(--font-num);font-size:13px;letter-spacing:.04em;white-space:nowrap;color:var(--amber)}
+.item .pz.own{color:var(--ok)}
+#menuHint{margin-top:18px;font-size:9.5px;letter-spacing:.2em;opacity:.5;text-transform:uppercase}
+
 /* ------------------------------------------------------------ prompts ---- */
 #prompt{position:absolute;left:50%;bottom:20%;transform:translateX(-50%);
   text-align:center;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
@@ -269,6 +312,21 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 <!-- ============================== HUD ============================== -->
 <div id="hud">
   <div id="markers"></div>
+
+  <div class="panel" id="creditPanel">
+    <span class="k">Credits</span>
+    <div class="v" id="creditVal">0</div>
+  </div>
+
+  <div class="panel" id="arenaPanel">
+    <span class="k" id="arenaWave">Arena</span>
+    <div class="v" id="arenaState">—</div>
+    <div id="hpBar"><div id="hpFill"></div></div>
+    <div id="arenaWeapon">MK1 BLASTER</div>
+  </div>
+
+  <div id="hitMark"><i></i><i></i><i></i><i></i></div>
+  <div id="hurt"></div>
 
   <div id="reticle">
     <svg viewBox="0 0 120 120" aria-hidden="true">
@@ -434,12 +492,22 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
   </div>
 </div>
 
+<div id="menu">
+  <div id="menuBox">
+    <div id="menuTitle">Hangar</div>
+    <div id="menuSub">Select a ship</div>
+    <div id="menuList"></div>
+    <div id="menuHint">Tab / Esc — close</div>
+  </div>
+</div>
+
 <script src="js/math.js"></script>
 <script src="js/gl.js"></script>
 <script src="js/shaders.js"></script>
 <script src="js/shipmodel.js"></script>
 <script src="js/treemodel.js"></script>
 <script src="js/playermodel.js"></script>
+<script src="js/shipmodels.js"></script>
 <script src="js/planets.js"></script>
 <script src="js/terrain.js"></script>
 <script src="js/props.js"></script>
@@ -448,6 +516,8 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 <script src="js/station.js"></script>
 <script src="js/traffic.js"></script>
 <script src="js/ship.js"></script>
+<script src="js/ships.js"></script>
+<script src="js/combat.js"></script>
 <script src="js/character.js"></script>
 <script src="js/player.js"></script>
 <script src="js/audio.js"></script>

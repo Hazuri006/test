@@ -41,9 +41,16 @@ starship hull is generated at runtime from a seed.
   calm enough to ride.
 - **Other ships** in some systems — haulers, couriers and patrols going about
   their own business, which you can fly up to and look at.
-- **An orbital station** in every system: fly at the docking port and it takes
-  the ship off you, flies it in and parks it. Get out and walk the hangar deck
-  while the crew crosses it and other ships come and go on the same pads.
+- **An orbital station** in every system — three kilometres across: fly at the
+  docking port and it takes the ship off you, flies it in and parks it. Get out
+  and walk the hangar deck while the crew crosses it and other ships come and go
+  on the same pads.
+- **A combat arena** inside the station: three waves of security drones, four
+  weapons, and credits for clearing it.
+- **Six ships to own**, cheapest to most expensive, bought with what the arena
+  pays and swapped from a hangar menu.
+- **Call your ship to you** from anywhere on a planet — it lifts off, flies
+  over and sets down beside you.
 - **Procedural everything except the hull and the trees**: the rocks and
   scrub, the star field and nebula, the engine exhaust, the engine hum, the
   wind, the ambient score.
@@ -59,8 +66,11 @@ starship hull is generated at runtime from a seed.
 | `Space` | Pulse drive (in space) / jetpack (on foot) |
 | `V` | **Ultra drive** — the boost, times a hundred |
 | `Ctrl` | Brake |
-| `F` | Land / take off / launch from a station pad |
-| `E` | Disembark / mount or dismount an animal / board ship |
+| `F` | Land / take off / launch from a pad / **call your ship to you** |
+| `E` | Disembark / mount an animal / board ship / use a station kiosk |
+| `Tab` | Hangar — pick which of your ships to fly |
+| `1`–`4` | Select weapon (in the arena) |
+| Left click | Fire (in the arena) |
 | `X` | Scanner pulse |
 | `M` | System map (click a world to set a nav target) |
 | `C` | Camera view |
@@ -196,6 +206,25 @@ docking path as you do. Neither is clever. A hangar with people crossing it and
 ships you did not fly arriving on their own schedule reads as somewhere; an
 empty one reads as a model.
 
+**The arena's shooting is asymmetric on purpose.** Your fire is hitscan, because
+at arena ranges a projectile fast enough to feel like a weapon is one you never
+see, and one slow enough to see is one that misses anything moving. The drones
+shoot slow visible bolts instead. So everything coming at you can be side-stepped
+and everything you send cannot, which is what makes the fight readable. Spread is
+in radians of half-cone — scaling it up "to feel like a weapon" turns a
+third-of-a-degree blaster into a four-degree one, which at a couple of hundred
+metres is a fourteen-metre miss.
+
+**Six ships, and two ways to draw them.** Five are static glTF bakes decimated to
+about fifteen thousand triangles with their textures packed into an atlas; the
+sixth is the animated gunship. Every source had its own idea of which way was up
+and which way was forward, so the bake carries a per-model basis, scales each
+hull to a stated length and drops its keel to y = 0 so it sits on its gear. The
+chase camera then has to clear whichever one you are flying — a fixed distance
+that suits a sixteen-metre gunship parks the viewpoint inside a thirty-metre
+freighter — and the framing uses the larger of length and width, because the
+Drifter is wider than it is long.
+
 **Traffic has to be seeded where you are.** A star system here is twenty million
 metres across. A ship flying between two planets at a plausible cruise would
 take hours to arrive, and you would never once see it move — so the other ships
@@ -264,7 +293,10 @@ js/props.js         surface scatter — rocks, flora, crystals
 js/debris.js        orbital debris belts
 js/fauna.js         alien wildlife: procedural bodies, herd AI, riding
 js/traffic.js       other ships: procedural hulls, flight AI
-js/station.js       the orbital station: hull, hangar, docking, crew
+js/station.js       the orbital station: hull, hangar, arena, docking, crew
+js/shipmodels.js    the five bought hulls, baked from glTF
+js/ships.js         the roster, the weapons, and what you own
+js/combat.js        the arena: waves, drones, hitscan weapons
 js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis

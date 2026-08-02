@@ -135,7 +135,7 @@ class ShipAnimator {
 
    DISC (kind 1) is the throat itself, camera-facing, so looking straight up the
    exhaust still shows a hot core rather than an edge-on strip. */
-function buildThrusterMesh(gl) {
+function buildThrusterMesh(gl, engines) {
   /* Enough cards that consecutive ones overlap by more than half their width:
      any fewer and the stack reads as a row of discs rather than as a plume. */
   const SEG = 40, FLAMES = 26;
@@ -146,7 +146,7 @@ function buildThrusterMesh(gl) {
   };
   const quad = (d0) => idx.push(d0, d0 + 1, d0 + 2, d0, d0 + 2, d0 + 3);
 
-  for (const e of SHIP_MODEL.engines) {
+  for (const e of (engines || SHIP_MODEL.engines)) {
     const er = e[3] || 1;
 
     // beam: two vertices per station along the axis
@@ -221,6 +221,8 @@ class Ship {
     this.dockPts = null;
     this.dockPad = null;
     this.dockedAt = null;           // the station we are sitting in, if any
+    this.summon = 0;                // 0 = idle, else the fly-to-the-player run
+    this.summonPts = null;
     this.heat = 0;
     this.thrustVis = 0;
     this.shake = 0;
@@ -292,6 +294,7 @@ class Ship {
     this.density = density;
 
     /* ---- landing / take-off sequences own the ship completely ---- */
+    if (this.summon > 0) { this.updateSummon(dt, planet, game); return; }
     if (this.docking) { this.updateDocking(dt, input, game); return; }
     if (this.landing) { this.updateLanding(dt, planet, game); return; }
     if (this.takeoff > 0) { this.updateTakeoff(dt, planet, game); return; }
@@ -385,7 +388,9 @@ class Ship {
       V3.addScaled(lat, this.vel, fwd, -cur);
       V3.addScaled(accel, accel, lat, -2.2);
     } else {
-      const baseThrust = lerp(SHIP_CFG.thrustSpace, SHIP_CFG.thrustAtmo, saturate(density));
+      /* Hull performance: what you actually buy when you buy a better ship. */
+      const perf = Ships.spec();
+      const baseThrust = lerp(SHIP_CFG.thrustSpace, SHIP_CFG.thrustAtmo, saturate(density)) * perf.thrust;
       const boostMul = 1 + this.boost * (SHIP_CFG.boostMul - 1)
                          + this.ultra * (SHIP_CFG.ultraMul - 1);
       const t = baseThrust * Math.max(this.throttle, this.ultra) * boostMul;
@@ -420,7 +425,7 @@ class Ship {
     /* Speed limit blends with pulse engagement rather than switching, so
        dropping out of the pulse drive decelerates over half a second instead
        of stopping dead. */
-    const normalMax = lerp(SHIP_CFG.maxSpaceSpeed, SHIP_CFG.maxAtmoSpeed, saturate(density * 3));
+    const normalMax = lerp(SHIP_CFG.maxSpaceSpeed, SHIP_CFG.maxAtmoSpeed, saturate(density * 3)) * Ships.spec().top;
     const ultraMax = normalMax * (1 + this.ultra * (SHIP_CFG.ultraMul - 1));
     const pulseMax = SHIP_CFG.pulseSpeed * 1.05;
     const maxV = Math.max(lerp(normalMax, pulseMax, saturate(this.pulse)), ultraMax);
@@ -636,6 +641,110 @@ class Ship {
       game.audio.landingThud();
       game.notify('LANDED — ' + planet.name.toUpperCase(), 'ok');
       game.onLanded(planet);
+    }
+  }
+
+  /* ---------------------------------------------------------- summon ----- */
+  /* Called from on foot: the ship lifts off wherever it is parked, flies over,
+     and sets itself down beside you.  Same machinery as the docking run — a
+     spline and a scripted attitude — because the alternative is an autopilot
+     that has to solve terrain avoidance to cross a valley. */
+  beginSummon(planet, player, game) {
+    V3.sub(_sRel, player.pos, planet.pos);
+    V3.normalize(_sDir, _sRel);
+    /* Set down a few metres to one side, not on the player's head.  `right` on
+       the walker is a vector, not an accessor like the ship's. */
+    /* Stand it off by its own size: an eleven-metre gap is fine for a
+       sixteen-metre gunship and puts a thirty-metre freighter on your head. */
+    V3.addScaled(_sDockP, player.pos, player.right, Ships.length() * 0.75 + 9);
+    V3.sub(_sRel, _sDockP, planet.pos);
+    V3.normalize(_sDir, _sRel);
+    const ground = planet.surfaceRadius(_sDir[0], _sDir[1], _sDir[2]);
+    V3.addScaled(this.landPos, planet.pos, _sDir, ground + SHIP_CFG.landHeight);
+
+    V3.sub(_sRel, this.pos, planet.pos);
+    V3.normalize(_sUp2, _sRel);
+    const climb = Math.max(60, V3.dist(this.pos, this.landPos) * 0.22);
+    const mid = V3.new();
+    V3.lerp(mid, this.pos, this.landPos, 0.5);
+    V3.sub(_sRel, mid, planet.pos);
+    V3.normalize(_sAcc, _sRel);
+    const g2 = planet.surfaceRadius(_sAcc[0], _sAcc[1], _sAcc[2]);
+    V3.addScaled(mid, planet.pos, _sAcc, g2 + climb);
+
+    const lift = V3.new();
+    V3.addScaled(lift, this.pos, _sUp2, Math.min(climb * 0.6, 45));
+    const drop = V3.new();
+    V3.sub(_sRel, this.landPos, planet.pos);
+    V3.normalize(_sAcc, _sRel);
+    V3.addScaled(drop, this.landPos, _sAcc, 32);
+
+    this.summonPts = [
+      [this.pos[0], this.pos[1], this.pos[2]],
+      [lift[0], lift[1], lift[2]],
+      [mid[0], mid[1], mid[2]],
+      [drop[0], drop[1], drop[2]],
+      [this.landPos[0], this.landPos[1], this.landPos[2]]
+    ];
+    /* Land level with the horizon at the destination, nose along the approach. */
+    V3.sub(_sRel, this.landPos, planet.pos);
+    V3.normalize(_sUp, _sRel);
+    V3.sub(_sFwd, this.landPos, this.pos);
+    V3.planeProject(_sFwd, _sFwd, _sUp);
+    if (V3.lenSq(_sFwd) < 1e-6) { V3.set(_sFwd, 0, 1, 0); V3.planeProject(_sFwd, _sFwd, _sUp); }
+    V3.normalize(_sFwd, _sFwd);
+    V3.normalize(_sLat, V3.cross(_sLat, _sFwd, _sUp));
+    Q4.fromBasis(this.landRot, _sLat, _sUp, _sFwd);
+
+    /* A long haul should take longer than a short hop, but not proportionally:
+       waiting two minutes for a ship crossing a continent is not an animation,
+       it is a loading screen. */
+    const far = V3.dist(this.pos, this.landPos);
+    this.summonRate = clamp(0.42 * (420 / Math.max(far, 420)), 0.085, 0.42);
+    this.summon = 1;
+    this.landed = false;
+    this.landing = false;
+    game.notify('SHIP INBOUND', 'ok');
+    game.audio.takeoff();
+  }
+
+  updateSummon(dt, planet, game) {
+    this.summon = Math.max(0, this.summon - dt * (this.summonRate || 0.42));
+    const t = 1 - this.summon;
+    const e = t * t * (3 - 2 * t);
+    V3.copy(_sDockPrev, this.pos);
+    splineAt(this.pos, this.summonPts, e);
+
+    V3.sub(_sDockF, this.pos, _sDockPrev);
+    if (V3.lenSq(_sDockF) > 1e-9) {
+      V3.normalize(_sDockF, _sDockF);
+      V3.sub(_sRel, this.pos, planet.pos);
+      V3.normalize(_sDockU, _sRel);
+      V3.normalize(_sDockR, V3.cross(_sDockR, _sDockF, _sDockU));
+      if (V3.lenSq(_sDockR) > 1e-8) {
+        V3.normalize(_sDockU2, V3.cross(_sDockU2, _sDockR, _sDockF));
+        Q4.fromBasis(_sDockQ, _sDockR, _sDockU2, _sDockF);
+        Q4.slerp(this.rot, this.rot, _sDockQ, 1 - Math.exp(-dt * 3.0));
+      }
+    }
+    const settle = smoothstep(0.70, 1.0, t);
+    if (settle > 0) Q4.slerp(this.rot, this.rot, this.landRot, settle * settle);
+
+    V3.sub(this.vel, this.pos, _sDockPrev);
+    V3.scale(this.vel, this.vel, 1 / Math.max(dt, 1e-4));
+    this.speed = V3.len(this.vel);
+    this.gear = damp(this.gear, t > 0.55 ? 1 : 0, 2.4, dt);
+    this.thrustVis = damp(this.thrustVis, t > 0.85 ? 0.3 : 1.0, 3, dt);
+
+    if (this.summon <= 0) {
+      this.summon = 0;
+      this.landed = true;
+      this.gear = 1;
+      this.shake = 0.3;
+      V3.zero(this.vel);
+      this.speed = 0;
+      game.audio.landingThud();
+      game.notify('SHIP READY', 'ok');
     }
   }
 
