@@ -24,8 +24,8 @@
 const CHAR_CFG = {
   /* Metres of ground covered per full stride cycle, per gait.  Getting these
      close to the real stride length is what stops the feet sliding. */
-  walkStride: 3.4,
-  runStride: 5.6,
+  walkStride: 3.0,
+  runStride: 5.4,
   walkSpeed: 6.4,       // matches FOOT.walkSpeed
   runSpeed: 13.5
 };
@@ -283,9 +283,22 @@ class PlayerAnimator {
       Math.max(CHAR_CFG.runSpeed - CHAR_CFG.walkSpeed * 0.8, 0.1));
     const moving = saturate(speed / 1.6);
     this.gait = damp(this.gait, moving * (1 + run), 11, dt);
-    this.air = damp(this.air, grounded ? 0 : 1, 8, dt);
+    this.run = damp(this.run || 0, run, 9, dt);
+    /* Leaving the ground has to read instantly; coming back has the landing
+       absorption to cover it, so the two are damped at different rates. */
+    this.air = damp(this.air, grounded ? 0 : 1, grounded ? 13 : 22, dt);
     this.turn = damp(this.turn, clamp(turnRate * 0.22, -0.5, 0.5), 6, dt);
-    this.lean = damp(this.lean, saturate(speed / CHAR_CFG.runSpeed) * 0.30, 5, dt);
+    this.lean = damp(this.lean, saturate(speed / CHAR_CFG.runSpeed) * 0.34, 5, dt);
+
+    /* Landing absorption.  A jump that ends with the character standing up
+       straight on the frame it touches down reads as a bug however good the
+       arc was, so the impact is banked here and spent over the next third of a
+       second as a crouch. */
+    if (grounded && this._wasAir) {
+      this.landT = Math.min(1.2, 0.30 + saturate(-(this.vertVel || 0) / 11) * 0.9);
+    }
+    this._wasAir = !grounded;
+    this.landT = Math.max(0, (this.landT || 0) - dt * 3.4);
 
     /* Distance-driven phase: one cycle per stride length, so contact points
        stay put on the ground however the speed changes. */
@@ -318,22 +331,40 @@ class PlayerAnimator {
        only ever folds the heel up and back — is always positive.  Getting that
        one backwards folds the knee the wrong way and throws the shin out in
        front of the body, which is exactly what it looks like. */
-    const sL = Math.sin(ph), sR = Math.sin(ph + PI);
+
+    /* A leg driven by a plain sine spends exactly half the cycle sweeping back
+       and half sweeping forward, which is a pendulum, not a step: what makes it
+       read as walking is that the foot is on the ground for well over half the
+       cycle and then whips through.  Warping the phase rather than the
+       amplitude buys that asymmetry for one sine, and the same warp applied to
+       both legs keeps them exact mirrors.  A run inverts it — stance gets
+       shorter than swing, which is what a flight phase is. */
+    const rn = this.run || 0;
+    const k = 0.30 - 0.62 * rn;
+    const warp = (x) => x - k * Math.sin(x);
+    const pL = warp(ph), pR = warp(ph + PI);
+    const sL = Math.sin(pL), sR = Math.sin(pR);
+
     /* Knee flexion peaks just after the leg reaches its rearmost point: that is
-       toe-off, where the heel comes up and the foot has to clear the ground. */
+       toe-off, where the heel comes up and the foot has to clear the ground.
+       The second term is the knee *drive* — at a run the knee comes up in front
+       as well, and without it a sprint looks like fast walking. */
     const kL = Math.max(0, Math.sin(ph - 0.35));
     const kR = Math.max(0, Math.sin(ph + PI - 0.35));
-    const aL = Math.max(0, Math.sin(ph - 0.10));
-    const aR = Math.max(0, Math.sin(ph + PI - 0.10));
+    const dL = Math.max(0, -Math.sin(ph + 0.25));
+    const dR = Math.max(0, -Math.sin(ph + PI + 0.25));
+    /* Ankle: plantarflexed pushing off, dorsiflexed reaching for the ground. */
+    const aL = Math.sin(ph + 0.30), aR = Math.sin(ph + PI + 0.30);
     const c = Math.cos(ph);
     const s2 = Math.sin(ph * 2);
 
-    /* Amplitudes grow from walk to run. */
-    const legSwing = (0.40 + runAmt * 0.26) * walkAmt;
-    const kneeBend = (0.70 + runAmt * 0.55) * walkAmt;
-    const armSwing = (0.28 + runAmt * 0.26) * walkAmt;
-    const elbow = (0.30 + runAmt * 0.45) * walkAmt;
-    const bounce = (0.030 + runAmt * 0.045) * walkAmt;
+    const legSwing = (0.44 + runAmt * 0.42) * walkAmt;
+    const kneeBend = (0.62 + runAmt * 0.62) * walkAmt;
+    const kneeDrive = runAmt * 0.62 * walkAmt;
+    const armSwing = (0.24 + runAmt * 0.44) * walkAmt;
+    const elbow = (0.22 + runAmt * 0.95) * walkAmt;
+    const bounce = (0.028 + runAmt * 0.055) * walkAmt;
+    const ankle = (0.26 + runAmt * 0.20) * walkAmt;
 
     const air = this.air * (1 - ride);
     const fall = saturate(-this.vertVel / 8);
@@ -341,51 +372,87 @@ class PlayerAnimator {
     /* Saddle pose: hips and knees folded round the animal, hands forward, and a
        jolt through the spine timed to the gait. */
     const jolt = Math.sin(ph * 2) * 0.055 * ride * saturate(g);
-    /* Airborne: knees fold, thighs come up, arms drop back and out.  Coming
-       down the legs reach for the ground again. */
-    const tuck = air * (0.45 + rise * 0.35) * (1 - fall * 0.7);
+
+    /* Airborne, in two halves.  Going up, the trailing leg is still extended
+       from the push-off and the leading knee comes up hard; coming down, both
+       legs reach for the ground and the arms come back for balance.  One
+       symmetric tuck for the whole flight is what made the old jump look like
+       a frog. */
+    const tuckUp = air * (0.26 + rise * 0.95) * (1 - fall);
+    const reach = air * fall;
+    const land = (this.landT || 0) * (1 - ride);
 
     P.build((i) => {
       switch (i) {
         case J.hip: {
-          /* Vertical bob twice a stride, plus a lean into the direction of
-             travel and a counter-roll from the turn.  The hip's translation is
-             in the rig's centimetres. */
+          /* Vertical bob twice a stride — lowest at each foot strike, highest
+             at mid-stance — plus the landing crouch, a lean into the direction
+             of travel and a counter-roll from the turn.  The hip's translation
+             is in the rig's centimetres. */
           const o3 = i * 3;
-          P.localT[o3 + 1] += (Math.abs(s2) * bounce - bounce * 0.5) * 100;
-          P.swing(i, this.axSide, this.lean * (1 - air) + air * (fall * 0.25 - rise * 0.20) + jolt);
-          P.swing(i, this.axFwd, -this.turn * 0.5 + c * 0.05 * walkAmt);
+          P.localT[o3 + 1] += (Math.abs(s2) * bounce - bounce * 0.5) * 100 - land * 16.0;
+          P.swing(i, this.axSide, this.lean * (1 - air) + air * (fall * 0.30 - rise * 0.26) +
+            jolt + land * 0.26);
+          P.swing(i, this.axFwd, -this.turn * 0.5 + c * 0.06 * walkAmt);
           P.swing(i, this.axUp, sL * 0.09 * walkAmt);
           break;
         }
+        case J.spine1:
+          P.swing(i, this.axSide, land * 0.16);
+          break;
         case J.spine2:
-          P.swing(i, this.axUp, -sL * 0.11 * walkAmt);
-          P.swing(i, this.axSide, this.lean * 0.35 + ride * 0.10 - jolt * 0.5);
+          /* Shoulders counter-rotate against the pelvis, harder at a run. */
+          P.swing(i, this.axUp, -sL * (0.10 + runAmt * 0.10) * walkAmt);
+          P.swing(i, this.axSide, this.lean * 0.35 + ride * 0.10 - jolt * 0.5 + land * 0.20);
           break;
         case J.head:
           /* Keep the head level as the body leans — the eyes lead the run. */
-          P.swing(i, this.axSide, -this.lean * 0.9 - air * fall * 0.25 - ride * 0.15);
+          P.swing(i, this.axSide, -this.lean * 0.9 - air * fall * 0.25 - ride * 0.15 - land * 0.42);
           break;
 
         /* ---- legs ---- */
-        case J.lThigh: P.swing(i, this.axSide, sL * legSwing - tuck - ride * 1.20); break;
-        case J.lCalf:  P.swing(i, this.axSide, kL * kneeBend + 0.05 * walkAmt + air * (0.95 - fall * 0.55) + ride * 1.15); break;
-        case J.lFoot:  P.swing(i, this.axSide, (aL * 0.30 - 0.08) * walkAmt + air * 0.30 + ride * 0.20); break;
-        case J.rThigh: P.swing(i, this.axSide, sR * legSwing - tuck * 0.55 - ride * 1.20); break;
-        case J.rCalf:  P.swing(i, this.axSide, kR * kneeBend + 0.05 * walkAmt + air * (0.55 - fall * 0.30) + ride * 1.15); break;
-        case J.rFoot:  P.swing(i, this.axSide, (aR * 0.30 - 0.08) * walkAmt + air * 0.22 + ride * 0.20); break;
+        case J.lThigh:
+          P.swing(i, this.axSide, sL * legSwing - tuckUp * 1.15 + reach * 0.12 -
+            land * 0.22 - ride * 1.20);
+          break;
+        case J.lCalf:
+          P.swing(i, this.axSide, kL * kneeBend + dL * kneeDrive + 0.05 * walkAmt +
+            air * (0.30 + rise * 0.85 - fall * 0.34) + land * 0.50 + ride * 1.15);
+          break;
+        case J.lFoot:
+          P.swing(i, this.axSide, (aL * ankle - 0.05) * walkAmt +
+            air * (0.34 - fall * 0.42) - land * 0.30 + ride * 0.20);
+          break;
+        case J.rThigh:
+          P.swing(i, this.axSide, sR * legSwing - tuckUp * 0.40 - reach * 0.22 -
+            land * 0.22 - ride * 1.20);
+          break;
+        case J.rCalf:
+          P.swing(i, this.axSide, kR * kneeBend + dR * kneeDrive + 0.05 * walkAmt +
+            air * (0.22 + rise * 0.30 - fall * 0.16) + land * 0.50 + ride * 1.15);
+          break;
+        case J.rFoot:
+          P.swing(i, this.axSide, (aR * ankle - 0.05) * walkAmt +
+            air * (0.26 - fall * 0.34) - land * 0.30 + ride * 0.20);
+          break;
 
         /* ---- arms: opposite the same-side leg, elbows always a little bent -- */
         case J.lArm:
-          P.swing(i, this.axSide, -sL * armSwing + air * 0.30 - ride * 0.55);
-          P.swing(i, this.axFwd, -runAmt * 0.14 - air * 0.22 - ride * 0.18);
+          P.swing(i, this.axSide, -sL * armSwing - air * (0.50 - fall * 1.10) - ride * 0.55 - land * 0.55);
+          P.swing(i, this.axFwd, -runAmt * 0.16 - air * 0.26 - ride * 0.18 - land * 0.30);
           break;
-        case J.lFore: P.swing(i, this.axSide, -(elbow + Math.max(-sL, 0) * 0.22 * walkAmt) - air * 0.45 - ride * 0.75); break;
+        case J.lFore:
+          P.swing(i, this.axSide, -(elbow + Math.max(-sL, 0) * 0.22 * walkAmt) -
+            air * 0.55 - ride * 0.75 - land * 0.55);
+          break;
         case J.rArm:
-          P.swing(i, this.axSide, -sR * armSwing + air * 0.30 - ride * 0.55);
-          P.swing(i, this.axFwd, runAmt * 0.14 + air * 0.22 + ride * 0.18);
+          P.swing(i, this.axSide, -sR * armSwing - air * (0.50 - fall * 1.10) - ride * 0.55 - land * 0.55);
+          P.swing(i, this.axFwd, runAmt * 0.16 + air * 0.26 + ride * 0.18 + land * 0.30);
           break;
-        case J.rFore: P.swing(i, this.axSide, -(elbow + Math.max(-sR, 0) * 0.22 * walkAmt) - air * 0.45 - ride * 0.75); break;
+        case J.rFore:
+          P.swing(i, this.axSide, -(elbow + Math.max(-sR, 0) * 0.22 * walkAmt) -
+            air * 0.55 - ride * 0.75 - land * 0.55);
+          break;
       }
     });
     return P.palette;

@@ -127,9 +127,10 @@ class Player {
 
     this.room = 'bay';
     Station.toLocal(_pLocal, ship.pos);
-    _pLocal[1] = STATION.rooms.bay.floor + FOOT.eyeHeight;
+    _pLocal[1] = STATION.rooms.bay.floor + 0.5 + FOOT.eyeHeight;
     Station.toWorld(this.pos, _pLocal);
-    V3.addScaled(this.pos, this.pos, right, 9.5);
+    /* Clear of the hull you just climbed out of, whichever hull that is. */
+    V3.addScaled(this.pos, this.pos, right, Ships.length() * 0.55 + 5);
 
     V3.sub(_pTmp, ship.pos, this.pos);
     V3.planeProject(_pTmp, _pTmp, this.up);
@@ -203,33 +204,40 @@ class Player {
     V3.addScaled(this.vel, vTan, this.up, newVUp);
     V3.addScaled(this.pos, this.pos, this.vel, dt);
 
-    /* Collide in the station's own frame, then take the velocity component
-       along whichever axis was clamped back out. */
+    /* Collide in the station's own frame — against the room and against every
+       box the builder registered — then take the velocity component along
+       whichever local axis was resolved back out.  A parked ship is added by
+       hand: it is the one solid in the hangar that moves. */
     Station.toLocal(_pLocal, this.pos);
-    const eyeY = R.floor + FOOT.eyeHeight;
     const wasAir = !this.grounded;
-    this.grounded = false;
-    if (_pLocal[1] <= eyeY + 0.02) {
-      _pLocal[1] = eyeY;
-      this.grounded = true;
+    const extra = _pExtra;
+    extra.length = 0;
+    const sh = game.ship;
+    if (sh && sh.landed && sh.dockedAt) {
+      Station.toLocal(_pTmp2, sh.pos);
+      const hw = Math.max(6, Ships.length() * 0.42);
+      extra.push({
+        x0: _pTmp2[0] - hw, x1: _pTmp2[0] + hw,
+        y0: R.floor, y1: R.floor + Math.max(4, Ships.length() * 0.22),
+        z0: _pTmp2[2] - hw, z1: _pTmp2[2] + hw
+      });
+    }
+    Station.resolveWalker(_pLocal, R, FOOT.eyeHeight, _pRes, extra);
+    this.grounded = _pRes.ground;
+    if (_pRes.ground) {
       const vn = V3.dot(this.vel, this.up);
       if (vn < 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
       if (wasAir) game.audio.land();
       V3.scale(this.vel, this.vel, Math.exp(-dt * (wl > 0.05 ? 1.2 : 9.0)));
-    } else if (_pLocal[1] > R.roof - 0.5) {
-      _pLocal[1] = R.roof - 0.5;
+    } else if (_pRes.ceil) {
       const vn = V3.dot(this.vel, this.up);
       if (vn > 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
     }
-    const wallX = clamp(_pLocal[0], -R.x + 2.5, R.x - 2.5);
-    if (wallX !== _pLocal[0]) {
-      _pLocal[0] = wallX;
+    if (_pRes.hitX) {
       V3.set(_pTmp, 1, 0, 0); Station.axis(_pTmp2, _pTmp);
       V3.addScaled(this.vel, this.vel, _pTmp2, -V3.dot(this.vel, _pTmp2));
     }
-    const wallZ = clamp(_pLocal[2], R.front + 2.5, R.back - 2.5);
-    if (wallZ !== _pLocal[2]) {
-      _pLocal[2] = wallZ;
+    if (_pRes.hitZ) {
       V3.set(_pTmp, 0, 0, 1); Station.axis(_pTmp2, _pTmp);
       V3.addScaled(this.vel, this.vel, _pTmp2, -V3.dot(this.vel, _pTmp2));
     }
@@ -489,3 +497,5 @@ const _pTan = V3.new(), _pDes = V3.new(), _pLook = V3.new(), _pRight2 = V3.new()
 const _pUp2 = V3.new(), _pPrevUp = V3.new(), _pAxis = V3.new(1, 0, 0);
 const _pBody = V3.new(), _pLocal = V3.new(), _pTmp2 = V3.new();
 const _pQ = Q4.new();
+const _pExtra = [];
+const _pRes = { ground: false, ceil: false, hitX: false, hitZ: false, floorY: 0 };

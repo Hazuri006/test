@@ -27,7 +27,22 @@ precision highp sampler3D;
 SH.common = `
 const float PI = 3.14159265359;
 
-/* ---- logarithmic depth ---- */
+/* ---- logarithmic depth ----
+   Every scene shader writes gl_FragDepth = logDepth(1 + w), which is what makes
+   a metre-scale ship and a sixty-kilometre world share one depth buffer.
+
+   What no scene shader does is push that value back into gl_Position.z.  It is
+   tempting — it is what most log-depth write-ups tell you to do — and it is
+   wrong for any triangle with one vertex behind the camera.  Clipping happens
+   before the fragment stage, in homogeneous space, and it finds where the edge
+   crosses the near plane by interpolating z and w *linearly*.  Substitute a
+   logarithm for z and that intersection lands somewhere else entirely, so the
+   clipper cuts the triangle in the wrong place and the near half of it simply
+   is not drawn.  A hangar floor is exactly that triangle — it passes under you
+   and out behind you — and the symptom was a deck that stopped in a straight
+   line a hundred metres in front of the camera with the hull visible through
+   the gap.  Leaving gl_Position.z as the projection produced it costs nothing:
+   it is only ever used for clipping, because gl_FragDepth replaces it. */
 float logDepth(float logz, float fcoefHalf){ return log2(logz) * fcoefHalf; }
 
 /* ---- hashes ---- */
@@ -216,7 +231,7 @@ void main(){
   vSkirt = aInfo.y;
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;
@@ -402,7 +417,7 @@ void main(){
 
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;
@@ -466,6 +481,200 @@ void main(){
   if (vFlag > 0.5){
     float pulse = 0.65 + 0.35 * uThrust + 0.05 * sin(uTime * 6.0);
     col += vColor * (1.35 * pulse);
+  }
+
+  fragColor = vec4(col, 1.0);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+}
+`;
+
+/* ============================================================================
+   STATION — the same vertex format as the objects, textured triplanar.
+
+   A three-kilometre hull has no UVs and could not usefully be given any: it is
+   generated, not modelled.  So the surface is projected on from three axes in
+   the station's own frame, and the low seven bits of the vertex flag — which
+   the object shader spends on part indices the station does not have — choose
+   which of four hull sets to project and at what size.  That turns the whole
+   station, inside and out, into textured surface without a single UV.
+
+   The tiles are folded rather than repeated (ping-pong, see fold below), so no
+   source tile has to be seamless; the price is a mirror symmetry every other
+   tile, which on hull plating reads as panelling.
+   ============================================================================ */
+SH.stationVS = SH.head + SH.common + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec3 aColor;
+layout(location=3) in float aFlag;
+
+uniform mat4 uViewProj;
+uniform mat3 uModelRot;
+uniform vec3 uOffset;
+uniform float uFcoefHalf;
+
+out vec3 vPos;
+out vec3 vNormal;
+out vec3 vColor;
+out vec3 vLocal;
+out vec3 vLocalN;
+/* flat, not smooth: these are material *indices*, and an index interpolated to
+   1.9999 truncates to the wrong material — which showed up as interior walls
+   picking up the exterior's window lights. */
+flat out float vMat;
+flat out float vEmis;
+out float vLogZ;
+
+void main(){
+  vec3 p = uModelRot * aPos + uOffset;
+  vPos = p;
+  vNormal = uModelRot * aNormal;
+  vColor = aColor;
+  vLocal = aPos;
+  vLocalN = aNormal;
+  vMat = mod(aFlag, 8.0);
+  vEmis = floor(aFlag / 8.0);
+
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
+  gl_Position = cp;
+}
+`;
+
+SH.stationFS = SH.head + SH.common + `
+in vec3 vPos;
+in vec3 vNormal;
+in vec3 vColor;
+in vec3 vLocal;
+in vec3 vLocalN;
+flat in float vMat;
+flat in float vEmis;
+in float vLogZ;
+
+uniform vec3 uSunDir, uSunColor, uAmbient;
+uniform vec3 uPlanetC;
+uniform float uFcoefHalf;
+uniform float uTime;
+uniform vec4 uLightPos;
+uniform vec3 uLightCol;
+uniform vec3 uLightDir;
+uniform sampler2D uBase;
+uniform sampler2D uEmissive;
+uniform float uSunMask;   // 0 once the camera is inside, where sun cannot reach
+
+out vec4 fragColor;
+
+/* tile index, metres per tile, emissive gain — indexed by the vertex flag.
+
+   The emissive gains are what separate outside from inside.  The window-light
+   pass belongs on the shell, where it is the only thing giving a three
+   kilometre ball a sense of being inhabited; the same pass on an interior wall
+   turns a hangar into a disco.  Same texture, two orders of magnitude apart. */
+const vec3 MAT[8] = vec3[8](
+  vec3(0.0, 34.0, 1.30),   // 0 hull plating       — shell, ring, throat
+  vec3(2.0, 150.0, 1.60),  // 1 tech panel, huge   — the lit belt, the port face
+  vec3(1.0, 26.0, 0.10),   // 2 dark plating       — walls and ceilings
+  vec3(3.0,  7.0, 0.25),   // 3 hex deck           — floors
+  vec3(2.0,  3.4, 0.55),   // 4 tech panel, fine   — consoles, pads, stairs
+  vec3(1.0,  9.0, 0.12),   // 5 dark plating, mid  — ribs, trusses, columns
+  vec3(1.0,  3.0, 0.08),   // 6 dark plating, fine — crates, cover
+  vec3(3.0, 26.0, 1.00)    // 7 hex, large         — solar wings
+);
+
+/* Ping-pong into [0,1]: mirrors instead of wrapping, so tile edges always
+   meet themselves. */
+vec2 fold(vec2 p){
+  vec2 f = fract(p * 0.5) * 2.0;
+  return min(f, 2.0 - f);
+}
+
+vec2 cell(vec2 f, float tile){
+  /* The atlas is written with tile 0 top-left and uploaded flipped, so tile 0
+     occupies the TOP half in GL's v. */
+  vec2 off = vec2(mod(tile, 2.0) * 0.5, (1.0 - floor(tile * 0.5)) * 0.5);
+  return off + clamp(f, 0.004, 0.996) * 0.5;
+}
+
+vec3 tap(sampler2D s, vec2 p, float tile, float blur){
+  /* Clamped so that at three kilometres the sampler does not walk off the end
+     of the mip chain and start averaging one tile into the next. */
+  vec2 dx = clamp(dFdx(p) * 0.5 * blur, -0.05, 0.05);
+  vec2 dy = clamp(dFdy(p) * 0.5 * blur, -0.05, 0.05);
+  return textureGrad(s, cell(fold(p), tile), dx, dy).rgb;
+}
+
+vec3 headlight(vec3 pos, vec3 n, vec3 albedo){
+  if (uLightPos.w <= 0.0) return vec3(0.0);
+  vec3 L = uLightPos.xyz - pos;
+  float d = length(L);
+  if (d > uLightPos.w) return vec3(0.0);
+  L /= d;
+  float att = 1.0 - d / uLightPos.w;
+  att *= att;
+  float cone = smoothstep(0.32, 0.78, dot(-L, uLightDir));
+  return albedo * uLightCol * max(dot(n, L), 0.0) * att * (0.22 + 0.78 * cone);
+}
+
+void main(){
+  vec3 n = normalize(vNormal);
+  vec3 v = normalize(-vPos);
+  vec3 up = normalize(vPos - uPlanetC);
+  float dist = length(vPos);
+
+  vec3 albedo = vColor;
+  vec3 glow = vec3(0.0);
+
+  if (vEmis < 0.5){
+    vec3 M = MAT[int(vMat + 0.5)];
+    float inv = 1.0 / M.y;
+    vec3 nl = normalize(vLocalN);
+    vec3 w = pow(abs(nl), vec3(6.0));
+    w /= (w.x + w.y + w.z);
+
+    vec2 px = vLocal.zy * inv, py = vLocal.xz * inv, pz = vLocal.xy * inv;
+    vec3 t = tap(uBase, px, M.x, 1.0) * w.x
+           + tap(uBase, py, M.x, 1.0) * w.y
+           + tap(uBase, pz, M.x, 1.0) * w.z;
+
+    /* Detail is only worth carrying so far; past a couple of kilometres it is
+       sub-pixel and all it can do is shimmer. */
+    float fade = 1.0 - smoothstep(2600.0, 9000.0, dist);
+    albedo *= mix(1.0, t.r * 2.0, fade);
+
+    /* One emissive tap on the dominant axis, blurred with distance so the
+       window lights gather into a glow instead of aliasing. */
+    vec2 pe = (w.x > w.y && w.x > w.z) ? px : (w.y > w.z ? py : pz);
+    float blur = 1.0 + dist * 0.006;
+    glow = tap(uEmissive, pe, M.x, blur) * M.z;
+    glow *= glow;
+    glow *= 2.6;
+  }
+
+  /* A station in orbit is in sunlight whether or not the world below it is, so
+     unlike a ship on a surface there is no terminator term here.  What there is
+     instead is a mask: the rooms are closed boxes with no shadowing, so once
+     the camera is inside one the sun has to be switched off by hand or it
+     lights the far wall straight through the hull. */
+  float ndl = max(dot(n, uSunDir), 0.0) * uSunMask;
+
+  vec3 col = albedo * uSunColor * ndl;
+  col += albedo * uAmbient * (0.55 + 0.45 * dot(n, up));
+
+  vec3 h = normalize(uSunDir + v);
+  float spec = pow(max(dot(n, h), 0.0), 48.0) * uSunMask;
+  col += uSunColor * spec * 0.35;
+
+  float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+  col += uAmbient * fres * 0.6;
+
+  col += headlight(vPos, n, albedo);
+  col += glow;
+
+  /* Flagged-emissive geometry — strobes, rim lights, the shield — is its own
+     colour outright, with a slow beat so the hull never reads as static. */
+  if (vEmis > 0.5){
+    col += vColor * (0.80 + 0.16 * sin(uTime * 2.4 + vLocal.z * 0.02));
   }
 
   fragColor = vec4(col, 1.0);
@@ -839,7 +1048,11 @@ void main(){
   /* ---- the active world, still drawn analytically while far away ---- */
   if (uAPFade > 0.002){
     vec2 h = raySphere(apRO, rd, uAPR);
-    if (h.y > 0.0 && h.x > 0.0){
+    /* The h.x < dist test matters more than it looks: without it the analytic world
+       paints straight over anything the scene pass drew in front of it, and
+       from inside a station in orbit that is the entire room you are standing
+       in — the planet appears as a dark arc across the deck. */
+    if (h.y > 0.0 && h.x > 0.0 && h.x < dist){
       vec3 lp = apRO + rd * h.x;
       vec3 sc = shadeWorldSphere(lp, uAPR, uSunDir, uAPHeightA, uAPHeightB,
                                  uAPc0, uAPc1, uAPc2, uAPc3, uAPc4, uAPc5,
@@ -990,7 +1203,7 @@ void main(){
 
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;
@@ -1088,7 +1301,7 @@ void main(){
   vUV = aUV;
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;
@@ -1145,7 +1358,7 @@ void main(){
   vUV = aUV;
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;
@@ -1348,7 +1561,7 @@ void main(){
 
   vec4 cp = uViewProj * vec4(p, 1.0);
   vLogZ = 1.0 + cp.w;
-  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  /* gl_Position.z is left alone on purpose — see logDepth in SH.common. */
   gl_Position = cp;
 }
 `;

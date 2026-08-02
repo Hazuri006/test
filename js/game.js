@@ -89,6 +89,7 @@ const Game = {
       terrain: GLU.program(SH.terrainVS, SH.terrainFS, 'terrain'),
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
       debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
+      station: GLU.program(SH.stationVS, SH.stationFS, 'station'),
       ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
       skin: GLU.program(SH.skinVS, SH.skinFS, 'skin'),
       tree: GLU.program(SH.treeVS, SH.treeFS, 'tree'),
@@ -134,8 +135,14 @@ const Game = {
     this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
     this.treeBark = await this.loadTexture(TREE_MODEL.bark, true);
     this.treeAtlas = await this.loadTexture(TREE_MODEL.atlas, false);
+    /* Clamped, not repeated: the station shader folds its own coordinates and
+       addresses tiles inside the atlas, so wrapping would drag a neighbour's
+       plating across the seam. */
+    this.stationBase = await this.loadTexture(STATION_TEX.base, false);
+    this.stationEmi = await this.loadTexture(STATION_TEX.emissive, false);
 
     Combat.build(this.gl);
+    Spray.build(this.gl);
     this.playerModel = new SkinnedModel(this.gl, PLAYER_MODEL);
     this.playerAnim = new PlayerAnimator(this.playerModel);
     this.playerTex = await this.loadTexture(PLAYER_MODEL.tex, false);
@@ -737,7 +744,13 @@ const Game = {
       Debris.update(this.belt, dt);
       if (!idle) Fauna.update(dt, p, this);
     }
-    if (!idle) { Station.update(dt, this); Traffic.update(dt, this); }
+    if (!idle) {
+      Station.update(dt, this);
+      Traffic.update(dt, this);
+      /* Only the ship raises spray, and only while it is actually flying: a
+         hull parked on a pad inside a station is not over anything. */
+      Spray.update(dt, this.ship.dockedAt ? null : p, this.ship, this);
+    }
     if (p) {
 
       if (this.drawTerrain && this.terrain) {
@@ -916,6 +929,7 @@ const Game = {
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     if (p) this.drawFaunaPass(sun, sunCol, p);
     this.drawStationPass(sun, sunCol, p);
+    if (p) this.drawSprayPass(sun, sunCol, p);
     this.drawCombatPass(sun, sunCol, p);
     this.drawTrafficPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
@@ -1093,37 +1107,68 @@ const Game = {
     belt.mesh.drawInstanced();
   },
 
+  /* Water thrown up by a ship flying low over an ocean.  Same instanced object
+     shader as the debris, and for the same reason: a few hundred small solids
+     that want sunlight and a minimum apparent size. */
+  drawSprayPass(sun, sunCol, p) {
+    if (!Spray.mesh) return;
+    Spray.fillInstances(this.camPos);
+    if (!Spray.count) return;
+    const gl = this.gl, pr = this.prog.debris;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    gl.uniform1f(pr.u.uR, p.radius);
+    this.bindLight(pr);
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * SPRAY.minPixels / Math.max(this.rt.h, 1));
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+    Spray.mesh.updateInstances(Spray.inst);
+    Spray.mesh.drawInstanced(Spray.count);
+  },
+
   /* The station: one opaque draw for the hull and everything inside it, then
      the doorway shield additively on top so it glows without hiding the bay
      behind it. */
   drawStationPass(sun, sunCol, p) {
     const s = Station.active;
     if (!s) return;
-    const gl = this.gl, pr = this.prog.object;
-    /* A hundred and fifty metres of hull is only worth drawing from inside a
-       few tens of kilometres; past that the HUD marker carries it. */
+    const gl = this.gl, pr = this.prog.station;
+    /* Three kilometres of hull carries a long way, but not forever; past that
+       the HUD marker does the work. */
     const d = V3.dist(s.pos, this.camPos);
-    if (d > 90000) return;
+    if (d > 260000) return;
 
     gl.useProgram(pr.prog);
     gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
     gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
     gl.uniform1f(pr.u.uTime, this.time);
-    gl.uniform1f(pr.u.uThrust, 0.85);
-    gl.uniform1f(pr.u.uGear, 1);
-    gl.uniform1f(pr.u.uHideCanopy, 0);
     gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
     gl.uniform3fv(pr.u.uSunColor, sunCol);
     gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
     if (p) {
       gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
-      gl.uniform1f(pr.u.uR, p.radius);
     } else {
       const v = this.sunDirScaled(_gTmp);
       gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
-      gl.uniform1f(pr.u.uR, 1);
     }
     this.bindLight(pr);
+    /* One draw call covers the hull and the rooms inside it, and the rooms are
+       closed boxes with no shadowing — so the sun is masked off by where the
+       camera is rather than by where the geometry is.  It works because you can
+       never see both at once. */
+    gl.uniform1f(pr.u.uSunMask, 1 - Station.interiorFade(this.camPos));
+    GLU.bindTex(pr, 'uBase', 0, this.stationBase);
+    GLU.bindTex(pr, 'uEmissive', 1, this.stationEmi);
     Q4.toMat3(_gMat3, s.rot);
     gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
     gl.uniform3f(pr.u.uOffset,

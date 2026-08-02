@@ -293,7 +293,9 @@ js/props.js         surface scatter — rocks, flora, crystals
 js/debris.js        orbital debris belts
 js/fauna.js         alien wildlife: procedural bodies, herd AI, riding
 js/traffic.js       other ships: procedural hulls, flight AI
-js/station.js       the orbital station: hull, hangar, arena, docking, crew
+js/station.js       the orbital station: hull, ring, hangar, arena, collision
+js/stationtex.js    the station's hull atlases, base colour and emissive
+js/spray.js         water thrown up by a ship flying low over an ocean
 js/shipmodels.js    the five bought hulls, baked from glTF
 js/ships.js         the roster, the weapons, and what you own
 js/combat.js        the arena: waves, drones, hitscan weapons
