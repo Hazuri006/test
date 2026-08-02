@@ -37,7 +37,10 @@ starship hull is generated at runtime from a seed.
 - **Forests on worlds that grow them**, instanced from three baked tree
   variants with a procedural wind sway.
 - **Alien wildlife** — herds generated from the world's seed, grazing, bolting
-  or wandering over to look at you, and the big ones can be ridden.
+  or wandering over to look at you. Every world grows one animal big enough and
+  calm enough to ride.
+- **Other ships** in some systems — haulers, couriers and patrols going about
+  their own business, which you can fly up to and look at.
 - **Procedural everything except the hull and the trees**: the rocks and
   scrub, the star field and nebula, the engine exhaust, the engine hum, the
   wind, the ambient score.
@@ -110,9 +113,22 @@ clamped against every planet's approach sphere: point the nose at a world, hold
 `V`, and you decelerate to a stop two and a half radii out rather than passing
 through it.
 
-**The exhaust is a beam, not a cone.** The trail only exists while `Shift` or
-`V` is held — a cruising ship has hot engines, not a streak. A cone is wrong
-for a plume twice over:
+**The exhaust is three things, not one.** The *flame* is a stack of
+camera-facing cards marching aft from the nozzle, each sampling the shared noise
+volume as it scrolls downstream: a plume is a volume, and a stack of billboards
+approximates a volume from an arbitrary angle for almost nothing. Its colour
+comes from a blackbody ramp — dull red at the fraying edges through orange and
+yellow to white in the throat — with the drive's own colour mixed into the
+hottest part, which is what keeps a violet ultra plume from looking like a neon
+tube while the fire survives around its edges. Cards with flat tops sum into
+visible scallops, so each is peaked toward the middle over a wide soft envelope,
+and there are enough of them that consecutive ones overlap by more than half
+their width. The flame is there whenever the drive is lit: throttle alone gives
+you fire out of the nozzle.
+
+The *trail* only exists while `Shift` or `V` is held — a cruising ship has hot
+engines, not a streak. It is a beam rather than a cone, and a cone is wrong for
+a plume twice over:
 its silhouette is a hard polygon from every angle, and it collapses to a flat
 disc exactly when you are behind the ship — which is where the chase camera
 lives. The plume is built instead as a strip whose width the vertex shader
@@ -138,6 +154,16 @@ also has a floor on its apparent size, without which a belt dissolves into
 sub-pixel aliasing at distance instead of reading as a band. One instanced
 draw call per planet; the belt's rotation is a uniform, so it turns for free.
 
+**Traffic has to be seeded where you are.** A star system here is twenty million
+metres across. A ship flying between two planets at a plausible cruise would
+take hours to arrive, and you would never once see it move — so the other ships
+spawn in a shell a few kilometres around the player and work the world you are
+at: haulers on approach, patrols holding an orbit, couriers crossing at speed.
+They keep a minimum apparent size for the same reason the debris does, because
+at ten kilometres a forty-metre ship is a fraction of a pixel and the thing you
+are meant to notice is a light moving against the stars. Some systems have no
+traffic at all; the system seed decides.
+
 **A herd is four draw calls.** Every animal on a world comes from that world's
 seed — body proportions, leg count, horns, colour, temperament, whether it is
 big enough to sit on. Each species is two meshes: the torso, neck, head, tail
@@ -146,7 +172,13 @@ animal. The instance buffers are rewritten from the simulation each frame, so a
 herd of eighteen costs four draws rather than eighty. The bodies are rigid;
 everything that reads as alive at the distance you actually see them — legs
 swinging in diagonal pairs, the head dipping to graze, the whole animal leaning
-into a run — comes out of the per-instance transforms. Sampling the terrain
+into a run — comes out of the per-instance transforms. Every world is
+guaranteed one species big enough to carry you and calm enough to let you walk
+up: leaving that to the dice gives worlds where the only two animals are
+knee-high, or where the one you could ride bolts the moment you approach, which
+is the same thing as having no mount at all. A calm animal also stops and turns
+to face you inside sixteen metres — without that it ambles off at exactly your
+walking speed and can never be caught. Sampling the terrain
 ahead to avoid walking into a lake means an fbm evaluation, so each animal only
 looks where it is going a few times a second. An animal that takes a quarter of
 a second to notice a lake is an animal, not a bug.
@@ -189,6 +221,7 @@ js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
 js/debris.js        orbital debris belts
 js/fauna.js         alien wildlife: procedural bodies, herd AI, riding
+js/traffic.js       other ships: procedural hulls, flight AI
 js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis

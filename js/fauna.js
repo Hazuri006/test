@@ -29,20 +29,26 @@ const FAUNA = {
   /* Creatures kept alive around the player.  They are cheap, but they are also
      only interesting within a few hundred metres. */
   herdMax: 18,
-  spawnInner: 30,
-  spawnOuter: 240,
-  despawn: 340,
-  mountRange: 9,
+  spawnInner: 26,
+  spawnOuter: 160,
+  despawn: 300,
+  mountRange: 12,
   /* How close you can get before a skittish animal bolts. */
-  alertRange: 26
+  alertRange: 26,
+  /* A calm animal stops and lets you walk up to it inside this. */
+  settleRange: 16
 };
 
 /* --------------------------------------------------------------------------
    Species: the shape and temperament of one kind of animal.
    -------------------------------------------------------------------------- */
-function makeSpecies(rng, planet, index) {
+function makeSpecies(rng, planet, index, forceMount) {
   const big = rng();
-  const scale = 0.75 + big * big * 2.6;             // 0.75 .. 3.3 m at the back
+  /* Every world gets one animal big enough to carry you.  Leaving it to the
+     dice means worlds where the only two species are knee-high, or where the
+     one you could ride bolts the moment you walk towards it — which is the
+     same thing as having no mount at all. */
+  const scale = forceMount ? 1.9 + big * 1.5 : 0.75 + big * big * 2.6;
   const biped = rng() < 0.28;
   const cfg = {
     id: index,
@@ -62,11 +68,14 @@ function makeSpecies(rng, planet, index) {
     walk: lerp(3.4, 1.9, saturate((scale - 0.75) / 2.5)) * (biped ? 1.25 : 1),
     run: lerp(13.0, 8.0, saturate((scale - 0.75) / 2.5)) * (biped ? 1.2 : 1),
     /* Only something you can actually sit on is worth mounting. */
-    rideable: scale > 1.5,
+    rideable: forceMount || scale > 1.5,
     skittish: rng() < 0.45,
     curious: false,
     stride: 0
   };
+  /* A big grazer does not sprint away from you, and one that did could never
+     be caught on foot anyway.  Only the small quick things bolt. */
+  if (cfg.rideable) cfg.skittish = false;
   cfg.curious = !cfg.skittish && rng() < 0.5;
   cfg.stride = (cfg.legLen * 1.9 + cfg.bodyLen * 0.35);
   cfg.rideSpeed = cfg.run * 1.35;
@@ -248,7 +257,7 @@ const Fauna = {
     const count = rng() < 0.35 ? 1 : 2;
     this.species = [];
     for (let i = 0; i < count; i++) {
-      const s = makeSpecies(rng, planet, i);
+      const s = makeSpecies(rng, planet, i, i === 0);
       s.body = buildBodyMesh(gl, s, rng);
       s.leg = buildLegMesh(gl, s);
       s.bodyInst = new Float32Array(FAUNA.herdMax * 11);
@@ -351,6 +360,11 @@ const Fauna = {
     if (s.skittish && pd < FAUNA.alertRange) {
       c.state = 'flee';
       c.timer = 2.5;
+    } else if (!s.skittish && pd < FAUNA.settleRange) {
+      /* Stand still and watch you.  Without this a calm animal keeps ambling
+         off at exactly your walking speed and can never actually be reached. */
+      c.state = 'settle';
+      c.timer = 1.5;
     } else if (c.state === 'flee' && (pd > FAUNA.alertRange * 2.2 || c.timer <= 0)) {
       c.state = 'graze'; c.timer = 2 + rng() * 4;
     } else if (c.timer <= 0) {
@@ -378,6 +392,12 @@ const Fauna = {
       V3.planeProject(_fWish, _fWish, c.up);
       if (V3.lenSq(_fWish) > 1e-8) { V3.normalize(_fWish, _fWish); steer(c, _fWish, dt, 1.4); }
       want = pd > 7 ? s.walk : 0;
+    } else if (c.state === 'settle') {
+      /* Turn to face whoever walked up. */
+      V3.copy(_fWish, toPlayer);
+      V3.planeProject(_fWish, _fWish, c.up);
+      if (V3.lenSq(_fWish) > 1e-8) { V3.normalize(_fWish, _fWish); steer(c, _fWish, dt, 1.1); }
+      want = 0;
     } else if (c.state === 'graze') {
       want = s.walk * 0.55;
     }

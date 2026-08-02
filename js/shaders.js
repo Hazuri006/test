@@ -1287,11 +1287,14 @@ uniform float uLen;
 uniform float uRad;
 uniform float uMinWidth;   // smallest half-width in radians, so the trail
                            // never falls below a couple of pixels
+uniform float uFlameLen;   // how far the fire reaches aft
+uniform float uFlameRad;
 
 out float vT;
-out vec2 vQuad;     // beam: (side, 0); disc: the 2D corner offset
+out vec2 vQuad;     // beam: (side, 0); disc/flame: the 2D corner offset
 out float vKind;
 out float vAlign;
+out float vSeed;
 out vec3 vLocal;
 out float vLogZ;
 
@@ -1318,6 +1321,19 @@ void main(){
     vT = aData.y;
     vQuad = vec2(aData.x, 0.0);
     vLocal = spine;
+  } else if (kind > 1.5){
+    /* One card of the flame stack.  It grows away from the throat and then
+       tapers, which is the silhouette of a plume expanding into vacuum, and it
+       always faces the camera so the stack never shows an edge. */
+    float t = aInfo.x;
+    float w = uFlameRad * (0.55 + 1.35 * t) * pow(1.0 - t * 0.92, 0.55);
+    vec3 c = nozzle + axis * (t * uFlameLen);
+    p = c + (uCamRight * aData.x + uCamUp * aData.y) * w;
+    vAlign = abs(dot(axis, normalize(c)));
+    vT = t;
+    vQuad = aData.xy;
+    vSeed = aInfo.y;
+    vLocal = c;
   } else {
     p = nozzle + (uCamRight * aData.x + uCamUp * aData.y) * uRad * 3.2;
     vAlign = abs(dot(axis, normalize(nozzle)));
@@ -1342,6 +1358,7 @@ in float vT;
 in vec2 vQuad;
 in float vKind;
 in float vAlign;
+in float vSeed;
 in vec3 vLocal;
 in float vLogZ;
 
@@ -1350,15 +1367,72 @@ uniform vec3 uCore;        // colour at the throat
 uniform vec3 uTip;         // colour at the far end
 uniform float uIntensity;
 uniform float uTrail;      // beam visibility — boost and ultra only
+uniform float uFlame;      // flame strength, 0 with the engine cold
+uniform float uPlasma;     // how far the fire is displaced by the drive colour
 uniform float uShock;      // shock-diamond strength, 0 in vacuum idle
 uniform float uTime;
 uniform float uFcoefHalf;
 
 out vec4 fragColor;
 
+/* Blackbody-ish fire ramp: dull red at the edges through orange and yellow to
+   white at the hottest.  Written as a ramp rather than sampled from a gradient
+   texture so the drive colour can be mixed into the hot end per fragment. */
+vec3 fireRamp(float h){
+  vec3 c = mix(vec3(0.30, 0.020, 0.002), vec3(1.00, 0.230, 0.020), smoothstep(0.00, 0.34, h));
+  c = mix(c, vec3(1.00, 0.640, 0.130), smoothstep(0.30, 0.62, h));
+  c = mix(c, vec3(1.00, 0.930, 0.640), smoothstep(0.58, 0.86, h));
+  return mix(c, vec3(1.00, 0.985, 0.960), smoothstep(0.84, 1.00, h));
+}
+
 void main(){
   float a;
   vec3 col;
+
+  if (vKind > 1.5){
+    /* ---- flame card ---- */
+    float r = length(vQuad);
+    float t = vT;
+
+    /* Two octaves of the shared volume, scrolling aft at different rates, is
+       enough to break the disc into licks of flame.  The slower one gives the
+       plume its large-scale billowing, the faster one the flicker. */
+    vec3 np = vec3(vQuad * 0.85, t * 1.6 - uTime * 2.4 + vSeed);
+    float n1 = texture(uNoise, np * 0.55).r;
+    float n2 = texture(uNoise, np * 1.9 + vec3(3.1, 1.7, -uTime * 1.7)).g;
+    float turb = n1 * 0.65 + n2 * 0.35;
+
+    /* Push the circular edge around with the noise so the outline is ragged
+       rather than a stack of visible discs, and let it fray more downstream
+       where a real plume is coming apart. */
+    float fray = 0.20 + 0.75 * t;
+    float edge = 1.0 - r - (turb - 0.45) * fray;
+    /* A card with a flat top sums with its neighbours into scallops.  Peaking
+       it towards the middle, and adding a wide soft envelope underneath, is
+       what turns the stack into one continuous volume. */
+    float body = smoothstep(0.0, 0.50, edge) * pow(max(1.0 - r, 0.0), 0.9);
+    float soft = pow(max(1.0 - r, 0.0), 2.6);
+    if (body + soft <= 0.002){ discard; }
+
+    /* Heat: hottest in the throat and on the axis, cooling downstream and
+       outward, with the turbulence carving cooler channels through it. */
+    float heat = pow(1.0 - t, 1.35) * (1.0 - r * 0.62) * (0.62 + 0.55 * turb);
+    heat = clamp(heat * 1.35, 0.0, 1.0);
+
+    col = fireRamp(heat);
+    /* A chemical rocket burns orange; a fusion drive does not.  The hot core
+       takes the drive's own colour, and the fire survives around its edges,
+       which is what keeps a violet ultra plume from looking like a neon tube. */
+    col = mix(col, uCore * 1.25, uPlasma * smoothstep(0.40, 0.95, heat));
+
+    /* Normalised for the number of cards: they blend additively, so the count
+       and the per-card strength trade off against each other. */
+    a = (body * 0.72 + soft * 0.30) * (0.10 + 0.90 * heat) * uFlame * 0.42;
+    a *= smoothstep(1.0, 0.72, t);
+    fragColor = vec4(col * a * uIntensity, 1.0);
+    gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+    return;
+  }
 
   if (vKind < 0.5){
     float r = abs(vQuad.x);
@@ -1398,11 +1472,18 @@ void main(){
     a *= 1.0 - pow(vAlign, 3.0);
     a *= uTrail;
   } else {
+    /* ---- throat ----
+       A tight white core inside a wide coloured halo, with a thin bright ring
+       at the nozzle lip.  Looking straight up the exhaust this is most of what
+       you see, so it carries the drive's colour rather than the flame's. */
     float r = clamp(length(vQuad), 0.0, 1.0);
-    float glow = pow(max(1.0 - r, 0.0), 2.4);
-    float ring = exp(-pow((r - 0.30) * 5.5, 2.0)) * 0.55;
-    col = mix(uCore, vec3(1.0, 0.96, 0.90), 0.35) * (glow * 1.0 + ring);
-    a = (glow + ring * 0.8) * (0.35 + 0.65 * pow(vAlign, 2.0));
+    float core = pow(max(1.0 - r, 0.0), 9.0);
+    float halo = pow(max(1.0 - r, 0.0), 2.2);
+    float ring = exp(-pow((r - 0.34) * 6.5, 2.0)) * 0.55;
+    float flick = 0.90 + 0.10 * sin(uTime * 41.0) * sin(uTime * 17.0 + 1.3);
+    col = uCore * (halo * 0.85 + ring);
+    col = mix(col, vec3(1.0, 0.97, 0.92), min(core * 1.1, 0.92));
+    a = (halo * 0.55 + core * 1.5 + ring * 0.9) * flick * (0.35 + 0.65 * pow(vAlign, 2.0));
   }
 
   fragColor = vec4(col * a * uIntensity, 1.0);

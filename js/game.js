@@ -175,6 +175,7 @@ const Game = {
     if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
     if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
     this.system = generateSystem(seed);
+    Traffic.build(this.gl, this.system);
     this.activePlanet = null;
     this.target = this.system.planets[0];
     this.ship.spawnInOrbit(this.system.planets[0]);
@@ -671,6 +672,9 @@ const Game = {
       if (!idle && !p.discovered && d < p.radius * 2.6) this.discover(p);
       Debris.update(this.belt, dt);
       if (!idle) Fauna.update(dt, p, this);
+    }
+    if (!idle) Traffic.update(dt, this);
+    if (p) {
 
       if (this.drawTerrain && this.terrain) {
         V3.sub(_gCamLocal, this.camPos, p.pos);
@@ -844,6 +848,7 @@ const Game = {
     if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     if (p) this.drawFaunaPass(sun, sunCol, p);
+    this.drawTrafficPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
     this.drawPlayerPass(sun, sunCol, p);
 
@@ -1017,6 +1022,46 @@ const Game = {
     gl.uniform3f(pr.u.uOffset,
       p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
     belt.mesh.drawInstanced();
+  },
+
+  /* Other ships.  One instanced draw per hull variant.  They keep a minimum
+     apparent size for the same reason the debris does: at ten kilometres a
+     forty-metre ship is a fraction of a pixel, and the thing you are supposed
+     to notice is a light moving against the stars. */
+  drawTrafficPass(sun, sunCol, p) {
+    if (!Traffic.hulls || !Traffic.ships || !Traffic.ships.length) return;
+    const gl = this.gl, pr = this.prog.debris;
+    Traffic.fillInstances(this.camPos);
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 1);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+      gl.uniform1f(pr.u.uR, p.radius);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+      gl.uniform1f(pr.u.uR, 1);
+    }
+    this.bindLight(pr);
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * TRAFFIC.minPixels / Math.max(this.rt.h, 1));
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    for (const h of Traffic.hulls) {
+      if (!h.n) continue;
+      h.mesh.updateInstances(h.inst);
+      h.mesh.drawInstanced(h.n);
+    }
   },
 
   /* Wildlife.  Two instanced draws per species — body and leg — with the
@@ -1202,6 +1247,19 @@ const Game = {
     /* Shock diamonds need a working drive and thin air to stand up in. */
     const dens = this.activePlanet ? this.activePlanet.densityAt(Math.max(sh.altitude, 0)) : 0;
     gl.uniform1f(pr.u.uShock, saturate(power * 0.9 - 0.25) * (1 - saturate(dens * 1.6)));
+
+    /* The flame is the engine burning, so unlike the trail it is there whenever
+       the drive is lit — throttle alone gives you fire out of the nozzle. */
+    const flicker = 0.88 + 0.12 * Math.sin(this.time * 31.0) * Math.sin(this.time * 13.7 + 2.1);
+    gl.uniform1f(pr.u.uFlame, saturate(power * 1.25) * flicker);
+    /* Roughly five times as long as it is wide: any thinner and the fire reads
+       as a laser, any fatter and it reads as a cloud hanging off the ship. */
+    gl.uniform1f(pr.u.uFlameLen, 2.2 + power * 3.0 + trail * 3.6 + sh.ultra * 6.5);
+    gl.uniform1f(pr.u.uFlameRad, (0.70 + Math.min(power, 1.0) * 0.22) * 1.15);
+    /* Thick air burns orange; in vacuum under drive the fire takes the drive's
+       own colour and only frays back to flame at its edges. */
+    gl.uniform1f(pr.u.uPlasma,
+      saturate(drive * 1.2 + sh.boost * 0.55 + 0.18) * (1 - saturate(dens * 0.55)));
 
     /* Colour shifts with the drive: orange idle, blue-white under pulse,
        violet at ultra. */

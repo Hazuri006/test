@@ -120,16 +120,31 @@ class ShipAnimator {
   }
 }
 
-/* Exhaust geometry: a strip along the exhaust axis whose width the vertex
-   shader turns to face the camera, plus a camera-facing disc at the throat for
-   the view from directly astern. */
+/* Exhaust geometry, in three layers that each solve a different problem.
+
+   FLAME (kind 2) is the one that reads as fire: a stack of camera-facing cards
+   marching aft from the nozzle, each sampling the shared noise volume as it
+   scrolls downstream.  A plume is a volume, and a volume seen from an arbitrary
+   angle is what a stack of billboards approximates for almost nothing — a cone
+   would show its silhouette as a hard polygon edge from every direction.
+
+   BEAM (kind 0) is the long neon streak under boost.  It is a strip whose width
+   the vertex shader turns to face the viewer, because a cone collapses to a
+   flat disc exactly when you are behind the ship, which is where the chase
+   camera lives.
+
+   DISC (kind 1) is the throat itself, camera-facing, so looking straight up the
+   exhaust still shows a hot core rather than an edge-on strip. */
 function buildThrusterMesh(gl) {
-  const SEG = 40;
+  /* Enough cards that consecutive ones overlap by more than half their width:
+     any fewer and the stack reads as a row of discs rather than as a plume. */
+  const SEG = 40, FLAMES = 26;
   const v = [], idx = [];
-  const push = (x, y, kind, cx, cy, cz, prof) => {
-    v.push(x, y, kind, 0, cx, cy, cz, prof, 0);
+  const push = (x, y, kind, cx, cy, cz, prof, seed) => {
+    v.push(x, y, kind, 0, cx, cy, cz, prof, seed || 0);
     return v.length / 9 - 1;
   };
+  const quad = (d0) => idx.push(d0, d0 + 1, d0 + 2, d0, d0 + 2, d0 + 3);
 
   for (const e of SHIP_MODEL.engines) {
     const er = e[3] || 1;
@@ -149,13 +164,26 @@ function buildThrusterMesh(gl) {
       idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
     }
 
+    /* Flame cards, back to front so the near ones are the ones you see through.
+       Each carries its own noise seed, or the whole plume pulses as one. */
+    for (let i = FLAMES - 1; i >= 0; i--) {
+      const t = (i + 0.4) / FLAMES;
+      const seed = (i * 7.31) % 6.0;
+      const d0 = v.length / 9;
+      push(-1, -1, 2, e[0], e[1], e[2], t, seed);
+      push(1, -1, 2, e[0], e[1], e[2], t, seed);
+      push(1, 1, 2, e[0], e[1], e[2], t, seed);
+      push(-1, 1, 2, e[0], e[1], e[2], t, seed);
+      quad(d0);
+    }
+
     // throat disc, built in camera space by the vertex shader
     const d0 = v.length / 9;
     push(-1, -1, 1, e[0], e[1], e[2], er);
     push(1, -1, 1, e[0], e[1], e[2], er);
     push(1, 1, 1, e[0], e[1], e[2], er);
     push(-1, 1, 1, e[0], e[1], e[2], er);
-    idx.push(d0, d0 + 1, d0 + 2, d0, d0 + 2, d0 + 3);
+    quad(d0);
   }
 
   const mesh = new Mesh(gl, [
