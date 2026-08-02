@@ -51,6 +51,9 @@ class Player {
     /* The creature being ridden, if any.  Mounted, this is still the body that
        gets simulated — the animal is drawn under it. */
     this.mount = null;
+    /* Set while walking inside a station: the walker swaps its sphere for a
+       room with one up vector and four walls. */
+    this.station = null;
   }
 
   /* Riding raises the eyes to the animal's back and lifts every speed limit to
@@ -110,7 +113,175 @@ class Player {
       -(FOOT.eyeHeight + (this.mount ? FOOT.seatDrop : 0)));
   }
 
+  /* Step out onto the pad the ship is parked on. */
+  disembarkStation(ship, station) {
+    this.station = station;
+    V3.set(_pTmp, 0, 1, 0);
+    Station.axis(this.up, _pTmp);
+    V3.normalize(this.up, this.up);
+
+    const right = ship.right(_pTmp2);
+    V3.planeProject(right, right, this.up);
+    V3.normalize(right, right);
+
+    Station.toLocal(_pLocal, ship.pos);
+    _pLocal[1] = STATION.bayFloor + FOOT.eyeHeight;
+    Station.toWorld(this.pos, _pLocal);
+    V3.addScaled(this.pos, this.pos, right, 9.5);
+
+    V3.sub(_pTmp, ship.pos, this.pos);
+    V3.planeProject(_pTmp, _pTmp, this.up);
+    V3.normalize(_pTmp, _pTmp);
+    this.setHeading(_pTmp);
+
+    V3.zero(this.vel);
+    this.grounded = true;
+    this.mount = null;
+    this.jetFuel = FOOT.jetFuelMax;
+    this.active = true;
+  }
+
+  /* Inside the station the world is a room, not a sphere: one fixed up vector,
+     a flat floor, and four walls.  Everything else about the walker — look,
+     acceleration, jetpack, head bob — is the same, so only the frame and the
+     collision differ. */
+  updateInStation(dt, input, game) {
+    const S = STATION;
+    V3.set(_pTmp, 0, 1, 0);
+    Station.axis(this.up, _pTmp);
+    V3.normalize(this.up, this.up);
+
+    V3.planeProject(this.fwd, this.fwd, this.up);
+    if (V3.lenSq(this.fwd) < 1e-8) V3.set(this.fwd, 1, 0, 0);
+    V3.normalize(this.fwd, this.fwd);
+
+    const yawAmt = -input.look.x * 2.6;
+    if (Math.abs(yawAmt) > 1e-9) {
+      Q4.fromAxisAngle(_pQ, this.up, yawAmt);
+      V3.rotQuat(this.fwd, this.fwd, _pQ);
+      V3.normalize(this.fwd, this.fwd);
+    }
+    this.pitch = clamp(this.pitch - input.look.y * 2.6, -1.45, 1.45);
+    V3.cross(this.right, this.fwd, this.up);
+    V3.normalize(this.right, this.right);
+
+    const wish = _pWish;
+    V3.zero(wish);
+    V3.addScaled(wish, wish, this.fwd, input.move.y);
+    V3.addScaled(wish, wish, this.right, input.move.x);
+    const wl = V3.len(wish);
+    if (wl > 1) V3.scale(wish, wish, 1 / wl);
+
+    const sprint = input.boost && input.move.y > 0.1;
+    const target = sprint ? FOOT.sprintSpeed : FOOT.walkSpeed;
+    const vUp = V3.dot(this.vel, this.up);
+    const vTan = _pTan;
+    V3.addScaled(vTan, this.vel, this.up, -vUp);
+    const control = this.grounded ? 1 : 0.30;
+    V3.scale(_pDes, wish, target);
+    V3.lerp(vTan, vTan, _pDes, 1 - Math.exp(-FOOT.accel * control * dt / Math.max(target, 1)));
+
+    let newVUp = vUp - STATION.gravity * dt;
+    this.jetting = false;
+    if (input.jump && this.jetFuel > 0.02) {
+      if (this.grounded && this.jetFuel > FOOT.jetFuelMax * 0.98) {
+        newVUp = FOOT.jumpSpeed;
+        this.grounded = false;
+        game.audio.jump();
+      } else {
+        newVUp += FOOT.jetThrust * dt;
+        this.jetFuel = Math.max(0, this.jetFuel - dt);
+        this.jetting = true;
+      }
+    } else {
+      this.jetFuel = Math.min(FOOT.jetFuelMax, this.jetFuel + dt * FOOT.jetRefill * (this.grounded ? 3.5 : 0.5));
+    }
+
+    V3.addScaled(this.vel, vTan, this.up, newVUp);
+    V3.addScaled(this.pos, this.pos, this.vel, dt);
+
+    /* Collide in the station's own frame, then take the velocity component
+       along whichever axis was clamped back out. */
+    Station.toLocal(_pLocal, this.pos);
+    const eyeY = S.bayFloor + FOOT.eyeHeight;
+    const wasAir = !this.grounded;
+    this.grounded = false;
+    if (_pLocal[1] <= eyeY + 0.02) {
+      _pLocal[1] = eyeY;
+      this.grounded = true;
+      const vn = V3.dot(this.vel, this.up);
+      if (vn < 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
+      if (wasAir) game.audio.land();
+      V3.scale(this.vel, this.vel, Math.exp(-dt * (wl > 0.05 ? 1.2 : 9.0)));
+    } else if (_pLocal[1] > S.bayRoof - 0.5) {
+      _pLocal[1] = S.bayRoof - 0.5;
+      const vn = V3.dot(this.vel, this.up);
+      if (vn > 0) V3.addScaled(this.vel, this.vel, this.up, -vn);
+    }
+    const wallX = clamp(_pLocal[0], -S.bayX + 2.5, S.bayX - 2.5);
+    if (wallX !== _pLocal[0]) {
+      _pLocal[0] = wallX;
+      V3.set(_pTmp, 1, 0, 0); Station.axis(_pTmp2, _pTmp);
+      V3.addScaled(this.vel, this.vel, _pTmp2, -V3.dot(this.vel, _pTmp2));
+    }
+    const wallZ = clamp(_pLocal[2], S.collarZ1 + 2.5, S.bayBack - 2.5);
+    if (wallZ !== _pLocal[2]) {
+      _pLocal[2] = wallZ;
+      V3.set(_pTmp, 0, 0, 1); Station.axis(_pTmp2, _pTmp);
+      V3.addScaled(this.vel, this.vel, _pTmp2, -V3.dot(this.vel, _pTmp2));
+    }
+    Station.toWorld(this.pos, _pLocal);
+
+    this.altitude = 0;
+    this.inWater = false;
+    this.speed = V3.len(this.vel);
+    const vUpNow = V3.dot(this.vel, this.up);
+    const planar = Math.hypot(
+      this.vel[0] - this.up[0] * vUpNow,
+      this.vel[1] - this.up[1] * vUpNow,
+      this.vel[2] - this.up[2] * vUpNow);
+    this.groundSpeed = planar;
+    this.climbRate = vUpNow;
+
+    V3.copy(_pBody, this.fwd);
+    if (planar > 1.2) {
+      V3.addScaled(_pBody, this.vel, this.up, -vUpNow);
+      V3.normalize(_pBody, _pBody);
+      V3.lerp(_pBody, _pBody, this.fwd, 0.35);
+    }
+    V3.planeProject(_pBody, _pBody, this.up);
+    if (V3.lenSq(_pBody) > 1e-8) {
+      V3.normalize(_pBody, _pBody);
+      const prevX = V3.dot(this.bodyFwd, this.right);
+      V3.lerp(this.bodyFwd, this.bodyFwd, _pBody, 1 - Math.exp(-dt * 11));
+      V3.planeProject(this.bodyFwd, this.bodyFwd, this.up);
+      V3.normalize(this.bodyFwd, this.bodyFwd);
+      this.turnRate = (V3.dot(this.bodyFwd, this.right) - prevX) / Math.max(dt, 1e-4);
+    }
+
+    if (this.grounded && planar > 0.6) {
+      const prev = this.bob;
+      this.bob += dt * planar * 1.15;
+      if (Math.floor(prev / PI) !== Math.floor(this.bob / PI)) game.audio.step(false);
+    }
+    this.headBob = damp(this.headBob, this.grounded ? Math.sin(this.bob) * Math.min(planar / 8, 1) * 0.11 : 0, 12, dt);
+
+    const look = _pLook;
+    V3.scale(look, this.fwd, Math.cos(this.pitch));
+    V3.addScaled(look, look, this.up, Math.sin(this.pitch));
+    V3.normalize(look, look);
+    V3.cross(_pRight2, look, this.up);
+    if (V3.lenSq(_pRight2) < 1e-8) V3.copy(_pRight2, this.right);
+    V3.normalize(_pRight2, _pRight2);
+    V3.cross(_pUp2, _pRight2, look);
+    V3.normalize(_pUp2, _pUp2);
+    Q4.fromBasis(this.rot, _pRight2, _pUp2, look);
+
+    this.nearShip = V3.dist(this.pos, game.ship.pos) < FOOT.boardRange;
+  }
+
   update(dt, input, planet, game) {
+    if (this.station) { this.updateInStation(dt, input, game); return; }
     if (!planet) return;
 
     V3.sub(_pRel, this.pos, planet.pos);
@@ -313,5 +484,5 @@ class Player {
 const _pRel = V3.new(), _pDir = V3.new(), _pTmp = V3.new(), _pWish = V3.new();
 const _pTan = V3.new(), _pDes = V3.new(), _pLook = V3.new(), _pRight2 = V3.new();
 const _pUp2 = V3.new(), _pPrevUp = V3.new(), _pAxis = V3.new(1, 0, 0);
-const _pBody = V3.new();
+const _pBody = V3.new(), _pLocal = V3.new(), _pTmp2 = V3.new();
 const _pQ = Q4.new();

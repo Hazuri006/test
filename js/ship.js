@@ -215,6 +215,12 @@ class Ship {
     this.landing = false;
     this.landProgress = 0;
     this.takeoff = 0;
+    this.docking = false;           // running the station approach or departure
+    this.dockOut = false;
+    this.dockT = 0;
+    this.dockPts = null;
+    this.dockPad = null;
+    this.dockedAt = null;           // the station we are sitting in, if any
     this.heat = 0;
     this.thrustVis = 0;
     this.shake = 0;
@@ -286,9 +292,23 @@ class Ship {
     this.density = density;
 
     /* ---- landing / take-off sequences own the ship completely ---- */
+    if (this.docking) { this.updateDocking(dt, input, game); return; }
     if (this.landing) { this.updateLanding(dt, planet, game); return; }
     if (this.takeoff > 0) { this.updateTakeoff(dt, planet, game); return; }
-    if (this.landed) { this.updateLanded(dt, input, planet, game); return; }
+    if (this.landed) {
+      if (this.dockedAt) this.updateDocked(dt, input, game);
+      else this.updateLanded(dt, input, planet, game);
+      return;
+    }
+
+    /* The station takes the ship off you once you are lined up on the port and
+       close enough.  It is automatic on purpose: flying at the hole is the part
+       worth doing, threading it is not. */
+    if (Station.active && !this.dockedAt && Station.inCatchment(this.pos, this.vel)) {
+      const pad = Station.freePad(true);
+      if (pad) this.beginDocking(pad, game);
+      else game.notify('ALL PADS OCCUPIED', 'warn');
+    }
 
     const inAtmo = density > 0.008;
 
@@ -619,6 +639,113 @@ class Ship {
     }
   }
 
+  /* ---------------------------------------------------------- docking ---- */
+  beginDocking(pad, game) {
+    this.docking = true;
+    this.dockOut = false;
+    this.dockT = 0;
+    this.dockPad = pad;
+    pad.holder = this;
+    this.pulse = 0; this.ultra = 0; this.boost = 0;
+    /* The path starts wherever the ship actually is, not at the first
+       waypoint, or it snaps sideways the instant control is taken. */
+    this.dockPts = Station.dockPath(pad);
+    this.dockPts[0] = [this.pos[0], this.pos[1], this.pos[2]];
+    Q4.copy(this.startRot, this.rot);
+    Station.padPose(pad, _sDockP, this.landRot);
+    game.notify('DOCKING CLAMP ENGAGED — ' + Station.active.name.toUpperCase(), 'ok');
+    game.audio.landingStart();
+  }
+
+  beginUndocking(game) {
+    this.docking = true;
+    this.dockOut = true;
+    this.dockT = 0;
+    this.landed = false;
+    this.dockPts = Station.dockPath(this.dockPad).slice().reverse();
+    /* Leaving, the last waypoint is well clear of the port rather than on the
+       approach line, so you are not immediately recaptured. */
+    Q4.copy(this.startRot, this.rot);
+    V3.set(_sDockL, 0, 0, -1);
+    Station.axis(_sDockF, _sDockL);
+    V3.set(_sDockL, 0, 1, 0);
+    Station.axis(_sDockU, _sDockL);
+    V3.normalize(_sDockR, V3.cross(_sDockR, _sDockF, _sDockU));
+    Q4.fromBasis(this.landRot, _sDockR, _sDockU, _sDockF);
+    game.notify('DEPARTURE CLEARED', 'ok');
+    game.audio.takeoff();
+  }
+
+  updateDocking(dt, input, game) {
+    /* Slower going in than coming out: arriving is the shot, leaving is not. */
+    this.dockT = Math.min(1, this.dockT + dt * (this.dockOut ? 0.30 : 0.185));
+    const t = this.dockT;
+    const e = t * t * (3 - 2 * t);
+
+    V3.copy(_sDockPrev, this.pos);
+    splineAt(this.pos, this.dockPts, e);
+
+    /* Fly the tangent, then swing onto the parked heading over the last
+       stretch — which is what turns the ship round to face back out. */
+    V3.sub(_sDockF, this.pos, _sDockPrev);
+    if (V3.lenSq(_sDockF) > 1e-8) {
+      V3.normalize(_sDockF, _sDockF);
+      V3.set(_sDockL, 0, 1, 0);
+      Station.axis(_sDockU, _sDockL);
+      V3.normalize(_sDockR, V3.cross(_sDockR, _sDockF, _sDockU));
+      if (V3.lenSq(_sDockR) > 1e-8) {
+        V3.normalize(_sDockU2, V3.cross(_sDockU2, _sDockR, _sDockF));
+        Q4.fromBasis(_sDockQ, _sDockR, _sDockU2, _sDockF);
+        Q4.slerp(this.rot, this.rot, _sDockQ, 1 - Math.exp(-dt * 3.5));
+      }
+    }
+    const settle = this.dockOut ? 0 : smoothstep(0.72, 1.0, t);
+    if (settle > 0) Q4.slerp(this.rot, this.rot, this.landRot, settle * settle);
+
+    V3.sub(this.vel, this.pos, _sDockPrev);
+    V3.scale(this.vel, this.vel, 1 / Math.max(dt, 1e-4));
+    this.speed = V3.len(this.vel);
+    this.gear = damp(this.gear, this.dockOut ? 0 : 1, 2.4, dt);
+    this.thrustVis = damp(this.thrustVis, this.dockOut ? 0.9 : 0.25, 3, dt);
+    this.heat = 0;
+
+    if (t >= 1) {
+      this.docking = false;
+      if (this.dockOut) {
+        if (this.dockPad) this.dockPad.holder = null;
+        this.dockPad = null;
+        this.dockedAt = null;
+        this.throttle = 0.45;
+        this.gear = 0;
+        /* Keep the exit velocity so the handover to flight is not a stop. */
+        this.speed = V3.len(this.vel);
+      } else {
+        this.landed = true;
+        this.dockedAt = Station.active;
+        this.gear = 1;
+        this.shake = 0.25;
+        V3.zero(this.vel);
+        this.speed = 0;
+        game.audio.landingThud();
+        game.notify('DOCKED — ' + Station.active.name.toUpperCase(), 'ok');
+      }
+    }
+  }
+
+  updateDocked(dt, input, game) {
+    /* Welded to the pad; the station is a rigid body, so this is just the pose
+       it was given, re-evaluated in case the station itself is moving. */
+    Station.padPose(this.dockPad, this.pos, this.rot);
+    V3.zero(this.vel);
+    this.speed = 0;
+    this.gear = 1;
+    this.throttle = 0;
+    this.thrustVis = damp(this.thrustVis, 0.10, 3, dt);
+    this.shake = damp(this.shake, 0, 3, dt);
+    this.heat = 0;
+    if (input.landPressed) this.beginUndocking(game);
+  }
+
   updateLanded(dt, input, planet, game) {
     /* Stay welded to the ground; the terrain under us may still be refining
        as chunks stream in, so re-seat every frame. */
@@ -666,3 +793,6 @@ const _sUp = V3.new(), _sUp2 = V3.new(), _sRel = V3.new(), _sDir = V3.new();
 const _sFwd = V3.new(), _sAcc = V3.new(), _sLat = V3.new(), _sVd = V3.new();
 const _sSu = V3.new(), _sRt = V3.new(), _sAx = V3.new();
 const _sQ = Q4.new();
+const _sDockP = V3.new(), _sDockL = V3.new(), _sDockPrev = V3.new();
+const _sDockF = V3.new(), _sDockU = V3.new(), _sDockU2 = V3.new(), _sDockR = V3.new();
+const _sDockQ = Q4.new();

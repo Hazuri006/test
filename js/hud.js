@@ -198,6 +198,15 @@ const HUD = {
         dd[0] + ' ' + dd[1], '', game.target === pl);
     }
 
+    if (Station.active && game.mode === 'ship' && !game.ship.dockedAt) {
+      const d = V3.dist(game.camPos, Station.active.pos);
+      if (d > STATION.R * 1.4) {
+        const dd = this.dist(d - STATION.R);
+        place('station', Station.active.pos, Station.active.name.toUpperCase(),
+          dd[0] + ' ' + dd[1], 'ship', false);
+      }
+    }
+
     /* Other ships, while they are close enough to be worth turning towards. */
     if (Traffic.ships) {
       for (let i = 0; i < Traffic.ships.length; i++) {

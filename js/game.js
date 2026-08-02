@@ -175,6 +175,7 @@ const Game = {
     if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
     if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
     this.system = generateSystem(seed);
+    Station.build(this.gl, this.system);
     Traffic.build(this.gl, this.system);
     this.activePlanet = null;
     this.target = this.system.planets[0];
@@ -492,18 +493,25 @@ const Game = {
 
   toggleFoot() {
     if (this.mode === 'ship') {
-      if (!this.ship.landed || !this.activePlanet) {
-        if (!this.ship.landed) this.notify('LAND BEFORE DISEMBARKING', 'warn');
+      if (!this.ship.landed) { this.notify('LAND BEFORE DISEMBARKING', 'warn'); return; }
+      if (this.ship.dockedAt) {
+        this.player.disembarkStation(this.ship, this.ship.dockedAt);
+        this.mode = 'foot';
+        this.notify('ON FOOT — ' + this.ship.dockedAt.name.toUpperCase(), 'ok');
+        this.audio.ui();
         return;
       }
+      if (!this.activePlanet) { this.notify('LAND BEFORE DISEMBARKING', 'warn'); return; }
       this.player.disembark(this.ship, this.activePlanet);
       this.player.mount = null;
+      this.player.station = null;
       this.mode = 'foot';
       this.notify('ON FOOT — ' + this.activePlanet.name.toUpperCase(), 'ok');
       this.audio.ui();
     } else {
       if (!this.player.nearShip) { this.notify('MOVE CLOSER TO THE SHIP', 'warn'); return; }
       this.dismount();
+      this.player.station = null;
       this.mode = 'ship';
       this.player.active = false;
       this.notify('BOARDED STARSHIP', 'ok');
@@ -588,8 +596,9 @@ const Game = {
     }
     this.input.landPressed = false;
 
-    /* When on foot, keep the ship parked exactly on the ground. */
-    if (this.mode === 'foot' && this.activePlanet) {
+    /* When on foot, keep the ship parked exactly on the ground — unless it is
+       sitting on a station pad, where it is already welded to something. */
+    if (this.mode === 'foot' && this.activePlanet && !this.ship.dockedAt) {
       const p = this.activePlanet;
       V3.sub(_gRel, this.ship.pos, p.pos);
       V3.normalize(_gDir, _gRel);
@@ -673,7 +682,7 @@ const Game = {
       Debris.update(this.belt, dt);
       if (!idle) Fauna.update(dt, p, this);
     }
-    if (!idle) Traffic.update(dt, this);
+    if (!idle) { Station.update(dt, this); Traffic.update(dt, this); }
     if (p) {
 
       if (this.drawTerrain && this.terrain) {
@@ -848,6 +857,7 @@ const Game = {
     if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     if (p) this.drawFaunaPass(sun, sunCol, p);
+    this.drawStationPass(sun, sunCol, p);
     this.drawTrafficPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
     this.drawPlayerPass(sun, sunCol, p);
@@ -1024,6 +1034,51 @@ const Game = {
     belt.mesh.drawInstanced();
   },
 
+  /* The station: one opaque draw for the hull and everything inside it, then
+     the doorway shield additively on top so it glows without hiding the bay
+     behind it. */
+  drawStationPass(sun, sunCol, p) {
+    const s = Station.active;
+    if (!s) return;
+    const gl = this.gl, pr = this.prog.object;
+    /* A hundred and fifty metres of hull is only worth drawing from inside a
+       few tens of kilometres; past that the HUD marker carries it. */
+    const d = V3.dist(s.pos, this.camPos);
+    if (d > 90000) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0.85);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+      gl.uniform1f(pr.u.uR, p.radius);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+      gl.uniform1f(pr.u.uR, 1);
+    }
+    this.bindLight(pr);
+    Q4.toMat3(_gMat3, s.rot);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset,
+      s.pos[0] - this.camPos[0], s.pos[1] - this.camPos[1], s.pos[2] - this.camPos[2]);
+    s.mesh.draw();
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    s.shield.draw();
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  },
+
   /* Other ships.  One instanced draw per hull variant.  They keep a minimum
      apparent size for the same reason the debris does: at ten kilometres a
      forty-metre ship is a fraction of a pixel, and the thing you are supposed
@@ -1161,10 +1216,15 @@ const Game = {
     this.drawThrusters(ox, oy, oz);
   },
 
-  /* The astronaut.  Skinned, so the whole model is one draw with a joint
-     palette; skipped in first person, where the camera sits inside the head. */
+  /* Everything skinned: the astronaut and the station's crew.  One program
+     setup, then one draw per figure — a joint palette is a uniform upload, so
+     characters cannot be instanced the way the rocks and the wildlife are. */
   drawPlayerPass(sun, sunCol, p) {
-    if (this.mode !== 'foot' || !this.view3rd || !this.playerModel) return;
+    if (!this.playerModel) return;
+    const showPlayer = this.mode === 'foot' && this.view3rd;
+    const st = Station.active;
+    const showCrew = st && Station.interiorFade(this.camPos) > 0.01;
+    if (!showPlayer && !showCrew) return;
     const gl = this.gl, pl = this.player, pr = this.prog.skin;
 
     gl.useProgram(pr.prog);
@@ -1182,6 +1242,10 @@ const Game = {
     }
     this.bindLight(pr);
     GLU.bindTex(pr, 'uTex', 0, this.playerTex, gl.TEXTURE_2D);
+
+    if (showCrew) this.drawCrew(pr, st);
+    if (!showPlayer) return;
+    gl.uniform3f(pr.u.uTint, 1, 1, 1);
 
     /* Stand the model on the surface: +Y along the local up, facing the body
        heading, then the bake's yaw to undo the model's authored +Z facing. */
@@ -1210,6 +1274,42 @@ const Game = {
 
     gl.uniform4fv(pr.u.uBones, this.playerAnim.palette());
     this.playerModel.mesh.draw();
+  },
+
+  /* Station crew.  Their animators are created on first sight rather than at
+     build time, because the skinned model does not exist until the loader has
+     finished and the station is built before that. */
+  drawCrew(pr, st) {
+    const gl = this.gl;
+    for (const c of st.crew) {
+      if (!c.anim) {
+        c.anim = new PlayerAnimator(this.playerModel);
+        c.anim.time = Math.random() * 8;
+        c.anim.phase = Math.random() * TAU;
+      }
+      Station.axis(_gPlayUp, _gUnitY);
+      V3.normalize(_gPlayUp, _gPlayUp);
+      Station.axis(_gPlayFwd, c.fwd);
+      V3.planeProject(_gPlayFwd, _gPlayFwd, _gPlayUp);
+      if (V3.lenSq(_gPlayFwd) < 1e-8) V3.set(_gPlayFwd, 0, 0, 1);
+      V3.normalize(_gPlayFwd, _gPlayFwd);
+      V3.normalize(_gPlayRight, V3.cross(_gPlayRight, _gPlayFwd, _gPlayUp));
+      Q4.fromBasis(_gPlayQ, _gPlayRight, _gPlayUp, _gPlayFwd);
+      Q4.fromAxisAngle(_gQ, _gPlayUp, PLAYER_MODEL.yaw);
+      Q4.mul(_gPlayQ, _gQ, _gPlayQ);
+      Q4.toMat3(_gMat3, _gPlayQ);
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+
+      Station.toWorld(_gPlayPos, c.pos);
+      V3.addScaled(_gPlayPos, _gPlayPos, _gPlayUp, -PLAYER_MODEL.groundY);
+      gl.uniform3f(pr.u.uOffset,
+        _gPlayPos[0] - this.camPos[0],
+        _gPlayPos[1] - this.camPos[1],
+        _gPlayPos[2] - this.camPos[2]);
+      gl.uniform3fv(pr.u.uTint, c.tint);
+      gl.uniform4fv(pr.u.uBones, c.anim.palette());
+      this.playerModel.mesh.draw();
+    }
   },
 
   /* Exhaust plumes, drawn additively after the hull.  Depth test on so the
@@ -1299,6 +1399,29 @@ const Game = {
   updateLight(p) {
     const L = this._light || (this._light = { pos: new Float32Array(4), col: new Float32Array(3), dir: new Float32Array(3) });
     L.pos[3] = 0;
+
+    /* Inside the bay the sun is on the other side of a hundred and fifty
+       metres of hull, and there are no shadow maps to say so — everything in
+       here would be lit by ambient alone.  The landing-lamp slot already
+       exists in every shader that matters, so the station borrows it as a
+       ceiling floodlight: a wide cone from above the deck, which is what the
+       light panels up there would actually be doing. */
+    const inside = Station.interiorFade(this.camPos);
+    if (inside > 0.01) {
+      V3.set(_gTmp, 0, STATION.bayRoof - 6, (STATION.collarZ1 + STATION.bayBack) * 0.5);
+      Station.toWorld(_gRel, _gTmp);
+      L.pos[0] = _gRel[0] - this.camPos[0];
+      L.pos[1] = _gRel[1] - this.camPos[1];
+      L.pos[2] = _gRel[2] - this.camPos[2];
+      L.pos[3] = 260;
+      V3.set(_gTmp, 0, -1, 0);
+      Station.axis(_gDir, _gTmp);
+      L.dir[0] = _gDir[0]; L.dir[1] = _gDir[1]; L.dir[2] = _gDir[2];
+      const k = inside * 1.35;
+      L.col[0] = 0.86 * k; L.col[1] = 0.92 * k; L.col[2] = 1.0 * k;
+      return L;
+    }
+
     if (!p) return L;
 
     const onFoot = this.mode === 'foot';
@@ -1345,13 +1468,23 @@ const Game = {
   },
 
   ambientColor(p) {
-    if (!p) { _gAmb[0] = 0.030; _gAmb[1] = 0.034; _gAmb[2] = 0.045; return _gAmb; }
-    const sky = p.biome.sky;
-    const k = 0.040 + p.atmoAmount * 0.115;
-    const sc = this.system.starColor;
-    _gAmb[0] = sky[0] * k * sc[0] + 0.016;
-    _gAmb[1] = sky[1] * k * sc[1] + 0.018;
-    _gAmb[2] = sky[2] * k * sc[2] + 0.024;
+    if (!p) { _gAmb[0] = 0.030; _gAmb[1] = 0.034; _gAmb[2] = 0.045; }
+    else {
+      const sky = p.biome.sky;
+      const k = 0.040 + p.atmoAmount * 0.115;
+      const sc = this.system.starColor;
+      _gAmb[0] = sky[0] * k * sc[0] + 0.016;
+      _gAmb[1] = sky[1] * k * sc[1] + 0.018;
+      _gAmb[2] = sky[2] * k * sc[2] + 0.024;
+    }
+    /* Inside the bay the sun never reaches anything, so without a fill light
+       the whole interior is whatever the emissive panels happen to hit. */
+    const k = Station.interiorFade(this.camPos);
+    if (k > 0) {
+      _gAmb[0] = lerp(_gAmb[0], 0.235, k);
+      _gAmb[1] = lerp(_gAmb[1], 0.250, k);
+      _gAmb[2] = lerp(_gAmb[2], 0.290, k);
+    }
     return _gAmb;
   },
 
@@ -1562,5 +1695,6 @@ const _gPartQ = Q4.new();
 const _gPartT = V3.new();
 const _gPlayUp = V3.new(), _gPlayFwd = V3.new(), _gPlayRight = V3.new();
 const _gPlayPos = V3.new(), _gPlayQ = Q4.new();
+const _gUnitY = V3.new(0, 1, 0);
 
 window.addEventListener('DOMContentLoaded', () => Game.boot());

@@ -41,6 +41,9 @@ starship hull is generated at runtime from a seed.
   calm enough to ride.
 - **Other ships** in some systems — haulers, couriers and patrols going about
   their own business, which you can fly up to and look at.
+- **An orbital station** in every system: fly at the docking port and it takes
+  the ship off you, flies it in and parks it. Get out and walk the hangar deck
+  while the crew crosses it and other ships come and go on the same pads.
 - **Procedural everything except the hull and the trees**: the rocks and
   scrub, the star field and nebula, the engine exhaust, the engine hum, the
   wind, the ambient score.
@@ -56,7 +59,7 @@ starship hull is generated at runtime from a seed.
 | `Space` | Pulse drive (in space) / jetpack (on foot) |
 | `V` | **Ultra drive** — the boost, times a hundred |
 | `Ctrl` | Brake |
-| `F` | Land / take off |
+| `F` | Land / take off / launch from a station pad |
 | `E` | Disembark / mount or dismount an animal / board ship |
 | `X` | Scanner pulse |
 | `M` | System map (click a world to set a nav target) |
@@ -154,6 +157,45 @@ also has a floor on its apparent size, without which a belt dissolves into
 sub-pixel aliasing at distance instead of reading as a band. One instanced
 draw call per planet; the belt's rotation is a uniform, so it turns for free.
 
+**The station hull has an actual hole in it.** The shell is a lat/long sphere
+whose quads are skipped where the door window falls, and the ragged edge that
+leaves is covered by a collar overlapping it by a good margin — which is also,
+conveniently, what a docking port looks like. There is no inner shell: the
+hangar is a closed box, so from inside you never see the sphere and from outside
+the sphere hides the box. Half the shell triangles for nothing.
+
+**Docking is scripted, for the same reason landing is.** Fighting a physics sim
+through a hole in a wall is not the interesting part of arriving at a station;
+the approach is. Fly into the catchment in front of the port and the station
+takes the ship: a Catmull-Rom through the door, down the throat, into the bay
+and onto a free pad, with the last leg turning the ship around so it is pointing
+back out when it settles. The catchment also checks that you are *heading in* —
+without that the station grabs its own departures back the moment they clear the
+door. Pad zero is reserved for whoever is flying, because otherwise the traffic
+fills the bay and you come home to be told there is no room.
+
+**Inside, the world is a room rather than a sphere.** The on-foot controller is
+built entirely around walking on a planet — up is the direction away from the
+core, the floor is `surfaceRadius`, gravity falls off with distance. None of
+that means anything on a deck, so the walker has a second mode with one fixed up
+vector, a flat floor and four walls, and collides in the station's own frame.
+Everything else about it — look, acceleration, jetpack, head bob, the body
+turning to face where it is going — is shared.
+
+**The station borrows the landing lamp.** Inside the bay the sun is on the other
+side of a hundred and fifty metres of hull, and there are no shadow maps to say
+so, so everything in there would be lit by ambient alone. The landing-lamp slot
+already exists in every shader that matters, so the station points it down from
+above the deck as a ceiling floodlight — which is what those light panels would
+be doing anyway.
+
+**The crew and the traffic are what make it a place.** The station's crew use
+the player's own skinned model and locomotion, each with its own pose and phase,
+pacing between points on the floor. The traffic uses the same pads and the same
+docking path as you do. Neither is clever. A hangar with people crossing it and
+ships you did not fly arriving on their own schedule reads as somewhere; an
+empty one reads as a model.
+
 **Traffic has to be seeded where you are.** A star system here is twenty million
 metres across. A ship flying between two planets at a plausible cruise would
 take hours to arrive, and you would never once see it move — so the other ships
@@ -222,6 +264,7 @@ js/props.js         surface scatter — rocks, flora, crystals
 js/debris.js        orbital debris belts
 js/fauna.js         alien wildlife: procedural bodies, herd AI, riding
 js/traffic.js       other ships: procedural hulls, flight AI
+js/station.js       the orbital station: hull, hangar, docking, crew
 js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis

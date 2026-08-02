@@ -141,7 +141,10 @@ const Traffic = {
       target: V3.new(),
       timer: 0,
       tint: 0.75 + rng() * 0.5,
-      hailed: false
+      hailed: false,
+      /* Station docking state: null in flight, else 'in' / 'park' / 'out'. */
+      dockState: null, dockT: 0, dockPts: null, pad: null,
+      dockCool: rng() * 12
     };
     this.retarget(s, game, rng);
     /* Point it where it is going, so it does not spend its first seconds
@@ -182,7 +185,11 @@ const Traffic = {
     const rng = this._rng;
 
     for (let i = this.ships.length - 1; i >= 0; i--) {
-      if (V3.dist(this.ships[i].pos, game.camPos) > TRAFFIC.despawn) this.ships.splice(i, 1);
+      const s = this.ships[i];
+      /* Never cull one mid-manoeuvre: it would leave a pad marked occupied
+         forever and the bay would fill up with ghosts. */
+      if (s.dockState) continue;
+      if (V3.dist(s.pos, game.camPos) > TRAFFIC.despawn) this.ships.splice(i, 1);
     }
     if (this.ships.length < this.count) {
       const s = this.spawn(game, rng);
@@ -190,6 +197,26 @@ const Traffic = {
     }
 
     for (const s of this.ships) {
+      if (s.dockState) { this.updateDocked(s, dt, game, rng); continue; }
+
+      /* Anything that finds itself near the station with a pad free will go
+         and use it.  Ships you did not fly arriving and leaving on their own
+         schedule is most of what makes the place feel inhabited. */
+      if (Station.active && s.dockCool <= 0 && rng() < dt * 0.30 &&
+          V3.dist(s.pos, Station.active.pos) < 26000) {
+        const pad = Station.freePad();
+        if (pad) {
+          pad.holder = s;
+          s.pad = pad;
+          s.dockState = 'in';
+          s.dockT = 0;
+          s.dockPts = Station.dockPath(pad);
+          s.dockPts[0] = [s.pos[0], s.pos[1], s.pos[2]];
+          continue;
+        }
+      }
+      s.dockCool -= dt;
+
       s.timer -= dt;
       V3.sub(_tFwd, s.target, s.pos);
       const d = V3.len(_tFwd);
@@ -223,6 +250,50 @@ const Traffic = {
     }
   },
 
+  /* The same scripted path the player's ship flies, run for a bot: in, sit on
+     the pad a while, out again. */
+  updateDocked(s, dt, game, rng) {
+    if (s.dockState === 'park') {
+      Station.padPose(s.pad, s.pos, s.rot);
+      s.speed = 0;
+      s.timer -= dt;
+      if (s.timer <= 0) {
+        s.dockState = 'out';
+        s.dockT = 0;
+        s.dockPts = Station.dockPath(s.pad).slice().reverse();
+      }
+      return;
+    }
+
+    const out = s.dockState === 'out';
+    s.dockT = Math.min(1, s.dockT + dt * (out ? 0.24 : 0.15));
+    const e = s.dockT * s.dockT * (3 - 2 * s.dockT);
+    V3.copy(_tPrev, s.pos);
+    splineAt(s.pos, s.dockPts, e);
+
+    V3.sub(_tFwd, s.pos, _tPrev);
+    if (V3.lenSq(_tFwd) > 1e-8) {
+      V3.normalize(_tFwd, _tFwd);
+      orientTo(_tQ, _tFwd);
+      Q4.slerp(s.rot, s.rot, _tQ, 1 - Math.exp(-dt * 3.0));
+    }
+    s.speed = V3.dist(s.pos, _tPrev) / Math.max(dt, 1e-4);
+
+    if (s.dockT >= 1) {
+      if (out) {
+        s.pad.holder = null;
+        s.pad = null;
+        s.dockState = null;
+        s.dockCool = 60 + rng() * 120;
+        this.retarget(s, game, rng);
+      } else {
+        s.dockState = 'park';
+        s.timer = 25 + rng() * 70;
+        Station.padPose(s.pad, s.pos, s.rot);
+      }
+    }
+  },
+
   fillInstances(camPos) {
     if (!this.hulls) return;
     for (const h of this.hulls) h.n = 0;
@@ -243,6 +314,7 @@ const Traffic = {
   },
 
   dispose() {
+    if (this.ships) for (const s of this.ships) if (s.pad) s.pad.holder = null;
     if (this.hulls) for (const h of this.hulls) h.mesh.dispose();
     this.hulls = null;
     this.ships = null;
@@ -268,5 +340,6 @@ function orientTo(q, fwd) {
 }
 
 const _tDir = V3.new(), _tSide = V3.new(), _tFwd = V3.new(), _tNose = V3.new();
+const _tPrev = V3.new();
 const _tUp = V3.new(), _tUp2 = V3.new(), _tRight = V3.new();
 const _tQ = Q4.new();
