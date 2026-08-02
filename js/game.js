@@ -1,0 +1,1881 @@
+'use strict';
+/* ============================================================================
+   game.js — engine loop, renderer, camera, input, state machine.
+
+   Render pipeline per frame:
+
+     1. scene target   terrain + props + ship, logarithmic depth
+     2. sky pass       stars, other worlds, ocean, clouds, atmosphere,
+                       scan pulse — all reconstructed from the depth buffer
+     3. bloom          3-level down/blur/up chain
+     4. composite      tonemap, entry heat, pulse streaks, grain, vignette
+   ============================================================================ */
+
+const QUALITY = {
+  low:    { scale: 0.62, maxLevel: 9,  splitFactor: 2.1, budgetMs: 4.0,  atmoSteps: 8,  cloudSteps: 0,  bloom: 1 },
+  medium: { scale: 0.85, maxLevel: 10, splitFactor: 2.5, budgetMs: 6.0,  atmoSteps: 12, cloudSteps: 10, bloom: 1 },
+  high:   { scale: 1.00, maxLevel: 11, splitFactor: 2.8, budgetMs: 8.0,  atmoSteps: 16, cloudSteps: 18, bloom: 1 },
+  ultra:  { scale: 1.00, maxLevel: 12, splitFactor: 3.3, budgetMs: 11.0, atmoSteps: 22, cloudSteps: 30, bloom: 1 }
+};
+
+const FAR_PLANE = 1e8;
+
+const Game = {
+  /* ======================================================================== */
+  async boot() {
+    this.canvas = $('gl');
+    const gl = GLU.init(this.canvas);
+    if (!gl) { $('unsupported').classList.add('on'); $('loading').classList.add('hide'); return; }
+    this.gl = gl;
+
+    this.quality = QUALITY.medium;
+    this.qualityName = 'medium';
+    this.sensitivity = 1.0;
+    this.invertY = false;
+    this.fov = 68 * DEG;
+    this.exposure = 1.0;
+
+    this.width = 1; this.height = 1;
+    this.camPos = V3.new();
+    this.camRot = Q4.new();
+    this.camFwd = V3.new(); this.camUp = V3.new(); this.camRight = V3.new();
+    this.proj = M4.new();
+    this.view = M4.new();
+    this.viewProj = M4.new();
+    this.modelRot = new Float32Array(9);
+    this.planes = new Float32Array(16);
+
+    this.mode = 'ship';           // 'ship' | 'foot'
+    this.view3rd = true;
+    this.credits = 2500;
+    this.menu = null;            // 'ships' | 'shop' | null
+    this.paused = true;
+    this.started = false;
+    this.hudHidden = false;
+    this.showStats = false;
+    this.time = 0;
+    this.flash = 0;
+
+    this.scan = { active: false, t: 0, origin: V3.new() };
+
+    HUD.init(this);
+    this.audio = new GameAudio();
+    this.ship = new Ship();
+    this.player = new Player();
+
+    this.setupInput();
+    this.setupUI();
+    window.addEventListener('resize', () => this.resize());
+
+    await this.loadAssets();
+
+    this.resize();
+    $('loading').classList.add('hide');
+    requestAnimationFrame((t) => this.frame(t));
+  },
+
+  /* ------------------------------------------------------------- assets -- */
+  async loadAssets() {
+    const setProgress = (p, msg) => {
+      $('loadFill').style.right = (100 - p * 100).toFixed(1) + '%';
+      if (msg) $('loadMsg').textContent = msg;
+    };
+    const tick = () => new Promise(r => setTimeout(r, 0));
+
+    setProgress(0.02, 'compiling shaders');
+    await tick();
+
+    this.prog = {
+      terrain: GLU.program(SH.terrainVS, SH.terrainFS, 'terrain'),
+      object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
+      debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
+      station: GLU.program(SH.stationVS, SH.stationFS, 'station'),
+      spray: GLU.program(SH.sprayVS, SH.sprayFS, 'spray'),
+      ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
+      skin: GLU.program(SH.skinVS, SH.skinFS, 'skin'),
+      tree: GLU.program(SH.treeVS, SH.treeFS, 'tree'),
+      thruster: GLU.program(SH.thrusterVS, SH.thrusterFS, 'thruster'),
+      sky: GLU.program(SH.fullVS, SH.skyFS, 'sky'),
+      bright: GLU.program(SH.fullVS, SH.brightFS, 'bright'),
+      blur: GLU.program(SH.fullVS, SH.blurFS, 'blur'),
+      composite: GLU.program(SH.fullVS, SH.compositeFS, 'composite')
+    };
+    this.emptyVAO = this.gl.createVertexArray();
+
+    setProgress(0.20, 'generating noise volume');
+    await tick();
+
+    /* The 3D noise volume is the single most reused asset in the renderer:
+       clouds, ocean, terrain detail and nebulae all read from it. */
+    const SIZE = 64;
+    const data = buildNoiseVolume(SIZE, null);
+    this.noiseTex = GLU.texture3D(SIZE, data);
+
+    setProgress(0.72, 'seeding star system');
+    await tick();
+
+    const seedInput = ($('optSeed').value || '').trim();
+    let seed;
+    if (seedInput) {
+      seed = 0;
+      for (let i = 0; i < seedInput.length; i++) seed = (Math.imul(seed, 131) + seedInput.charCodeAt(i)) | 0;
+      seed = Math.abs(seed) || 1;
+    } else {
+      seed = (Math.random() * 0x7fffffff) | 0;
+    }
+    this.newSystem(seed);
+
+    setProgress(0.88, 'assembling starship');
+    await tick();
+
+    this.shipParts = buildShipMesh(this.gl);
+    this.shipAnim = new ShipAnimator();
+    await Ships.init(this.gl, this);
+    this.thrusterMesh = buildThrusterMesh(this.gl, Ships.engines());
+    this.shipTex = await this.loadTexture(SHIP_MODEL.tex);
+    this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
+    this.treeBark = await this.loadTexture(TREE_MODEL.bark, true);
+    this.treeAtlas = await this.loadTexture(TREE_MODEL.atlas, false);
+    /* Clamped, not repeated: the station shader folds its own coordinates and
+       addresses tiles inside the atlas, so wrapping would drag a neighbour's
+       plating across the seam. */
+    this.stationBase = await this.loadTexture(STATION_TEX.base, false);
+    this.stationEmi = await this.loadTexture(STATION_TEX.emissive, false);
+
+    Combat.build(this.gl);
+    Spray.build(this.gl);
+    this.playerModel = new SkinnedModel(this.gl, PLAYER_MODEL);
+    this.playerAnim = new PlayerAnimator(this.playerModel);
+    this.playerTex = await this.loadTexture(PLAYER_MODEL.tex, false);
+
+    setProgress(1.0, 'ready');
+    await tick();
+  },
+
+  /* The hull atlas travels as a data: URI inside shipmodel.js, so it decodes
+     without a network request and the game still runs from file://. */
+  loadTexture(src, repeat) {
+    const gl = this.gl;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        const wrap = repeat === false ? gl.CLAMP_TO_EDGE : gl.REPEAT;
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+        const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+        if (aniso) {
+          const max = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+          gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
+        }
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        resolve(t);
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  },
+
+  newSystem(seed) {
+    if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
+    if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
+    this.system = generateSystem(seed);
+    Station.build(this.gl, this.system);
+    Traffic.build(this.gl, this.system);
+    this.activePlanet = null;
+    this.target = this.system.planets[0];
+    this.ship.spawnInOrbit(this.system.planets[0]);
+    this.mode = 'ship';
+    this.player.active = false;
+    V3.copy(this.camPos, this.ship.pos);
+    Q4.copy(this.camRot, this.ship.rot);
+    this._sysSeed = seed;
+  },
+
+  /* ------------------------------------------------------------- resize -- */
+  resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(window.innerWidth * dpr));
+    const h = Math.max(1, Math.round(window.innerHeight * dpr));
+    this.canvas.width = w; this.canvas.height = h;
+    this.width = window.innerWidth; this.height = window.innerHeight;
+
+    const s = this.quality.scale;
+    const rw = Math.max(2, Math.round(w * s));
+    const rh = Math.max(2, Math.round(h * s));
+    if (this.rt && this.rt.w === rw && this.rt.h === rh) return;
+
+    if (this.sprayFB) this.gl.deleteFramebuffer(this.sprayFB.fbo);
+    GLU.deleteTarget(this.rt);
+    GLU.deleteTarget(this.skyRT);
+    if (this.bloomL) for (const t of this.bloomL) GLU.deleteTarget(t);
+    if (this.bloomT) for (const t of this.bloomT) GLU.deleteTarget(t);
+
+    this.rt = GLU.makeSceneTarget(rw, rh);
+    this.skyRT = GLU.makeColorTarget(rw, rh);
+    /* Its own framebuffer rather than a depth attachment bolted onto skyRT:
+       the sky pass samples the scene depth, and a texture that is both the
+       sampler source and an attachment of the bound framebuffer is a feedback
+       loop whatever the write mask says. */
+    this.sprayFB = GLU.makeOverlayTarget(this.skyRT.color, this.rt.depth, rw, rh);
+    this.bloomL = []; this.bloomT = [];
+    let bw = Math.max(2, rw >> 1), bh = Math.max(2, rh >> 1);
+    for (let i = 0; i < 3; i++) {
+      this.bloomL.push(GLU.makeColorTarget(bw, bh));
+      this.bloomT.push(GLU.makeColorTarget(bw, bh));
+      bw = Math.max(2, bw >> 1); bh = Math.max(2, bh >> 1);
+    }
+  },
+
+  setQuality(name) {
+    this.qualityName = name;
+    this.quality = QUALITY[name] || QUALITY.medium;
+    if (this.terrain) this.terrain.setQuality(this.quality);
+    this.rt = null;
+    this.resize();
+  },
+
+  /* ======================================================================== */
+  /* INPUT                                                                    */
+  /* ======================================================================== */
+  setupInput() {
+    this.keys = Object.create(null);
+    this.stick = { x: 0, y: 0 };
+    this.mouseDX = 0; this.mouseDY = 0;
+    this.input = {
+      look: { x: 0, y: 0 }, move: { x: 0, y: 0 },
+      throttle: 0, roll: 0, boost: false, brake: false, jump: false,
+      landPressed: false
+    };
+    this.edge = Object.create(null);
+
+    const code = (e) => e.code;
+
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) { e.preventDefault(); return; }
+      const c = code(e);
+      this.keys[c] = true;
+      this.edge[c] = true;
+      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(c)) e.preventDefault();
+      this.onKey(c);
+    });
+    window.addEventListener('keyup', (e) => { this.keys[code(e)] = false; });
+    window.addEventListener('blur', () => { for (const k in this.keys) this.keys[k] = false; });
+
+    this.canvas.addEventListener('click', () => {
+      if (this.started && !this.paused && document.pointerLockElement !== this.canvas) {
+        this.canvas.requestPointerLock();
+      }
+    });
+    /* Left click fires in the arena.  The pointer is already locked for
+       looking, so mousedown on the canvas is free. */
+    window.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !this.started || this.paused || this.menu) return;
+      if (this.mode === 'foot' && Combat.state === 'fight') Combat.fire(this);
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === this.canvas;
+      if (!this.locked && this.started && !this.mapOpen && !this.menu) this.setPaused(true);
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!this.locked) return;
+      this.mouseDX += e.movementX || 0;
+      this.mouseDY += e.movementY || 0;
+    });
+    this.canvas.addEventListener('wheel', (e) => {
+      if (!this.locked || this.mode === 'foot') return;
+      e.preventDefault();
+      this.ship.throttle = clamp(this.ship.throttle - Math.sign(e.deltaY) * 0.08, 0, 1);
+    }, { passive: false });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.started) this.setPaused(true);
+    });
+  },
+
+  onKey(c) {
+    if (!this.started) return;
+    if (c === 'Escape') {
+      if (this.menu) { this.toggleMenu(this.menu); return; }
+      if (this.mapOpen) this.toggleMap(false);
+      else this.setPaused(!this.paused);
+      return;
+    }
+    if (this.paused) return;
+
+    switch (c) {
+      case 'KeyM': this.toggleMap(!this.mapOpen); break;
+      case 'KeyH': this.hudHidden = !this.hudHidden; HUD.setHidden(this.hudHidden); break;
+      case 'KeyC': this.view3rd = !this.view3rd; this.audio.ui(); break;
+      case 'KeyX': this.doScan(); break;
+      case 'KeyF': this.input.landPressed = true; break;
+      case 'KeyE': this.interact(); break;
+      case 'Tab': this.toggleMenu('ships'); break;
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
+        const wi = +e.code.slice(5) - 1;
+        if (Ships.weaponsOwned[wi]) { Ships.weapon = wi; this.audio.ui();
+          this.notify('WEAPON: ' + WEAPON_SPECS[wi].name.toUpperCase()); }
+        break;
+      }
+      case 'F3': this.showStats = !this.showStats; HUD.el.fps.classList.toggle('on', this.showStats); break;
+    }
+  },
+
+  gatherInput(dt) {
+    const k = this.keys;
+    const inp = this.input;
+
+    const sens = this.sensitivity * 0.0022;
+    let dx = this.mouseDX * sens;
+    let dy = this.mouseDY * sens * (this.invertY ? -1 : 1);
+    this.mouseDX = 0; this.mouseDY = 0;
+
+    if (this.mode === 'foot') {
+      /* On foot the mouse is a direct 1:1 look delta. */
+      inp.look.x = dx;
+      inp.look.y = dy;
+      inp.move.x = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0);
+      inp.move.y = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
+      inp.roll = 0;
+      inp.throttle = 0;
+      inp.jump = !!k.Space;
+    } else {
+      /* In the ship the mouse drives a self-centring virtual stick, which is
+         what gives flight its weight instead of a twitchy 1:1 mapping. */
+      this.stick.x = clamp(this.stick.x + dx * 1.6, -1, 1);
+      this.stick.y = clamp(this.stick.y + dy * 1.6, -1, 1);
+      const recentre = Math.exp(-dt * 3.4);
+      this.stick.x *= recentre;
+      this.stick.y *= recentre;
+
+      // arrow keys work as a digital stick for players without a mouse
+      const ax = (k.ArrowRight ? 1 : 0) - (k.ArrowLeft ? 1 : 0);
+      const ay = (k.ArrowDown ? 1 : 0) - (k.ArrowUp ? 1 : 0);
+      inp.look.x = clamp(this.stick.x + ax * 0.8, -1.4, 1.4);
+      inp.look.y = clamp(this.stick.y + ay * 0.8, -1.4, 1.4);
+
+      inp.roll = (k.KeyA ? 1 : 0) - (k.KeyD ? 1 : 0);
+      inp.throttle = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
+      inp.move.x = 0; inp.move.y = 0;
+      this.ship.pulseWanted = !!k.Space;
+      this.ship.ultraWanted = !!k.KeyV;
+      inp.jump = false;
+    }
+    if (this.mode === 'foot') { this.ship.pulseWanted = false; this.ship.ultraWanted = false; }
+
+    inp.boost = !!(k.ShiftLeft || k.ShiftRight);
+    inp.brake = !!(k.ControlLeft || k.ControlRight);
+  },
+
+  /* ======================================================================== */
+  /* UI                                                                       */
+  /* ======================================================================== */
+  setupUI() {
+    $('beginBtn').addEventListener('click', () => this.begin());
+    $('resumeBtn').addEventListener('click', () => this.setPaused(false));
+    $('quitBtn').addEventListener('click', () => {
+      this.started = false;
+      this.setPaused(true);
+      $('pause').classList.add('hide');
+      $('title').classList.remove('hide');
+      HUD.show(false);
+    });
+    $('newSysBtn').addEventListener('click', () => {
+      this.newSystem((Math.random() * 0x7fffffff) | 0);
+      this.notify('WARPED TO ' + this.system.name, 'ok');
+      this.setPaused(false);
+    });
+    $('perfBtn').addEventListener('click', () => {
+      this.showStats = !this.showStats;
+      HUD.el.fps.classList.toggle('on', this.showStats);
+    });
+
+    $('optQuality').addEventListener('change', (e) => this.setQuality(e.target.value));
+    $('optSens').addEventListener('input', (e) => { this.sensitivity = e.target.value / 100; });
+    $('optVol').addEventListener('input', (e) => this.audio.setVolume(e.target.value / 100));
+    $('optInvert').addEventListener('change', (e) => { this.invertY = e.target.checked; });
+  },
+
+  begin() {
+    const q = $('optQuality').value;
+    if (q !== this.qualityName) this.setQuality(q);
+    this.sensitivity = $('optSens').value / 100;
+    this.invertY = $('optInvert').checked;
+
+    const seedInput = ($('optSeed').value || '').trim();
+    if (seedInput) {
+      let seed = 0;
+      for (let i = 0; i < seedInput.length; i++) seed = (Math.imul(seed, 131) + seedInput.charCodeAt(i)) | 0;
+      seed = Math.abs(seed) || 1;
+      if (seed !== this._sysSeed) this.newSystem(seed);
+    }
+
+    this.audio.start();
+    this.audio.setVolume($('optVol').value / 100);
+    this.audio.resume();
+
+    $('title').classList.add('hide');
+    this.started = true;
+    this.setPaused(false);
+    HUD.show(true);
+    this.notify('ENTERING ' + this.system.name + ' SYSTEM', 'ok');
+  },
+
+  setPaused(p) {
+    this.paused = p;
+    $('pause').classList.toggle('hide', !p);
+    if (p) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      $('pauseSub').textContent = this.system.name + ' SYSTEM · ' +
+        (this.activePlanet ? this.activePlanet.name.toUpperCase() : 'DEEP SPACE');
+    } else {
+      this.audio.resume();
+      if (!this.mapOpen) this.canvas.requestPointerLock();
+    }
+  },
+
+  toggleMap(on) {
+    this.mapOpen = on;
+    HUD.openMap(on);
+    this.audio.ui();
+    if (on) { if (document.pointerLockElement) document.exitPointerLock(); }
+    else if (!this.paused) this.canvas.requestPointerLock();
+  },
+
+  setTarget(p) {
+    this.target = p;
+    this.audio.ui();
+    this.notify('NAV TARGET: ' + (p.discovered ? p.name.toUpperCase() : 'UNCHARTED WORLD'));
+  },
+
+  notify(msg, kind) {
+    const now = performance.now();
+    if (!this._lastNotify) this._lastNotify = {};
+    if (this._lastNotify[msg] && now - this._lastNotify[msg] < 4000) return;
+    this._lastNotify[msg] = now;
+    HUD.toast(msg, kind);
+    this.audio.notify();
+  },
+
+  impact(strength) {
+    HUD.flashDamage(0.25 + strength * 0.65);
+    this.audio.impact(strength);
+    this.flash = Math.min(0.35, strength * 0.4);
+  },
+
+  onLanded(planet) { this.discover(planet); },
+
+  discover(planet) {
+    if (planet.discovered) return;
+    planet.discovered = true;
+    HUD.discovery(planet);
+    this.audio.discovery();
+    HUD._statKey = null;
+  },
+
+  doScan() {
+    if (this.scan.active) return;
+    this.scan.active = true;
+    this.scan.t = 0;
+    V3.copy(this.scan.origin, this.camPos);
+    this.audio.scan();
+  },
+
+  /* E does three things depending on where you are standing, in the order you
+     would expect: get off the animal, get on the animal, board the ship. */
+  interact() {
+    if (this.mode === 'foot' && this.player.station) {
+      const k = Station.kioskAt(this.player.pos, this.player.room);
+      if (k) {
+        if (k.id === 'shop') { this.toggleMenu('shop'); return; }
+        if (k.id === 'arena') { Combat.enter(this); return; }
+        if (k.id === 'leave') { Combat.leave(this, Combat.state === 'won'); return; }
+      }
+    }
+    if (this.mode === 'foot') {
+      if (this.player.mount) { this.dismount(); return; }
+      const c = Fauna.mountable(this.player.pos);
+      if (c) { this.mount(c); return; }
+    }
+    this.toggleFoot();
+  },
+
+  /* Tab and the outfitter both open a panel; opening one closes the other, and
+     either releases the pointer so you can click the list. */
+  toggleMenu(which) {
+    this.menu = this.menu === which ? null : which;
+    HUD.showMenu(this, this.menu);
+    if (this.menu && document.pointerLockElement) document.exitPointerLock();
+    this.audio.ui();
+  },
+
+  /* F while on foot: the ship flies over and lands next to you. */
+  summonShip() {
+    if (this.mode !== 'foot') return;
+    if (this.player.station) { this.notify('NOT INSIDE A STATION', 'warn'); return; }
+    if (!this.activePlanet) return;
+    const sh = this.ship;
+    if (sh.summon > 0) return;
+    if (V3.dist(sh.pos, this.player.pos) < 14) { this.notify('SHIP ALREADY HERE'); return; }
+    sh.beginSummon(this.activePlanet, this.player, this);
+  },
+
+  mount(c) {
+    this.player.mount = c;
+    c.ridden = true;
+    c.state = 'ridden';
+    /* Sit the rider where the saddle is, then let the walker carry on from
+       there — the animal is drawn under it, not simulated separately. */
+    V3.copy(c.heading, this.player.bodyFwd);
+    V3.planeProject(c.heading, c.heading, this.player.up);
+    V3.normalize(c.heading, c.heading);
+    this.notify('MOUNTED — ' + c.sp.name.toUpperCase(), 'ok');
+    this.audio.ui();
+  },
+
+  dismount() {
+    const c = this.player && this.player.mount;
+    if (!c) return;
+    this.player.mount = null;
+    c.ridden = false;
+    c.state = 'idle';
+    c.timer = 2;
+    c.speed = 0;
+    if (this.started) { this.notify('DISMOUNTED', 'ok'); this.audio.ui(); }
+  },
+
+  toggleFoot() {
+    if (this.mode === 'ship') {
+      if (!this.ship.landed) { this.notify('LAND BEFORE DISEMBARKING', 'warn'); return; }
+      if (this.ship.dockedAt) {
+        this.player.disembarkStation(this.ship, this.ship.dockedAt);
+        this.mode = 'foot';
+        this.notify('ON FOOT — ' + this.ship.dockedAt.name.toUpperCase(), 'ok');
+        this.audio.ui();
+        return;
+      }
+      if (!this.activePlanet) { this.notify('LAND BEFORE DISEMBARKING', 'warn'); return; }
+      this.player.disembark(this.ship, this.activePlanet);
+      this.player.mount = null;
+      this.player.station = null;
+      this.mode = 'foot';
+      this.notify('ON FOOT — ' + this.activePlanet.name.toUpperCase(), 'ok');
+      this.audio.ui();
+    } else {
+      if (!this.player.nearShip) { this.notify('MOVE CLOSER TO THE SHIP', 'warn'); return; }
+      this.dismount();
+      this.player.station = null;
+      this.mode = 'ship';
+      this.player.active = false;
+      this.notify('BOARDED STARSHIP', 'ok');
+      this.audio.ui();
+    }
+  },
+
+  /* ======================================================================== */
+  /* FRAME                                                                    */
+  /* ======================================================================== */
+  frame(now) {
+    requestAnimationFrame((t) => this.frame(t));
+    const nowS = now * 0.001;
+    let dt = this._last === undefined ? 1 / 60 : nowS - this._last;
+    this._last = nowS;
+    dt = Math.min(dt, 0.05);                 // never let a hitch teleport anything
+
+    if (!this.started || this.paused) {
+      this.renderIdle(dt);
+      return;
+    }
+
+    this.time += dt;
+    this.update(dt);
+    this.render(dt);
+    this.updateStats(dt);
+  },
+
+  renderIdle(dt) {
+    /* Keep the world alive behind the menus — a slow orbital drift. */
+    if (!this.system) return;
+    this.time += dt * 0.25;
+    if (!this.started) {
+      /* Title-screen camera: a slow drift around the first world, held near
+         the terminator on the lit side — the most photogenic angle a planet
+         has, and it shows off the atmosphere limb. */
+      const p = this.system.planets[0];
+      const toSun = V3.sub(_gTmp, this.system.starPos, p.pos);
+      V3.normalize(toSun, toSun);
+      const side = V3.cross(_gAxis, toSun, _gWorldUp);
+      if (V3.lenSq(side) < 1e-6) V3.set(side, 1, 0, 0);
+      V3.normalize(side, side);
+      const up = V3.cross(_gU, side, toSun);
+      V3.normalize(up, up);
+
+      const a = this.time * 0.05;
+      const dir = _gDesired;
+      V3.scale(dir, toSun, 0.62);
+      V3.addScaled(dir, dir, side, Math.cos(a) * 0.78);
+      V3.addScaled(dir, dir, up, Math.sin(a) * 0.30 + 0.18);
+      V3.normalize(dir, dir);
+      V3.addScaled(this.camPos, p.pos, dir, p.radius * 3.1);
+
+      const fwd = V3.sub(_gF, p.pos, this.camPos);
+      V3.normalize(fwd, fwd);
+      const right = V3.cross(_gRel, fwd, up);
+      if (V3.lenSq(right) < 1e-6) V3.set(right, 1, 0, 0);
+      V3.normalize(right, right);
+      const camUp = V3.cross(_gDir, right, fwd);
+      V3.normalize(camUp, camUp);
+      Q4.fromBasis(this.camRot, right, camUp, fwd);
+      this.curFov = this.fov;
+    }
+    quatFwd(this.camFwd, this.camRot);
+    quatUp(this.camUp, this.camRot);
+    quatRight(this.camRight, this.camRot);
+    this.buildMatrices();
+    this.updateWorld(dt, true);
+    this.render(dt);
+  },
+
+  /* -------------------------------------------------------------- update -- */
+  update(dt) {
+    this.gatherInput(dt);
+
+    if (this.menu) { this.input.move.x = 0; this.input.move.y = 0; this.input.look.x = 0; this.input.look.y = 0; }
+    if (this.mode === 'foot') {
+      this.player.update(dt, this.input, this.activePlanet, this);
+      Combat.update(dt, this);
+      this.playerAnim.update(dt, this.player.groundSpeed, this.player.grounded,
+        this.player.climbRate, this.player.turnRate, !!this.player.mount);
+    } else {
+      this.ship.update(dt, this.input, this.activePlanet, this);
+    }
+    if (this.input.landPressed && this.mode === 'foot') {
+      this.summonShip();
+    }
+    this.input.landPressed = false;
+
+    /* When on foot, keep the ship parked exactly on the ground — unless it is
+       sitting on a station pad, where it is already welded to something. */
+    /* The ship still needs its own update while you are on foot if it is
+       flying itself over to you — nothing else calls it in this mode. */
+    if (this.mode === 'foot' && this.ship.summon > 0 && this.activePlanet) {
+      this.ship.updateSummon(dt, this.activePlanet, this);
+    } else if (this.mode === 'foot' && this.activePlanet && !this.ship.dockedAt) {
+      const p = this.activePlanet;
+      V3.sub(_gRel, this.ship.pos, p.pos);
+      V3.normalize(_gDir, _gRel);
+      const gr = p.surfaceRadius(_gDir[0], _gDir[1], _gDir[2]);
+      V3.addScaled(this.ship.pos, p.pos, _gDir, gr + SHIP_CFG.landHeight);
+      this.ship.thrustVis = damp(this.ship.thrustVis, 0.08, 2, dt);
+    }
+
+    this.updateCamera(dt);
+    /* Matrices must exist before the world update: terrain culling and the
+       HUD markers both project through them. */
+    this.buildMatrices();
+    this.updateWorld(dt, false);
+
+    /* scan pulse */
+    if (this.scan.active) {
+      this.scan.t += dt;
+      if (this.scan.t > 2.1) this.scan.active = false;
+    }
+    this.flash = Math.max(0, this.flash - dt * 2.4);
+
+    /* audio state */
+    this.audio.update(dt, {
+      throttle: this.ship.throttle,
+      thrust: this.ship.thrustVis,
+      speed: this.mode === 'foot' ? this.player.speed : this.ship.speed,
+      density: this.activePlanet
+        ? this.activePlanet.densityAt(Math.max(this.mode === 'foot' ? this.player.altitude : this.ship.altitude, 0))
+        : 0,
+      pulse: this.ship.pulse,
+      ultra: this.ship.ultra,
+      onFoot: this.mode === 'foot',
+      landed: this.ship.landed,
+      jetting: this.player.jetting,
+      inMenu: this.mapOpen
+    });
+
+    if (!this.hudHidden) HUD.update(this);
+    if (this.mapOpen && (this.frameCount & 7) === 0) HUD.drawMap(HUD._hoverIdx);
+  },
+
+  /* Choose the world we are "at", stream its terrain, handle discovery. */
+  updateWorld(dt, idle) {
+    let best = null, bestScore = Infinity;
+    for (const p of this.system.planets) {
+      const d = V3.dist(this.camPos, p.pos);
+      const score = d / p.radius;
+      if (score < bestScore) { bestScore = score; best = p; }
+    }
+
+    const ACTIVATE = 8.0, RELEASE = 11.0;
+    let active = this.activePlanet;
+    if (active && V3.dist(this.camPos, active.pos) / active.radius > RELEASE) active = null;
+    if (!active && bestScore < ACTIVATE) active = best;
+
+    if (active !== this.activePlanet) {
+      if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
+      if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
+      this.dismount();
+      Fauna.dispose();
+      this.activePlanet = active;
+      if (active) {
+        this.terrain = new Terrain(this.gl, active, this.quality);
+        this.belt = Debris.build(this.gl, active, this.qualityName);
+        Fauna.build(this.gl, active);
+        if (this.belt && !idle) this.notify('DEBRIS FIELD DETECTED', 'warn');
+        if (!idle) this.notify('APPROACHING ' + (active.discovered ? active.name.toUpperCase() : 'UNCHARTED WORLD'));
+      }
+      HUD._statKey = null;
+    }
+
+    const p = this.activePlanet;
+    if (p) {
+      const d = V3.dist(this.camPos, p.pos);
+      /* Cross-fade from the analytic orbital sphere to streamed terrain.
+         Both are driven by the same noise, so the swap is invisible. */
+      this.terrainFade = smoothstep(p.radius * 4.0, p.radius * 6.0, d);
+      this.drawTerrain = d < p.radius * 6.4;
+
+      if (!idle && !p.discovered && d < p.radius * 2.6) this.discover(p);
+      Debris.update(this.belt, dt);
+      if (!idle) Fauna.update(dt, p, this);
+    }
+    if (!idle) {
+      Station.update(dt, this);
+      Traffic.update(dt, this);
+      /* Only the ship raises spray, and only while it is actually flying: a
+         hull parked on a pad inside a station is not over anything. */
+      Spray.update(dt, this.ship.dockedAt ? null : p, this.ship, this);
+    }
+    if (p) {
+
+      if (this.drawTerrain && this.terrain) {
+        V3.sub(_gCamLocal, this.camPos, p.pos);
+        this.buildFrustum(p);
+        this.terrain.update(_gCamLocal, this._frustumTest, dt);
+      }
+    } else {
+      this.terrainFade = 0;
+      this.drawTerrain = false;
+    }
+  },
+
+  /* ------------------------------------------------------------- camera -- */
+  updateCamera(dt) {
+    if (this.mode === 'foot') {
+      this.player.eyePos(this.camPos);
+      Q4.copy(this.camRot, this.player.rot);
+      if (this.view3rd) {
+        /* Over the shoulder rather than straight behind: a character centred in
+           frame covers exactly what you are walking toward.  The camera pulls
+           back and rises as you break into a run. */
+        const mnt = this.player.mount;
+        const top = mnt ? mnt.sp.rideSpeed : FOOT.sprintSpeed;
+        const sprintK = saturate((this.player.groundSpeed - FOOT.walkSpeed * 0.7) /
+          Math.max(top - FOOT.walkSpeed * 0.7, 0.1));
+        this._footCam = damp(this._footCam || 0, sprintK, 4, dt);
+        /* Mounted, the camera has a whole animal to clear as well as a rider,
+           and these things can be four metres at the shoulder. */
+        this._rideCam = damp(this._rideCam || 0,
+          mnt ? mnt.sp.bodyLen * mnt.size + mnt.sp.saddleH * mnt.size : 0, 4, dt);
+        const back = quatFwd(_gTmp, this.camRot);
+        const side = quatRight(_gF, this.camRot);
+        V3.addScaled(this.camPos, this.camPos, back, -(4.6 + this._footCam * 1.5 + this._rideCam * 1.35));
+        V3.addScaled(this.camPos, this.camPos, this.player.up, 0.85 + this._footCam * 0.3 + this._rideCam * 0.22);
+        V3.addScaled(this.camPos, this.camPos, side, 0.85);
+      }
+    } else {
+      const s = this.ship;
+      if (this.view3rd) {
+        /* Chase camera.  Only the *orientation* is smoothed; the position is
+           then rigidly offset from that smoothed frame.  Easing the world
+           position instead makes the camera fall behind at speed — at 1 km/s
+           the ship outruns the ease and shrinks to a dot. */
+        Q4.slerp(this.camRot, this.camRot, s.rot, 1 - Math.exp(-dt * 9));
+
+        /* Boost pulls the camera back and drops it slightly — the sense of
+           speed comes from the framing opening up, not from the numbers. */
+        const speedK = saturate(s.speed / 600);
+        const drive = Math.max(s.pulse, s.ultra);
+        this._camBoost = damp(this._camBoost || 0, s.boost, 5, dt);
+        const hullLen = Ships.length();
+        const dist = hullLen * 1.15 + 9.0 + speedK * 3.0 + this._camBoost * 5.5 + drive * 11.0;
+        const height = hullLen * 0.17 + 1.2 + speedK * 0.7 - this._camBoost * 0.6;
+
+        const back = quatFwd(_gF, this.camRot);
+        const up = quatUp(_gU, this.camRot);
+        V3.addScaled(this.camPos, s.pos, back, -dist);
+        V3.addScaled(this.camPos, this.camPos, up, height);
+        this._camInit = true;
+      } else {
+        /* Cockpit: sit inside the canopy.  The glass itself is clipped in the
+           vertex shader, so the nose, wings and engine glow frame the view. */
+        const fwd = quatFwd(_gF, s.rot);
+        const up = quatUp(_gU, s.rot);
+        const hull = Ships.hull();
+        V3.addScaled(this.camPos, s.pos, fwd, hull ? -hull.bounds.lo[2] * 0.45 : 3.20);
+        V3.addScaled(this.camPos, this.camPos, up,
+          (hull ? hull.bounds.hi[1] * 0.70 : SHIP_MODEL.bounds.hi[1]) + 0.55);
+        Q4.copy(this.camRot, s.rot);
+        this._camInit = false;
+      }
+
+      /* Buffet / impact shake. */
+      const sh = s.shake;
+      if (sh > 0.002) {
+        const amt = sh * 0.035;
+        V3.set(_gAxis, Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+        V3.normalize(_gAxis, _gAxis);
+        Q4.fromAxisAngle(_gQ, _gAxis, (Math.random() - 0.5) * amt);
+        Q4.mul(this.camRot, this.camRot, _gQ);
+      }
+    }
+
+    /* Speed widens the field of view — cheap, effective sense of velocity. */
+    const sp = this.mode === 'foot' ? this.player.speed : this.ship.speed;
+    const fovBoost = saturate(sp / 700) * 8 * DEG
+      + (this._camBoost || 0) * 5 * DEG
+      + this.ship.pulse * 12 * DEG
+      + this.ship.ultra * 10 * DEG;
+    this.curFov = damp(this.curFov || this.fov, this.fov + fovBoost, 4, dt);
+
+    quatFwd(this.camFwd, this.camRot);
+    quatUp(this.camUp, this.camRot);
+    quatRight(this.camRight, this.camRot);
+  },
+
+  buildMatrices() {
+    const aspect = this.rt.w / this.rt.h;
+    M4.perspective(this.proj, this.curFov || this.fov, aspect, 0.05, FAR_PLANE);
+    M4.viewFromQuat(this.view, this.camRot);
+    M4.mul(this.viewProj, this.proj, this.view);
+    this.fcoefHalf = 1.0 / Math.log2(FAR_PLANE + 1.0);
+    this.tanFovY = Math.tan((this.curFov || this.fov) * 0.5);
+    this.tanFovX = this.tanFovY * aspect;
+  },
+
+  /* Four side planes are enough — log depth removes any need for near/far. */
+  buildFrustum(planet) {
+    const m = this.viewProj, p = this.planes;
+    const row = (i) => [m[i], m[i + 4], m[i + 8], m[i + 12]];
+    const r0 = row(0), r1 = row(1), r3 = row(3);
+    const set = (o, a, b, s) => {
+      let x = a[0] + s * b[0], y = a[1] + s * b[1], z = a[2] + s * b[2], w = a[3] + s * b[3];
+      const l = Math.hypot(x, y, z) || 1;
+      p[o] = x / l; p[o + 1] = y / l; p[o + 2] = z / l; p[o + 3] = w / l;
+    };
+    set(0, r3, r0, 1); set(4, r3, r0, -1);
+    set(8, r3, r1, 1); set(12, r3, r1, -1);
+
+    /* Chunk centres arrive in planet-local space; shift them to camera space. */
+    const ox = planet.pos[0] - this.camPos[0];
+    const oy = planet.pos[1] - this.camPos[1];
+    const oz = planet.pos[2] - this.camPos[2];
+    this._frustumTest = (centerLocal, radius) => {
+      const x = centerLocal[0] + ox, y = centerLocal[1] + oy, z = centerLocal[2] + oz;
+      for (let i = 0; i < 16; i += 4) {
+        if (p[i] * x + p[i + 1] * y + p[i + 2] * z + p[i + 3] < -radius) return false;
+      }
+      return true;
+    };
+  },
+
+  projectToScreen(worldPos) {
+    const m = this.viewProj;
+    const x = worldPos[0] - this.camPos[0];
+    const y = worldPos[1] - this.camPos[1];
+    const z = worldPos[2] - this.camPos[2];
+    const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+    if (cw <= 1e-6) return { behind: true };
+    const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+    const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+    return {
+      x: (cx / cw * 0.5 + 0.5) * this.width,
+      y: (0.5 - cy / cw * 0.5) * this.height,
+      behind: false
+    };
+  },
+
+  /* ======================================================================== */
+  /* RENDER                                                                   */
+  /* ======================================================================== */
+  render(dt) {
+    const gl = this.gl;
+    this.frameCount = (this.frameCount || 0) + 1;
+    this.buildMatrices();
+
+    /* ---------------------------------------------------- 1. scene pass -- */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.rt.fbo);
+    gl.viewport(0, 0, this.rt.w, this.rt.h);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+
+    const sun = this.sunDir(_gSun);
+    const sunCol = this.sunColor();
+    const p = this.activePlanet;
+    this.updateLight(p);
+
+    if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
+    if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
+    if (p) this.drawFaunaPass(sun, sunCol, p);
+    this.drawStationPass(sun, sunCol, p);
+    this.drawCombatPass(sun, sunCol, p);
+    this.drawTrafficPass(sun, sunCol, p);
+    this.drawShipPass(sun, sunCol, p);
+    this.drawPlayerPass(sun, sunCol, p);
+
+    /* ------------------------------------------------------ 2. sky pass -- */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.skyRT.fbo);
+    gl.viewport(0, 0, this.skyRT.w, this.skyRT.h);
+    gl.disable(gl.DEPTH_TEST);
+    this.drawSkyPass(sun, sunCol, p);
+
+    /* ------------------------------------------------- 2b. spray on top -- */
+    /* After the water, not before it.  The ocean is drawn analytically in the
+       sky pass, so anything blended into the scene buffer in front of it ends
+       up composited against the sea *floor* and reads as a sticker cut out of
+       the sea.  Drawn here it blends over the finished water, and the scene
+       depth still occludes it behind the hull. */
+    if (p) this.drawSprayPass(sun, sunCol, p);
+
+    /* --------------------------------------------------------- 3. bloom -- */
+    this.drawBloom();
+
+    /* ----------------------------------------------------- 4. composite -- */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.drawComposite();
+  },
+
+  sunDir(out) {
+    V3.sub(out, this.system.starPos, this.camPos);
+    return V3.normalize(out, out);
+  },
+
+  sunColor() {
+    const c = this.system.starColor;
+    return [c[0] * 1.55, c[1] * 1.55, c[2] * 1.55];
+  },
+
+  drawTerrainPass(sun, sunCol, p) {
+    const gl = this.gl, pr = this.prog.terrain;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+
+    _gF32a[0] = p.pos[0] - this.camPos[0];
+    _gF32a[1] = p.pos[1] - this.camPos[1];
+    _gF32a[2] = p.pos[2] - this.camPos[2];
+    gl.uniform3fv(pr.u.uPlanetC, _gF32a);
+    gl.uniform1f(pr.u.uR, p.radius);
+    gl.uniform1f(pr.u.uSeaH, p.paletteBase);
+    gl.uniform1f(pr.u.uWaterH, p.hasWater ? p.seaH : -1e9);
+    gl.uniform1f(pr.u.uMaxE, p.maxElev);
+    gl.uniform1f(pr.u.uHasWater, p.hasWater ? 1 : 0);
+    gl.uniform3f(pr.u.uAxis, p.axis[0], p.axis[1], p.axis[2]);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+
+    const amb = this.ambientColor(p);
+    gl.uniform3fv(pr.u.uAmbient, amb);
+
+    const c = p.biome.col;
+    gl.uniform3fv(pr.u.uCSand, c.sand);
+    gl.uniform3fv(pr.u.uCLow, c.low);
+    gl.uniform3fv(pr.u.uCMid, c.mid);
+    gl.uniform3fv(pr.u.uCHigh, c.high);
+    gl.uniform3fv(pr.u.uCCliff, c.cliff);
+    gl.uniform3fv(pr.u.uCPolar, c.polar);
+
+    const lava = p.biome.lava;
+    if (lava) gl.uniform4f(pr.u.uEmissive, lava.color[0], lava.color[1], lava.color[2], lava.depth * p.maxElev);
+    else gl.uniform4f(pr.u.uEmissive, 0, 0, 0, -1e9);
+
+    this.bindLight(pr);
+    GLU.bindTex(pr, 'uNoise', 0, this.noiseTex, gl.TEXTURE_3D);
+
+    const px = p.pos[0] - this.camPos[0];
+    const py = p.pos[1] - this.camPos[1];
+    const pz = p.pos[2] - this.camPos[2];
+    for (const ch of this.terrain.visible) {
+      gl.uniform3f(pr.u.uOffset, ch.center[0] + px, ch.center[1] + py, ch.center[2] + pz);
+      ch.mesh.draw();
+    }
+
+    /* props share the object shader; they are already in chunk-local space */
+    const op = this.prog.object;
+    gl.useProgram(op.prog);
+    gl.uniformMatrix4fv(op.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(op.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(op.u.uTime, this.time);
+    gl.uniform1f(op.u.uThrust, 0.4);
+    gl.uniform1f(op.u.uGear, 1);
+    gl.uniform1f(op.u.uHideCanopy, 0);
+    gl.uniform3f(op.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(op.u.uSunColor, sunCol);
+    gl.uniform3fv(op.u.uAmbient, amb);
+    gl.uniform3fv(op.u.uPlanetC, _gF32a);
+    gl.uniform1f(op.u.uR, p.radius);
+    this.bindLight(op);
+    M4.identity(_gM4);
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(op.u.uModelRot, false, _gMat3);
+    for (const ch of this.terrain.visible) {
+      if (!ch.props || !ch.props.baked) continue;
+      gl.uniform3f(op.u.uOffset, ch.center[0] + px, ch.center[1] + py, ch.center[2] + pz);
+      ch.props.baked.draw();
+    }
+
+    this.drawTrees(sun, sunCol, amb, p, px, py, pz);
+  },
+
+  /* Trees: one instanced draw per chunk, per variant, per material, all
+     sharing a single geometry buffer.  Bark and foliage differ only by texture
+     and alpha test, so the texture bind is the outer loop. */
+  drawTrees(sun, sunCol, amb, p, px, py, pz) {
+    const gl = this.gl, pr = this.prog.tree;
+    let any = false;
+    for (const ch of this.terrain.visible) if (ch.props && ch.props.trees) { any = true; break; }
+    if (!any) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uTreeH, TREE_MODEL.height);
+    /* Denser air pushes the canopy harder. */
+    const dens = p.densityAt(Math.max(this.mode === 'foot' ? this.player.altitude : this.ship.altitude, 0));
+    gl.uniform1f(pr.u.uWind, 0.10 + saturate(dens) * 0.22);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, amb);
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    this.bindLight(pr);
+
+    const V = TREE_MODEL.variants;
+    for (let m = 0; m < 2; m++) {
+      const bark = m === 0;
+      const sz = bark ? TREE_MODEL.barkSize : TREE_MODEL.atlasSize;
+      GLU.bindTex(pr, 'uTex', 0, bark ? this.treeBark : this.treeAtlas, gl.TEXTURE_2D);
+      gl.uniform2f(pr.u.uTexSize, sz[0], sz[1]);
+      gl.uniform1f(pr.u.uAlphaCutoff, bark ? 0.0 : TREE_MODEL.alphaCutoff);
+      gl.uniform1f(pr.u.uTintMix, bark ? 0.30 : 1.0);
+      gl.uniform1f(pr.u.uTranslucency, bark ? 0.0 : 0.55);
+      for (const ch of this.terrain.visible) {
+        const tv = ch.props && ch.props.trees;
+        if (!tv) continue;
+        gl.uniform3f(pr.u.uOffset, ch.center[0] + px, ch.center[1] + py, ch.center[2] + pz);
+        for (let v = 0; v < V.length; v++) {
+          const ir = tv.variantRanges[v];
+          if (!ir[1]) continue;
+          tv.draw(V[v][m][0], V[v][m][1], ir[0], ir[1]);
+        }
+      }
+    }
+  },
+
+  drawDebrisPass(sun, sunCol, p) {
+    const gl = this.gl, pr = this.prog.debris, belt = this.belt;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    gl.uniform1f(pr.u.uR, p.radius);
+    this.bindLight(pr);
+
+    /* A rock never shrinks below about a pixel and a half, or the belt turns
+       into aliasing noise at any distance. */
+    const pixels = 2.2;
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * pixels / Math.max(this.rt.h, 1));
+
+    Q4.fromAxisAngle(_gQ, belt.cfg.axis, belt.angle);
+    Q4.toMat3(_gMat3, _gQ);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset,
+      p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    belt.mesh.drawInstanced();
+  },
+
+  /* Water thrown up by a ship flying low over an ocean.  Premultiplied alpha
+     over the sky target, depth-tested against the scene but writing no depth,
+     so the parcels accumulate properly instead of cutting each other out. */
+  drawSprayPass(sun, sunCol, p) {
+    if (!Spray.mesh || !this.sprayFB) return;
+    Spray.fillInstances(this.camPos);
+    if (!Spray.count) return;
+    const gl = this.gl, pr = this.prog.spray;
+    /* The sky pass left the scene depth bound as a sampler, and that same
+       texture is this framebuffer's depth attachment.  Bound to a unit and
+       attached at once is a feedback loop as far as the driver is concerned,
+       whether or not anything reads it, and the whole draw quietly vanishes. */
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sprayFB.fbo);
+    gl.viewport(0, 0, this.sprayFB.w, this.sprayFB.h);
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uCamRight, this.camRight[0], this.camRight[1], this.camRight[2]);
+    gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * SPRAY.minPixels / Math.max(this.rt.h, 1));
+    Spray.mesh.updateInstances(Spray.inst);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    Spray.mesh.drawInstanced(Spray.count);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+  },
+
+  /* The station: one opaque draw for the hull and everything inside it, then
+     the doorway shield additively on top so it glows without hiding the bay
+     behind it. */
+  drawStationPass(sun, sunCol, p) {
+    const s = Station.active;
+    if (!s) return;
+    const gl = this.gl, pr = this.prog.station;
+    /* Three kilometres of hull carries a long way, but not forever; past that
+       the HUD marker does the work. */
+    const d = V3.dist(s.pos, this.camPos);
+    if (d > 260000) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    }
+    this.bindLight(pr);
+    /* One draw call covers the hull and the rooms inside it, and the rooms are
+       closed boxes with no shadowing — so the sun is masked off by where the
+       camera is rather than by where the geometry is.  It works because you can
+       never see both at once. */
+    gl.uniform1f(pr.u.uSunMask, 1 - Station.interiorFade(this.camPos));
+    GLU.bindTex(pr, 'uBase', 0, this.stationBase);
+    GLU.bindTex(pr, 'uEmissive', 1, this.stationEmi);
+    Q4.toMat3(_gMat3, s.rot);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset,
+      s.pos[0] - this.camPos[0], s.pos[1] - this.camPos[1], s.pos[2] - this.camPos[2]);
+    s.mesh.draw();
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    s.shield.draw();
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  },
+
+  /* Other ships.  One instanced draw per hull variant.  They keep a minimum
+     apparent size for the same reason the debris does: at ten kilometres a
+     forty-metre ship is a fraction of a pixel, and the thing you are supposed
+     to notice is a light moving against the stars. */
+  drawTrafficPass(sun, sunCol, p) {
+    if (!Traffic.hulls || !Traffic.ships || !Traffic.ships.length) return;
+    const gl = this.gl, pr = this.prog.debris;
+    Traffic.fillInstances(this.camPos);
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 1);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+      gl.uniform1f(pr.u.uR, p.radius);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+      gl.uniform1f(pr.u.uR, 1);
+    }
+    this.bindLight(pr);
+    gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * TRAFFIC.minPixels / Math.max(this.rt.h, 1));
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    for (const h of Traffic.hulls) {
+      if (!h.n) continue;
+      h.mesh.updateInstances(h.inst);
+      h.mesh.drawInstanced(h.n);
+    }
+  },
+
+  /* Arena drones and bolts: the same instanced object shader as everything
+     else that comes in quantity, with the bolts and the impact sparks sharing
+     one mesh — which is why a hit reads as the bolt stopping. */
+  drawCombatPass(sun, sunCol, p) {
+    if (Combat.state === 'off' || !Combat.droneMesh) return;
+    const gl = this.gl, pr = this.prog.debris;
+    Combat.fillInstances(this.camPos);
+    if (!Combat.droneCount && !Combat.boltCount) return;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 1);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    const v = this.sunDirScaled(_gTmp);
+    gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    gl.uniform1f(pr.u.uR, 1);
+    this.bindLight(pr);
+    gl.uniform1f(pr.u.uMinAngular, 0);
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    if (Combat.droneCount) {
+      Combat.droneMesh.updateInstances(Combat.droneInst);
+      Combat.droneMesh.drawInstanced(Combat.droneCount);
+    }
+    if (Combat.boltCount) {
+      Combat.boltMesh.updateInstances(Combat.boltInst);
+      Combat.boltMesh.drawInstanced(Combat.boltCount);
+    }
+  },
+
+  /* Wildlife.  Two instanced draws per species — body and leg — with the
+     instance buffers rewritten from the simulation each frame.  Instance
+     offsets are already camera-relative, so the model transform is identity. */
+  drawFaunaPass(sun, sunCol, p) {
+    if (!Fauna.species || !Fauna.herd || !Fauna.herd.length) return;
+    const gl = this.gl, pr = this.prog.debris;
+
+    Fauna.fillInstances(p, this.camPos, this.time);
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    gl.uniform1f(pr.u.uR, p.radius);
+    this.bindLight(pr);
+    /* An animal is a metre-scale thing a few dozen metres away — it never needs
+       the debris belt's minimum apparent size, and forcing one would inflate it
+       into a balloon the moment it walked off. */
+    gl.uniform1f(pr.u.uMinAngular, 0);
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    for (const s of Fauna.species) {
+      if (s.bodyCount) {
+        s.body.updateInstances(s.bodyInst);
+        s.body.drawInstanced(s.bodyCount);
+      }
+      if (s.legCount) {
+        s.leg.updateInstances(s.legInst);
+        s.leg.drawInstanced(s.legCount);
+      }
+    }
+  },
+
+  drawShipPass(sun, sunCol, p) {
+    const gl = this.gl;
+    const sh = this.ship;
+    const cockpit = this.mode === 'ship' && !this.view3rd;
+    /* From inside the cockpit the hull would fill the frame; the plumes are
+       behind us either way. */
+    if (cockpit) return;
+
+    const pr = this.prog.ship;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    }
+    this.bindLight(pr);
+    GLU.bindTex(pr, 'uTex', 0, this.shipTex, gl.TEXTURE_2D);
+
+    /* Emissive spools up with the drive. */
+    const driveNow = Math.max(sh.pulse, sh.ultra);
+    const emis = SHIP_MODEL.emissiveStrength *
+      (0.30 + sh.thrustVis * 0.55 + sh.boost * 0.5 + driveNow * 1.3);
+    gl.uniform1f(pr.u.uEmissiveAmt, emis);
+    GLU.bindTex(pr, 'uEmissive', 1, this.shipEmissive, gl.TEXTURE_2D);
+
+    const ox = sh.pos[0] - this.camPos[0];
+    const oy = sh.pos[1] - this.camPos[1];
+    const oz = sh.pos[2] - this.camPos[2];
+
+    /* Bought hulls are static single meshes, so they take the same shader with
+       one identity part transform and no emissive map — the animation is the
+       only thing that distinguishes the gunship's draw from theirs. */
+    const hi = Ships.spec().hull;
+    if (hi >= 0) {
+      GLU.bindTex(pr, 'uTex', 0, Ships.textures[hi], gl.TEXTURE_2D);
+      gl.uniform1f(pr.u.uEmissiveAmt, 0);
+      Q4.toMat3(_gMat3, sh.rot);
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+      gl.uniform3f(pr.u.uOffset, ox, oy, oz);
+      Ships.meshes[hi].draw();
+      this.drawThrusters(ox, oy, oz);
+      return;
+    }
+
+    /* Each part carries its own animated transform, composed with the hull's
+       orientation.  Scales came out uniform in the bake, so a mat3 is enough
+       and normals need no inverse-transpose. */
+    this.shipAnim.sample(this.time);
+    Q4.toMat3(_gMat3, sh.rot);
+    for (let k = 0; k < this.shipParts.length; k++) {
+      Q4.mul(_gPartQ, sh.rot, this.shipAnim.rot[k]);
+      Q4.toMat3(_gPartM, _gPartQ);
+      const sc = this.shipAnim.scale[k];
+      for (let i = 0; i < 9; i++) _gPartM[i] *= sc;
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gPartM);
+
+      V3.rotQuat(_gPartT, this.shipAnim.pos[k], sh.rot);
+      gl.uniform3f(pr.u.uOffset, ox + _gPartT[0], oy + _gPartT[1], oz + _gPartT[2]);
+      this.shipParts[k].draw();
+    }
+
+    this.drawThrusters(ox, oy, oz);
+  },
+
+  /* Everything skinned: the astronaut and the station's crew.  One program
+     setup, then one draw per figure — a joint palette is a uniform upload, so
+     characters cannot be instanced the way the rocks and the wildlife are. */
+  drawPlayerPass(sun, sunCol, p) {
+    if (!this.playerModel) return;
+    const showPlayer = this.mode === 'foot' && this.view3rd;
+    const st = Station.active;
+    const showCrew = st && Station.interiorFade(this.camPos) > 0.01;
+    if (!showPlayer && !showCrew) return;
+    const gl = this.gl, pl = this.player, pr = this.prog.skin;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uTint, 1, 1, 1);
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    }
+    this.bindLight(pr);
+    GLU.bindTex(pr, 'uTex', 0, this.playerTex, gl.TEXTURE_2D);
+
+    if (showCrew) this.drawCrew(pr, st);
+    if (!showPlayer) return;
+    gl.uniform3f(pr.u.uTint, 1, 1, 1);
+
+    /* Stand the model on the surface: +Y along the local up, facing the body
+       heading, then the bake's yaw to undo the model's authored +Z facing. */
+    V3.normalize(_gPlayUp, V3.copy(_gPlayUp, pl.up));
+    V3.copy(_gPlayFwd, pl.bodyFwd);
+    V3.planeProject(_gPlayFwd, _gPlayFwd, _gPlayUp);
+    if (V3.lenSq(_gPlayFwd) < 1e-8) V3.set(_gPlayFwd, 0, 0, 1);
+    V3.normalize(_gPlayFwd, _gPlayFwd);
+    V3.normalize(_gPlayRight, V3.cross(_gPlayRight, _gPlayFwd, _gPlayUp));
+    Q4.fromBasis(_gPlayQ, _gPlayRight, _gPlayUp, _gPlayFwd);
+    Q4.fromAxisAngle(_gQ, _gPlayUp, PLAYER_MODEL.yaw);
+    Q4.mul(_gPlayQ, _gQ, _gPlayQ);
+    Q4.toMat3(_gMat3, _gPlayQ);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+
+    pl.footPos(_gPlayPos);
+    V3.addScaled(_gPlayPos, _gPlayPos, _gPlayUp, -PLAYER_MODEL.groundY);
+    /* Riders sit over the shoulders, not over the hips. */
+    if (pl.mount) {
+      V3.addScaled(_gPlayPos, _gPlayPos, _gPlayFwd, pl.mount.sp.bodyLen * pl.mount.size * 0.14);
+    }
+    gl.uniform3f(pr.u.uOffset,
+      _gPlayPos[0] - this.camPos[0],
+      _gPlayPos[1] - this.camPos[1],
+      _gPlayPos[2] - this.camPos[2]);
+
+    gl.uniform4fv(pr.u.uBones, this.playerAnim.palette());
+    this.playerModel.mesh.draw();
+  },
+
+  /* Station crew.  Their animators are created on first sight rather than at
+     build time, because the skinned model does not exist until the loader has
+     finished and the station is built before that. */
+  drawCrew(pr, st) {
+    const gl = this.gl;
+    for (const c of st.crew) {
+      if (!c.anim) {
+        c.anim = new PlayerAnimator(this.playerModel);
+        c.anim.time = Math.random() * 8;
+        c.anim.phase = Math.random() * TAU;
+      }
+      Station.axis(_gPlayUp, _gUnitY);
+      V3.normalize(_gPlayUp, _gPlayUp);
+      Station.axis(_gPlayFwd, c.fwd);
+      V3.planeProject(_gPlayFwd, _gPlayFwd, _gPlayUp);
+      if (V3.lenSq(_gPlayFwd) < 1e-8) V3.set(_gPlayFwd, 0, 0, 1);
+      V3.normalize(_gPlayFwd, _gPlayFwd);
+      V3.normalize(_gPlayRight, V3.cross(_gPlayRight, _gPlayFwd, _gPlayUp));
+      Q4.fromBasis(_gPlayQ, _gPlayRight, _gPlayUp, _gPlayFwd);
+      Q4.fromAxisAngle(_gQ, _gPlayUp, PLAYER_MODEL.yaw);
+      Q4.mul(_gPlayQ, _gQ, _gPlayQ);
+      Q4.toMat3(_gMat3, _gPlayQ);
+      gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+
+      Station.toWorld(_gPlayPos, c.pos);
+      V3.addScaled(_gPlayPos, _gPlayPos, _gPlayUp, -PLAYER_MODEL.groundY);
+      gl.uniform3f(pr.u.uOffset,
+        _gPlayPos[0] - this.camPos[0],
+        _gPlayPos[1] - this.camPos[1],
+        _gPlayPos[2] - this.camPos[2]);
+      gl.uniform3fv(pr.u.uTint, c.tint);
+      gl.uniform4fv(pr.u.uBones, c.anim.palette());
+      this.playerModel.mesh.draw();
+    }
+  },
+
+  /* Exhaust plumes, drawn additively after the hull.  Depth test on so the
+     terrain can occlude them, depth write off so they never occlude anything. */
+  drawThrusters(ox, oy, oz) {
+    const gl = this.gl, sh = this.ship;
+    const drive = Math.max(sh.pulse, sh.ultra);
+    const power = clamp(sh.thrustVis * 0.85 + sh.boost * 0.5 + drive * 1.4 + sh.ultra * 1.2, 0, 3.2);
+    if (power < 0.04) return;
+
+    const pr = this.prog.thruster;
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    Q4.toMat3(_gMat3, sh.rot);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, ox, oy, oz);
+
+    /* Plume geometry: longer and thinner the harder the drive is pushing. */
+    gl.uniform3f(pr.u.uCamRight, this.camRight[0], this.camRight[1], this.camRight[2]);
+    gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
+    GLU.bindTex(pr, 'uNoise', 0, this.noiseTex, gl.TEXTURE_3D);
+
+    /* The trail is a boost effect, not an idle one: it exists only while Shift
+       or V is held.  The nozzle glow below stays on whenever the drive is lit,
+       so a cruising ship still has hot engines — it just is not streaking. */
+    const trail = saturate(Math.max(sh.boost, sh.ultra) * 1.15);
+    gl.uniform1f(pr.u.uTrail, trail);
+
+    /* Long and thin: the trail runs many ship-lengths aft. */
+    gl.uniform1f(pr.u.uLen, 6.0 + trail * (60.0 + power * 22.0) + sh.ultra * 150.0);
+    gl.uniform1f(pr.u.uRad, 0.70 + Math.min(power, 1.0) * 0.22);
+    gl.uniform1f(pr.u.uMinWidth, this.tanFovY * 2 * 2.0 / Math.max(this.rt.h, 1));
+    /* Shock diamonds need a working drive and thin air to stand up in. */
+    const dens = this.activePlanet ? this.activePlanet.densityAt(Math.max(sh.altitude, 0)) : 0;
+    gl.uniform1f(pr.u.uShock, saturate(power * 0.9 - 0.25) * (1 - saturate(dens * 1.6)));
+
+    /* The flame is the engine burning, so unlike the trail it is there whenever
+       the drive is lit — throttle alone gives you fire out of the nozzle. */
+    const flicker = 0.88 + 0.12 * Math.sin(this.time * 31.0) * Math.sin(this.time * 13.7 + 2.1);
+    gl.uniform1f(pr.u.uFlame, saturate(power * 1.25) * flicker);
+    /* Roughly five times as long as it is wide: any thinner and the fire reads
+       as a laser, any fatter and it reads as a cloud hanging off the ship. */
+    gl.uniform1f(pr.u.uFlameLen, 2.2 + power * 3.0 + trail * 3.6 + sh.ultra * 6.5);
+    gl.uniform1f(pr.u.uFlameRad, (0.70 + Math.min(power, 1.0) * 0.22) * 1.15);
+    /* Thick air burns orange; in vacuum under drive the fire takes the drive's
+       own colour and only frays back to flame at its edges. */
+    gl.uniform1f(pr.u.uPlasma,
+      saturate(drive * 1.2 + sh.boost * 0.55 + 0.18) * (1 - saturate(dens * 0.55)));
+
+    /* Colour shifts with the drive: orange idle, blue-white under pulse,
+       violet at ultra. */
+    /* Saturated primaries rather than pastels — an additive trail that is
+       already near white in the core needs strong colour in the halo to read
+       as anything but a grey streak. */
+    const t1 = saturate(drive), t2 = saturate(sh.ultra);
+    _gCore[0] = lerp(lerp(0.30, 0.20, t1), 0.85, t2);
+    _gCore[1] = lerp(lerp(0.95, 0.70, t1), 0.30, t2);
+    _gCore[2] = lerp(lerp(1.00, 1.00, t1), 1.00, t2);
+    _gTip[0] = lerp(lerp(0.05, 0.10, t1), 0.55, t2);
+    _gTip[1] = lerp(lerp(0.55, 0.25, t1), 0.05, t2);
+    _gTip[2] = lerp(lerp(0.95, 1.00, t1), 1.00, t2);
+    gl.uniform3fv(pr.u.uCore, _gCore);
+    gl.uniform3fv(pr.u.uTip, _gTip);
+    gl.uniform1f(pr.u.uIntensity, 0.85 + Math.min(power, 1.8) * 0.80);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    this.thrusterMesh.draw();
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  },
+
+  /* A stand-in "up" when there is no planet: point away from the star so the
+     hemispheric ambient term still resolves to something sensible. */
+  sunDirScaled(out) {
+    V3.sub(out, this.camPos, this.system.starPos);
+    V3.normalize(out, out);
+    return V3.scale(out, out, -1e7);
+  },
+
+  /* Landing light: on foot it is a suit torch aimed where you look, in the
+     ship it is a belly floodlight that comes on near the ground.  It brightens
+     towards the night side, where it is the only light there is. */
+  updateLight(p) {
+    const L = this._light || (this._light = { pos: new Float32Array(4), col: new Float32Array(3), dir: new Float32Array(3) });
+    L.pos[3] = 0;
+
+    /* Inside the bay the sun is on the other side of a hundred and fifty
+       metres of hull, and there are no shadow maps to say so — everything in
+       here would be lit by ambient alone.  The landing-lamp slot already
+       exists in every shader that matters, so the station borrows it as a
+       ceiling floodlight: a wide cone from above the deck, which is what the
+       light panels up there would actually be doing. */
+    const inside = Station.interiorFade(this.camPos);
+    if (inside > 0.01) {
+      const rm = STATION.rooms[this.player.room] || STATION.rooms.bay;
+      V3.set(_gTmp, 0, rm.roof - 30, (rm.front + rm.back) * 0.5);
+      Station.toWorld(_gRel, _gTmp);
+      L.pos[0] = _gRel[0] - this.camPos[0];
+      L.pos[1] = _gRel[1] - this.camPos[1];
+      L.pos[2] = _gRel[2] - this.camPos[2];
+      L.pos[3] = 1200;
+      V3.set(_gTmp, 0, -1, 0);
+      Station.axis(_gDir, _gTmp);
+      L.dir[0] = _gDir[0]; L.dir[1] = _gDir[1]; L.dir[2] = _gDir[2];
+      const k = inside * 1.55;
+      L.col[0] = 0.86 * k; L.col[1] = 0.92 * k; L.col[2] = 1.0 * k;
+      return L;
+    }
+
+    if (!p) return L;
+
+    const onFoot = this.mode === 'foot';
+    const alt = onFoot ? this.player.altitude : this.ship.altitude;
+    const near = onFoot || this.ship.landed || this.ship.landing || alt < 600;
+    if (!near) return L;
+
+    const src = onFoot ? this.player.pos : this.ship.pos;
+    V3.sub(_gRel, src, p.pos);
+    V3.normalize(_gDir, _gRel);
+    const sunUp = V3.dot(_gDir, _gSun);
+    /* full brightness at night, a token fill in daylight */
+    const night = 1 - smoothstep(-0.08, 0.30, sunUp);
+    const strength = 0.22 + night * 1.5;
+
+    const range = onFoot ? 150 : 340;
+    L.pos[0] = src[0] - this.camPos[0];
+    L.pos[1] = src[1] - this.camPos[1];
+    L.pos[2] = src[2] - this.camPos[2];
+    L.pos[3] = range;
+
+    const dir = onFoot ? this.camFwd : quatFwd(_gTmp, this.ship.rot);
+    if (onFoot) {
+      L.dir[0] = dir[0]; L.dir[1] = dir[1]; L.dir[2] = dir[2];
+    } else {
+      /* angle the ship's lamp down and forward */
+      const down = quatUp(_gU, this.ship.rot);
+      L.dir[0] = dir[0] * 0.55 - down[0] * 0.83;
+      L.dir[1] = dir[1] * 0.55 - down[1] * 0.83;
+      L.dir[2] = dir[2] * 0.55 - down[2] * 0.83;
+      const l = Math.hypot(L.dir[0], L.dir[1], L.dir[2]) || 1;
+      L.dir[0] /= l; L.dir[1] /= l; L.dir[2] /= l;
+    }
+    L.col[0] = 0.95 * strength; L.col[1] = 0.97 * strength; L.col[2] = 1.0 * strength;
+    return L;
+  },
+
+  bindLight(prog) {
+    const gl = this.gl, L = this._light;
+    if (!L || prog.u.uLightPos === undefined) return;
+    gl.uniform4fv(prog.u.uLightPos, L.pos);
+    gl.uniform3fv(prog.u.uLightCol, L.col);
+    gl.uniform3fv(prog.u.uLightDir, L.dir);
+  },
+
+  ambientColor(p) {
+    if (!p) { _gAmb[0] = 0.030; _gAmb[1] = 0.034; _gAmb[2] = 0.045; }
+    else {
+      const sky = p.biome.sky;
+      const k = 0.040 + p.atmoAmount * 0.115;
+      const sc = this.system.starColor;
+      _gAmb[0] = sky[0] * k * sc[0] + 0.016;
+      _gAmb[1] = sky[1] * k * sc[1] + 0.018;
+      _gAmb[2] = sky[2] * k * sc[2] + 0.024;
+    }
+    /* Inside the bay the sun never reaches anything, so without a fill light
+       the whole interior is whatever the emissive panels happen to hit. */
+    const k = Station.interiorFade(this.camPos);
+    if (k > 0) {
+      _gAmb[0] = lerp(_gAmb[0], 0.235, k);
+      _gAmb[1] = lerp(_gAmb[1], 0.250, k);
+      _gAmb[2] = lerp(_gAmb[2], 0.290, k);
+    }
+    return _gAmb;
+  },
+
+  drawSkyPass(sun, sunCol, p) {
+    const gl = this.gl, pr = this.prog.sky;
+    gl.useProgram(pr.prog);
+
+    GLU.bindTex(pr, 'uScene', 0, this.rt.color, gl.TEXTURE_2D);
+    GLU.bindTex(pr, 'uDepth', 1, this.rt.depth, gl.TEXTURE_2D);
+    GLU.bindTex(pr, 'uNoise', 2, this.noiseTex, gl.TEXTURE_3D);
+
+    gl.uniform3f(pr.u.uCamRight, this.camRight[0], this.camRight[1], this.camRight[2]);
+    gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
+    gl.uniform3f(pr.u.uCamFwd, this.camFwd[0], this.camFwd[1], this.camFwd[2]);
+    gl.uniform2f(pr.u.uTanFov, this.tanFovX, this.tanFovY);
+    gl.uniform1f(pr.u.uInvLogK, 1.0 / this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    const starDist = Math.max(V3.dist(this.camPos, this.system.starPos), this.system.starRadius * 1.02);
+    gl.uniform1f(pr.u.uSunAng, Math.asin(clamp(this.system.starRadius / starDist, 0, 0.999)));
+    gl.uniform3fv(pr.u.uNebulaTint, this.system.nebula);
+
+    /* Stars are stylised bright points; a physically-scattered daytime sky is
+       not bright enough to bury them through the tonemap.  So fade them by how
+       much lit air is overhead — full in space and at night, gone at noon. */
+    let starDim = 1;
+    if (p && p.atmoAmount > 0.001) {
+      V3.sub(_gRel, this.camPos, p.pos);
+      const alt = V3.len(_gRel) - p.radius;
+      const dens = saturate(p.densityAt(Math.max(alt, 0)) / p.atmoAmount);
+      V3.normalize(_gDir, _gRel);
+      const day = smoothstep(-0.12, 0.20, V3.dot(_gDir, sun));
+      starDim = 1 - saturate(dens * 1.25) * day;
+    }
+    gl.uniform1f(pr.u.uStarDim, starDim);
+
+    gl.uniform1i(pr.u.uSteps, this.quality.atmoSteps);
+    gl.uniform1i(pr.u.uCloudSteps, this.quality.cloudSteps);
+
+    /* ---- active world ---- */
+    if (p) {
+      gl.uniform3f(pr.u.uAPC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+      gl.uniform1f(pr.u.uAPR, p.radius);
+      gl.uniform1f(pr.u.uAPAtmoR, p.atmoRadius);
+      gl.uniform1f(pr.u.uAPSeaR, p.hasWater ? p.seaRadius : -1);
+      gl.uniform3fv(pr.u.uAPBetaR, p.betaR);
+      gl.uniform1f(pr.u.uAPBetaM, p.betaM);
+      gl.uniform1f(pr.u.uAPAtmoAmt, p.atmoAmount);
+      const cl = p.biome.cloud;
+      gl.uniform4f(pr.u.uAPCloud, cl.coverage, p.cloudLow, p.cloudHigh,
+        this.quality.cloudSteps > 0 ? cl.density : 0);
+      gl.uniform3fv(pr.u.uAPCloudTint, cl.tint);
+      gl.uniform3fv(pr.u.uAPWaterDeep, p.biome.water.deep);
+      gl.uniform3fv(pr.u.uAPWaterShallow, p.biome.water.shallow);
+      gl.uniform1f(pr.u.uAPFade, this.terrainFade);
+      gl.uniform4fv(pr.u.uAPHeightA, p.hA);
+      gl.uniform4fv(pr.u.uAPHeightB, p.hB);
+      const c = p.biome.col;
+      gl.uniform3fv(pr.u.uAPc0, c.sand); gl.uniform3fv(pr.u.uAPc1, c.low);
+      gl.uniform3fv(pr.u.uAPc2, c.mid); gl.uniform3fv(pr.u.uAPc3, c.high);
+      gl.uniform3fv(pr.u.uAPc4, c.cliff); gl.uniform3fv(pr.u.uAPc5, c.polar);
+      gl.uniform3f(pr.u.uAPAxis, p.axis[0], p.axis[1], p.axis[2]);
+      gl.uniform1f(pr.u.uAPSeaH, p.paletteBase);
+      gl.uniform1f(pr.u.uAPWaterH, p.hasWater ? p.seaH : -1e9);
+      gl.uniform1f(pr.u.uAPMaxE, p.maxElev);
+      gl.uniform1f(pr.u.uAPHasWater, p.hasWater ? 1 : 0);
+    } else {
+      gl.uniform3f(pr.u.uAPC, 0, 0, 1e12);
+      gl.uniform1f(pr.u.uAPR, 1);
+      gl.uniform1f(pr.u.uAPAtmoR, 1);
+      gl.uniform1f(pr.u.uAPSeaR, -1);
+      gl.uniform1f(pr.u.uAPAtmoAmt, 0);
+      gl.uniform4f(pr.u.uAPCloud, 1, 1, 2, 0);
+      gl.uniform1f(pr.u.uAPFade, 0);
+      gl.uniform1f(pr.u.uAPHasWater, 0);
+    }
+
+    /* ---- other worlds, drawn analytically ---- */
+    let n = 0;
+    for (const q of this.system.planets) {
+      if (q === p || n >= 8) continue;
+      _gDP[n * 4] = q.pos[0] - this.camPos[0];
+      _gDP[n * 4 + 1] = q.pos[1] - this.camPos[1];
+      _gDP[n * 4 + 2] = q.pos[2] - this.camPos[2];
+      _gDP[n * 4 + 3] = q.radius;
+      const c = q.biome.col;
+      _gDPA[n * 4] = c.low[0]; _gDPA[n * 4 + 1] = c.low[1]; _gDPA[n * 4 + 2] = c.low[2];
+      _gDPA[n * 4 + 3] = q.hasWater ? 1 : 0.35;
+      _gDPB[n * 4] = c.high[0]; _gDPB[n * 4 + 1] = c.high[1]; _gDPB[n * 4 + 2] = c.high[2];
+      _gDPB[n * 4 + 3] = q.atmoAmount;
+      n++;
+    }
+    gl.uniform1i(pr.u.uDPCount, n);
+    if (n) {
+      gl.uniform4fv(pr.u.uDP, _gDP.subarray(0, n * 4));
+      gl.uniform4fv(pr.u.uDPColA, _gDPA.subarray(0, n * 4));
+      gl.uniform4fv(pr.u.uDPColB, _gDPB.subarray(0, n * 4));
+    }
+
+    /* ---- scanner ---- */
+    if (this.scan.active) {
+      const r = this.scan.t * 240;
+      gl.uniform4f(pr.u.uScan,
+        this.scan.origin[0] - this.camPos[0],
+        this.scan.origin[1] - this.camPos[1],
+        this.scan.origin[2] - this.camPos[2], r);
+    } else {
+      gl.uniform4f(pr.u.uScan, 0, 0, 0, -1);
+    }
+
+    this.drawFullscreen();
+  },
+
+  drawBloom() {
+    const gl = this.gl;
+    const L = this.bloomL, T = this.bloomT;
+
+    // bright pass into level 0
+    gl.useProgram(this.prog.bright.prog);
+    GLU.bindTex(this.prog.bright, 'uTex', 0, this.skyRT.color, gl.TEXTURE_2D);
+    gl.uniform1f(this.prog.bright.u.uThreshold, 1.05);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, L[0].fbo);
+    gl.viewport(0, 0, L[0].w, L[0].h);
+    this.drawFullscreen();
+
+    const blur = this.prog.blur;
+    gl.useProgram(blur.prog);
+
+    const pass = (src, dst, dx, dy) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+      gl.viewport(0, 0, dst.w, dst.h);
+      GLU.bindTex(blur, 'uTex', 0, src.color, gl.TEXTURE_2D);
+      gl.uniform2f(blur.u.uDir, dx, dy);
+      this.drawFullscreen();
+    };
+
+    // downsample chain (a zero-direction blur is a plain resampling copy)
+    for (let i = 1; i < L.length; i++) pass(L[i - 1], L[i], 0, 0);
+    // separable blur at every level
+    for (let i = 0; i < L.length; i++) {
+      pass(L[i], T[i], 1 / L[i].w, 0);
+      pass(T[i], L[i], 0, 1 / L[i].h);
+    }
+    // upsample and accumulate downward
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = L.length - 1; i > 0; i--) pass(L[i], L[i - 1], 0, 0);
+    gl.disable(gl.BLEND);
+  },
+
+  drawComposite() {
+    const gl = this.gl, pr = this.prog.composite;
+    gl.useProgram(pr.prog);
+    GLU.bindTex(pr, 'uScene', 0, this.skyRT.color, gl.TEXTURE_2D);
+    GLU.bindTex(pr, 'uBloom', 1, this.bloomL[0].color, gl.TEXTURE_2D);
+    gl.uniform1f(pr.u.uBloomAmount, GLU.hdr ? 0.30 : 0.20);
+    gl.uniform1f(pr.u.uExposure, this.exposure);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uPulse, this.mode === 'foot' ? 0 : Math.max(this.ship.pulse, this.ship.ultra));
+    gl.uniform1f(pr.u.uVignette, 0.38);
+    gl.uniform1f(pr.u.uFlash, this.flash);
+    gl.uniform2f(pr.u.uRes, this.canvas.width, this.canvas.height);
+    this.drawFullscreen();
+  },
+
+  drawFullscreen() {
+    const gl = this.gl;
+    gl.bindVertexArray(this.emptyVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  },
+
+  /* -------------------------------------------------------------- stats -- */
+  updateStats(dt) {
+    if (!this.showStats) return;
+    this._fpsAcc = (this._fpsAcc || 0) + dt;
+    this._fpsN = (this._fpsN || 0) + 1;
+    if (this._fpsAcc < 0.4) return;
+    const fps = this._fpsN / this._fpsAcc;
+    this._fpsAcc = 0; this._fpsN = 0;
+    const t = this.terrain ? this.terrain.stats() : { chunks: 0, tris: 0 };
+    HUD.stats(
+      fps.toFixed(0) + ' fps  ' + this.qualityName + '\n' +
+      t.chunks + ' chunks  ' + (t.tris / 1000).toFixed(0) + 'k tris\n' +
+      (this.terrain ? this.terrain.pendingChunks : 0) + ' pending\n' +
+      (this.activePlanet ? this.activePlanet.name : 'deep space')
+    );
+  }
+};
+
+const _gRel = V3.new(), _gDir = V3.new(), _gTmp = V3.new(), _gSun = V3.new();
+const _gF = V3.new(), _gU = V3.new(), _gDesired = V3.new(), _gAxis = V3.new();
+const _gCamLocal = V3.new();
+const _gWorldUp = V3.new(0, 1, 0);
+const _gQ = Q4.new();
+const _gM4 = M4.new();
+const _gMat3 = new Float32Array(9);
+const _gF32a = new Float32Array(3);
+const _gAmb = new Float32Array(3);
+const _gDP = new Float32Array(32);
+const _gDPA = new Float32Array(32);
+const _gDPB = new Float32Array(32);
+const _gCore = new Float32Array(3);
+const _gTip = new Float32Array(3);
+const _gPartM = new Float32Array(9);
+const _gPartQ = Q4.new();
+const _gPartT = V3.new();
+const _gPlayUp = V3.new(), _gPlayFwd = V3.new(), _gPlayRight = V3.new();
+const _gPlayPos = V3.new(), _gPlayQ = Q4.new();
+const _gUnitY = V3.new(0, 1, 0);
+
+window.addEventListener('DOMContentLoaded', () => Game.boot());
