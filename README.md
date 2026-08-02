@@ -26,7 +26,9 @@ starship hull is generated at runtime from a seed.
 - **Analytic oceans** with waves, depth-graded colour, shoreline foam, sun glint
   and an underwater look if you go below.
 - **Assisted landing and take-off** — see below.
-- **On-foot exploration** with a jetpack, walking correctly around a sphere.
+- **On-foot exploration in third person** with a jetpack, walking correctly
+  around a sphere. The astronaut is a skinned character with idle, walk, run
+  and jump — three of which the source model did not contain.
 - **Four-stage drive**: cruise, boost, pulse drive, and an ultra drive at a
   hundred times the boost that crosses the system in seconds.
 - **Debris belts** around roughly four worlds in five — a tilted, slowly turning
@@ -106,7 +108,9 @@ clamped against every planet's approach sphere: point the nose at a world, hold
 `V`, and you decelerate to a stop two and a half radii out rather than passing
 through it.
 
-**The exhaust is a beam, not a cone.** A cone is wrong for a plume twice over:
+**The exhaust is a beam, not a cone.** The trail only exists while `Shift` or
+`V` is held — a cruising ship has hot engines, not a streak. A cone is wrong
+for a plume twice over:
 its silhouette is a hard polygon from every angle, and it collapses to a flat
 disc exactly when you are behind the ship — which is where the chase camera
 lives. The plume is built instead as a strip whose width the vertex shader
@@ -156,6 +160,8 @@ js/gl.js            WebGL2 helpers, meshes, procedural geometry builder
 js/shaders.js       all GLSL: terrain, objects, ship, thrusters, sky, post
 js/shipmodel.js     the starship, baked from glTF and embedded as base64
 js/treemodel.js     the trees, baked the same way, three variants in one buffer
+js/playermodel.js   the astronaut: skinned mesh, skeleton, bind pose, idle clip
+js/character.js     skeleton, skinning palette, procedural locomotion
 js/planets.js       biome archetypes, terrain functions, system generation
 js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
@@ -194,6 +200,49 @@ It is embedded as base64 rather than fetched, because `fetch` is blocked under
 engine nozzle is found by taking the aft-most part whose centre sits near the
 axis; the exhaust plume is anchored to it, and the emissive map's strength
 tracks the drive state so the ship visibly spools up.
+
+## The astronaut
+
+The only genuinely skinned model in the project: every vertex is weighted to up
+to four joints and deformed on the GPU. The source was a Character Creator rig —
+102 joints, 300k triangles across six textured body parts, one animation.
+
+**Half the skeleton was deadweight.** Twist, share and finger bones exist to fix
+deformation detail a third-person character never shows. The bake keeps the 25
+joints that actually pose a body and folds the rest of the skin weights into the
+nearest surviving ancestor. 25 joints is 75 `vec4`s of skinning palette, which
+fits in plain uniforms — no bone texture, no float-texture extension. Each part
+is decimated with quadric edge collapses and its UVs, normals and weights
+carried across by nearest-vertex transfer; 300k triangles become 42k, and the
+five 1024 textures become one atlas.
+
+**Forty-one of the inverse-bind matrices were the identity.** The exporter wrote
+garbage for a third of the rig, including both thighs, both calves, the pelvis
+and both upper arms — enough that those limbs applied their own bind transform
+twice and splayed out and stretched to the ground. An inverse-bind matrix is not
+free information, though: it is the inverse of the joint's bind world transform,
+composed with the transform of the node the mesh hangs off. The 61 the file got
+right satisfy exactly that identity, so the bake derives all 102 from the node
+hierarchy instead of patching the broken ones. The result matches the file where
+it was right and is correct where it was not.
+
+**There was no walk, no run and no jump.** The source ships a single 10.5-second
+idle. The other three gaits are generated in `js/character.js` by rotating a
+dozen named joints on top of that idle. The trick that makes that tractable is
+doing it in *parent* space: to swing a thigh forward you want to rotate it about
+the character's left-right axis, but the joint's local axes are whatever the
+rigger left them as. Rotating a limb about a world axis means pre-multiplying
+its local rotation by that axis expressed in its parent's frame — which forward
+kinematics has already computed by the time it reaches the child. So the pose
+pass walks the hierarchy once and each control joint asks for its swing in terms
+it understands.
+
+The sign convention was measured against the rig rather than assumed, because
+getting it backwards folds the knees the wrong way and throws the shins out in
+front of the body. Phase is driven by distance travelled rather than by time, so
+the feet do not skate when you speed up or slow down, and knee flexion peaks
+just after each leg reaches its rearmost point — that is toe-off, where the heel
+comes up and the foot has to clear the ground.
 
 ## The trees
 

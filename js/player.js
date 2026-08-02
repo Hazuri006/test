@@ -37,6 +37,14 @@ class Player {
     this.rot = Q4.new();
     this.speed = 0;
     this.altitude = 0;
+
+    /* Third-person state.  `bodyFwd` is the direction the model faces, which
+       lags the look direction so that glancing around does not spin the
+       character on the spot. */
+    this.bodyFwd = V3.new(0, 0, -1);
+    this.groundSpeed = 0;
+    this.climbRate = 0;
+    this.turnRate = 0;
   }
 
   /* Drop the player beside the ship, facing it. */
@@ -78,7 +86,13 @@ class Player {
     V3.copy(this.fwd, dirWorld);
     V3.cross(this.right, this.fwd, this.up);
     V3.normalize(this.right, this.right);
+    V3.copy(this.bodyFwd, dirWorld);
     this.pitch = 0;
+  }
+
+  /* Where the model's feet go: `pos` tracks the eyes. */
+  footPos(out) {
+    return V3.addScaled(out, this.pos, this.up, -FOOT.eyeHeight);
   }
 
   update(dt, input, planet, game) {
@@ -192,11 +206,38 @@ class Player {
     this.speed = V3.len(this.vel);
 
     /* ---- head bob & footsteps ---- */
+    const vUpNow = V3.dot(this.vel, this.up);
     const planar = Math.hypot(
-      this.vel[0] - this.up[0] * V3.dot(this.vel, this.up),
-      this.vel[1] - this.up[1] * V3.dot(this.vel, this.up),
-      this.vel[2] - this.up[2] * V3.dot(this.vel, this.up)
+      this.vel[0] - this.up[0] * vUpNow,
+      this.vel[1] - this.up[1] * vUpNow,
+      this.vel[2] - this.up[2] * vUpNow
     );
+    this.groundSpeed = planar;
+    this.climbRate = vUpNow;
+
+    /* ---- body facing ----
+       The model turns toward where it is going when it is moving and toward
+       where you are looking when it is not, easing between the two.  Turning
+       the body straight onto the look vector makes the character pirouette
+       every time the mouse twitches; ignoring the look vector entirely leaves
+       it facing away from you when you stop. */
+    V3.copy(_pBody, this.fwd);
+    if (planar > 1.2) {
+      V3.addScaled(_pBody, this.vel, this.up, -vUpNow);
+      V3.normalize(_pBody, _pBody);
+      /* Blend back toward the look direction so a strafe reads as a lean, not
+         as walking sideways with the head screwed round. */
+      V3.lerp(_pBody, _pBody, this.fwd, 0.35);
+    }
+    V3.planeProject(_pBody, _pBody, this.up);
+    if (V3.lenSq(_pBody) > 1e-8) {
+      V3.normalize(_pBody, _pBody);
+      const prevX = V3.dot(this.bodyFwd, this.right);
+      V3.lerp(this.bodyFwd, this.bodyFwd, _pBody, 1 - Math.exp(-dt * 11));
+      V3.planeProject(this.bodyFwd, this.bodyFwd, this.up);
+      V3.normalize(this.bodyFwd, this.bodyFwd);
+      this.turnRate = (V3.dot(this.bodyFwd, this.right) - prevX) / Math.max(dt, 1e-4);
+    }
     if (this.grounded && planar > 0.6) {
       const prev = this.bob;
       this.bob += dt * planar * 1.15;
@@ -231,4 +272,5 @@ class Player {
 const _pRel = V3.new(), _pDir = V3.new(), _pTmp = V3.new(), _pWish = V3.new();
 const _pTan = V3.new(), _pDes = V3.new(), _pLook = V3.new(), _pRight2 = V3.new();
 const _pUp2 = V3.new(), _pPrevUp = V3.new(), _pAxis = V3.new(1, 0, 0);
+const _pBody = V3.new();
 const _pQ = Q4.new();

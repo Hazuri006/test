@@ -88,6 +88,7 @@ const Game = {
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
       debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
       ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
+      skin: GLU.program(SH.skinVS, SH.skinFS, 'skin'),
       tree: GLU.program(SH.treeVS, SH.treeFS, 'tree'),
       thruster: GLU.program(SH.thrusterVS, SH.thrusterFS, 'thruster'),
       sky: GLU.program(SH.fullVS, SH.skyFS, 'sky'),
@@ -130,6 +131,10 @@ const Game = {
     this.shipEmissive = await this.loadTexture(SHIP_MODEL.emissive);
     this.treeBark = await this.loadTexture(TREE_MODEL.bark, true);
     this.treeAtlas = await this.loadTexture(TREE_MODEL.atlas, false);
+
+    this.playerModel = new SkinnedModel(this.gl, PLAYER_MODEL);
+    this.playerAnim = new PlayerAnimator(this.playerModel);
+    this.playerTex = await this.loadTexture(PLAYER_MODEL.tex, false);
 
     setProgress(1.0, 'ready');
     await tick();
@@ -538,6 +543,8 @@ const Game = {
 
     if (this.mode === 'foot') {
       this.player.update(dt, this.input, this.activePlanet, this);
+      this.playerAnim.update(dt, this.player.groundSpeed, this.player.grounded,
+        this.player.climbRate, this.player.turnRate);
     } else {
       this.ship.update(dt, this.input, this.activePlanet, this);
     }
@@ -641,9 +648,17 @@ const Game = {
       this.player.eyePos(this.camPos);
       Q4.copy(this.camRot, this.player.rot);
       if (this.view3rd) {
+        /* Over the shoulder rather than straight behind: a character centred in
+           frame covers exactly what you are walking toward.  The camera pulls
+           back and rises as you break into a run. */
+        const sprintK = saturate((this.player.groundSpeed - FOOT.walkSpeed * 0.7) /
+          Math.max(FOOT.sprintSpeed - FOOT.walkSpeed * 0.7, 0.1));
+        this._footCam = damp(this._footCam || 0, sprintK, 4, dt);
         const back = quatFwd(_gTmp, this.camRot);
-        V3.addScaled(this.camPos, this.camPos, back, -4.2);
-        V3.addScaled(this.camPos, this.camPos, this.player.up, 1.1);
+        const side = quatRight(_gF, this.camRot);
+        V3.addScaled(this.camPos, this.camPos, back, -(4.6 + this._footCam * 1.5));
+        V3.addScaled(this.camPos, this.camPos, this.player.up, 0.85 + this._footCam * 0.3);
+        V3.addScaled(this.camPos, this.camPos, side, 0.85);
       }
     } else {
       const s = this.ship;
@@ -782,6 +797,7 @@ const Game = {
     if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
+    this.drawPlayerPass(sun, sunCol, p);
 
     /* ------------------------------------------------------ 2. sky pass -- */
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.skyRT.fbo);
@@ -1010,6 +1026,53 @@ const Game = {
     this.drawThrusters(ox, oy, oz);
   },
 
+  /* The astronaut.  Skinned, so the whole model is one draw with a joint
+     palette; skipped in first person, where the camera sits inside the head. */
+  drawPlayerPass(sun, sunCol, p) {
+    if (this.mode !== 'foot' || !this.view3rd || !this.playerModel) return;
+    const gl = this.gl, pl = this.player, pr = this.prog.skin;
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uTint, 1, 1, 1);
+    if (p) {
+      gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    } else {
+      const v = this.sunDirScaled(_gTmp);
+      gl.uniform3f(pr.u.uPlanetC, v[0], v[1], v[2]);
+    }
+    this.bindLight(pr);
+    GLU.bindTex(pr, 'uTex', 0, this.playerTex, gl.TEXTURE_2D);
+
+    /* Stand the model on the surface: +Y along the local up, facing the body
+       heading, then the bake's yaw to undo the model's authored +Z facing. */
+    V3.normalize(_gPlayUp, V3.copy(_gPlayUp, pl.up));
+    V3.copy(_gPlayFwd, pl.bodyFwd);
+    V3.planeProject(_gPlayFwd, _gPlayFwd, _gPlayUp);
+    if (V3.lenSq(_gPlayFwd) < 1e-8) V3.set(_gPlayFwd, 0, 0, 1);
+    V3.normalize(_gPlayFwd, _gPlayFwd);
+    V3.normalize(_gPlayRight, V3.cross(_gPlayRight, _gPlayFwd, _gPlayUp));
+    Q4.fromBasis(_gPlayQ, _gPlayRight, _gPlayUp, _gPlayFwd);
+    Q4.fromAxisAngle(_gQ, _gPlayUp, PLAYER_MODEL.yaw);
+    Q4.mul(_gPlayQ, _gQ, _gPlayQ);
+    Q4.toMat3(_gMat3, _gPlayQ);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+
+    pl.footPos(_gPlayPos);
+    V3.addScaled(_gPlayPos, _gPlayPos, _gPlayUp, -PLAYER_MODEL.groundY);
+    gl.uniform3f(pr.u.uOffset,
+      _gPlayPos[0] - this.camPos[0],
+      _gPlayPos[1] - this.camPos[1],
+      _gPlayPos[2] - this.camPos[2]);
+
+    gl.uniform4fv(pr.u.uBones, this.playerAnim.palette());
+    this.playerModel.mesh.draw();
+  },
+
   /* Exhaust plumes, drawn additively after the hull.  Depth test on so the
      terrain can occlude them, depth write off so they never occlude anything. */
   drawThrusters(ox, oy, oz) {
@@ -1032,8 +1095,14 @@ const Game = {
     gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
     GLU.bindTex(pr, 'uNoise', 0, this.noiseTex, gl.TEXTURE_3D);
 
+    /* The trail is a boost effect, not an idle one: it exists only while Shift
+       or V is held.  The nozzle glow below stays on whenever the drive is lit,
+       so a cruising ship still has hot engines — it just is not streaking. */
+    const trail = saturate(Math.max(sh.boost, sh.ultra) * 1.15);
+    gl.uniform1f(pr.u.uTrail, trail);
+
     /* Long and thin: the trail runs many ship-lengths aft. */
-    gl.uniform1f(pr.u.uLen, 8.0 + power * 46.0 + sh.ultra * 120.0);
+    gl.uniform1f(pr.u.uLen, 6.0 + trail * (60.0 + power * 22.0) + sh.ultra * 150.0);
     gl.uniform1f(pr.u.uRad, 0.70 + Math.min(power, 1.0) * 0.22);
     gl.uniform1f(pr.u.uMinWidth, this.tanFovY * 2 * 2.0 / Math.max(this.rt.h, 1));
     /* Shock diamonds need a working drive and thin air to stand up in. */
@@ -1339,5 +1408,7 @@ const _gTip = new Float32Array(3);
 const _gPartM = new Float32Array(9);
 const _gPartQ = Q4.new();
 const _gPartT = V3.new();
+const _gPlayUp = V3.new(), _gPlayFwd = V3.new(), _gPlayRight = V3.new();
+const _gPlayPos = V3.new(), _gPlayQ = Q4.new();
 
 window.addEventListener('DOMContentLoaded', () => Game.boot());

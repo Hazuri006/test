@@ -1093,6 +1093,113 @@ void main(){
 }
 `;
 
+/* ============================================================================
+   SKIN — the astronaut and anything else deformed by a skeleton.
+
+   The palette rides in a plain uniform array rather than a bone texture: the
+   bake prunes the rig to 25 joints, and 25 affine transforms is 75 vec4s, which
+   fits inside the smallest vertex-uniform budget WebGL 2 guarantees with room
+   to spare.  Each joint is three rows of a 3x4 — the bottom row of a skinning
+   matrix is always (0,0,0,1), so storing it would waste a quarter of the
+   budget.
+   ============================================================================ */
+const SKIN_MAX_JOINTS = 32;      // the bake asserts against this
+
+SH.skinVS = SH.head + SH.common + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+layout(location=3) in vec4 aJoint;    // four joint indices, as floats
+layout(location=4) in vec4 aWeight;
+
+uniform mat4 uViewProj;
+uniform mat3 uModelRot;
+uniform vec3 uOffset;
+uniform float uFcoefHalf;
+uniform vec4 uBones[` + (SKIN_MAX_JOINTS * 3) + `];
+
+out vec3 vPos;
+out vec3 vNormal;
+out vec2 vUV;
+out float vLogZ;
+
+void skinOne(int j, float w, vec4 p4, vec3 n, inout vec3 sp, inout vec3 sn){
+  vec4 r0 = uBones[j * 3];
+  vec4 r1 = uBones[j * 3 + 1];
+  vec4 r2 = uBones[j * 3 + 2];
+  sp += w * vec3(dot(r0, p4), dot(r1, p4), dot(r2, p4));
+  sn += w * vec3(dot(r0.xyz, n), dot(r1.xyz, n), dot(r2.xyz, n));
+}
+
+void main(){
+  vec4 p4 = vec4(aPos, 1.0);
+  vec3 sp = vec3(0.0), sn = vec3(0.0);
+  skinOne(int(aJoint.x), aWeight.x, p4, aNormal, sp, sn);
+  skinOne(int(aJoint.y), aWeight.y, p4, aNormal, sp, sn);
+  skinOne(int(aJoint.z), aWeight.z, p4, aNormal, sp, sn);
+  skinOne(int(aJoint.w), aWeight.w, p4, aNormal, sp, sn);
+
+  vec3 p = uModelRot * sp + uOffset;
+  vPos = p;
+  vNormal = uModelRot * sn;
+  vUV = aUV;
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  cp.z = (logDepth(max(1e-6, vLogZ), uFcoefHalf) * 2.0 - 1.0) * cp.w;
+  gl_Position = cp;
+}
+`;
+
+SH.skinFS = SH.head + SH.common + `
+in vec3 vPos;
+in vec3 vNormal;
+in vec2 vUV;
+in float vLogZ;
+
+uniform sampler2D uTex;
+uniform vec3 uTint;
+uniform vec3 uSunDir, uSunColor, uAmbient;
+uniform vec3 uPlanetC;
+uniform float uFcoefHalf;
+uniform vec4 uLightPos;
+uniform vec3 uLightCol;
+uniform vec3 uLightDir;
+
+out vec4 fragColor;
+
+void main(){
+  vec3 n = normalize(vNormal);
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = normalize(-vPos);
+  vec3 up = normalize(vPos - uPlanetC);
+
+  vec3 albedo = texture(uTex, vUV).rgb * uTint;
+
+  float ndl = max(dot(n, uSunDir), 0.0);
+  float shade = smoothstep(-0.12, 0.10, dot(up, uSunDir));
+  vec3 col = albedo * uSunColor * ndl * shade;
+  col += albedo * uAmbient * (0.55 + 0.45 * dot(n, up));
+
+  vec3 h = normalize(uSunDir + v);
+  col += uSunColor * pow(max(dot(n, h), 0.0), 38.0) * 0.22 * shade;
+  col += uAmbient * pow(1.0 - max(dot(n, v), 0.0), 4.0) * 0.45;
+
+  if (uLightPos.w > 0.0){
+    vec3 L = uLightPos.xyz - vPos;
+    float d = length(L);
+    if (d < uLightPos.w){
+      L /= d;
+      float att = 1.0 - d / uLightPos.w; att *= att;
+      float cone = smoothstep(0.32, 0.78, dot(-L, uLightDir));
+      col += albedo * uLightCol * max(dot(n, L), 0.0) * att * (0.22 + 0.78 * cone);
+    }
+  }
+
+  fragColor = vec4(col, 1.0);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+}
+`;
+
 SH.shipFS = SH.head + SH.common + `
 in vec3 vPos;
 in vec3 vNormal;
@@ -1242,6 +1349,7 @@ uniform sampler3D uNoise;
 uniform vec3 uCore;        // colour at the throat
 uniform vec3 uTip;         // colour at the far end
 uniform float uIntensity;
+uniform float uTrail;      // beam visibility — boost and ultra only
 uniform float uShock;      // shock-diamond strength, 0 in vacuum idle
 uniform float uTime;
 uniform float uFcoefHalf;
@@ -1288,6 +1396,7 @@ void main(){
     /* Fade the beam out as it turns edge-on to the viewer — the disc below
        carries the look from directly behind. */
     a *= 1.0 - pow(vAlign, 3.0);
+    a *= uTrail;
   } else {
     float r = clamp(length(vQuad), 0.0, 1.0);
     float glow = pow(max(1.0 - r, 0.0), 2.4);
