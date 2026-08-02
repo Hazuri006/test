@@ -36,6 +36,8 @@ starship hull is generated at runtime from a seed.
   thirds are broad fields rather than tidy rings.
 - **Forests on worlds that grow them**, instanced from three baked tree
   variants with a procedural wind sway.
+- **Alien wildlife** — herds generated from the world's seed, grazing, bolting
+  or wandering over to look at you, and the big ones can be ridden.
 - **Procedural everything except the hull and the trees**: the rocks and
   scrub, the star field and nebula, the engine exhaust, the engine hum, the
   wind, the ambient score.
@@ -52,7 +54,7 @@ starship hull is generated at runtime from a seed.
 | `V` | **Ultra drive** — the boost, times a hundred |
 | `Ctrl` | Brake |
 | `F` | Land / take off |
-| `E` | Disembark / board ship |
+| `E` | Disembark / mount or dismount an animal / board ship |
 | `X` | Scanner pulse |
 | `M` | System map (click a world to set a nav target) |
 | `C` | Camera view |
@@ -136,6 +138,26 @@ also has a floor on its apparent size, without which a belt dissolves into
 sub-pixel aliasing at distance instead of reading as a band. One instanced
 draw call per planet; the belt's rotation is a uniform, so it turns for free.
 
+**A herd is four draw calls.** Every animal on a world comes from that world's
+seed — body proportions, leg count, horns, colour, temperament, whether it is
+big enough to sit on. Each species is two meshes: the torso, neck, head, tail
+and horns baked into one, and a single leg instanced four or two times per
+animal. The instance buffers are rewritten from the simulation each frame, so a
+herd of eighteen costs four draws rather than eighty. The bodies are rigid;
+everything that reads as alive at the distance you actually see them — legs
+swinging in diagonal pairs, the head dipping to graze, the whole animal leaning
+into a run — comes out of the per-instance transforms. Sampling the terrain
+ahead to avoid walking into a lake means an fbm evaluation, so each animal only
+looks where it is going a few times a second. An animal that takes a quarter of
+a second to notice a lake is an animal, not a bug.
+
+**Riding does not give the mount a second physics body.** Mounted, the walker is
+still the thing being simulated: it keeps terrain following, gravity and the
+jump, and the animal is drawn under the rider with the walker's speed limits
+raised to the creature's. Simulating the mount separately and then gluing the
+rider to it is how you get a player who clips through hills while their horse
+walks over them.
+
 **Walking around a sphere.** The on-foot controller stores its heading as a
 vector and re-projects it onto the local tangent plane every frame, so you can
 walk a full circumference without the horizon rolling or the controls
@@ -166,6 +188,7 @@ js/planets.js       biome archetypes, terrain functions, system generation
 js/terrain.js       cube-sphere quadtree, chunk streaming
 js/props.js         surface scatter — rocks, flora, crystals
 js/debris.js        orbital debris belts
+js/fauna.js         alien wildlife: procedural bodies, herd AI, riding
 js/ship.js          hull + exhaust meshes, flight model, landing sequence
 js/player.js        on-foot movement on a sphere
 js/audio.js         runtime audio synthesis

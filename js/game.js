@@ -289,7 +289,7 @@ const Game = {
       case 'KeyC': this.view3rd = !this.view3rd; this.audio.ui(); break;
       case 'KeyX': this.doScan(); break;
       case 'KeyF': this.input.landPressed = true; break;
-      case 'KeyE': this.toggleFoot(); break;
+      case 'KeyE': this.interact(); break;
       case 'F3': this.showStats = !this.showStats; HUD.el.fps.classList.toggle('on', this.showStats); break;
     }
   },
@@ -454,6 +454,41 @@ const Game = {
     this.audio.scan();
   },
 
+  /* E does three things depending on where you are standing, in the order you
+     would expect: get off the animal, get on the animal, board the ship. */
+  interact() {
+    if (this.mode === 'foot') {
+      if (this.player.mount) { this.dismount(); return; }
+      const c = Fauna.mountable(this.player.pos);
+      if (c) { this.mount(c); return; }
+    }
+    this.toggleFoot();
+  },
+
+  mount(c) {
+    this.player.mount = c;
+    c.ridden = true;
+    c.state = 'ridden';
+    /* Sit the rider where the saddle is, then let the walker carry on from
+       there — the animal is drawn under it, not simulated separately. */
+    V3.copy(c.heading, this.player.bodyFwd);
+    V3.planeProject(c.heading, c.heading, this.player.up);
+    V3.normalize(c.heading, c.heading);
+    this.notify('MOUNTED — ' + c.sp.name.toUpperCase(), 'ok');
+    this.audio.ui();
+  },
+
+  dismount() {
+    const c = this.player && this.player.mount;
+    if (!c) return;
+    this.player.mount = null;
+    c.ridden = false;
+    c.state = 'idle';
+    c.timer = 2;
+    c.speed = 0;
+    if (this.started) { this.notify('DISMOUNTED', 'ok'); this.audio.ui(); }
+  },
+
   toggleFoot() {
     if (this.mode === 'ship') {
       if (!this.ship.landed || !this.activePlanet) {
@@ -461,11 +496,13 @@ const Game = {
         return;
       }
       this.player.disembark(this.ship, this.activePlanet);
+      this.player.mount = null;
       this.mode = 'foot';
       this.notify('ON FOOT — ' + this.activePlanet.name.toUpperCase(), 'ok');
       this.audio.ui();
     } else {
       if (!this.player.nearShip) { this.notify('MOVE CLOSER TO THE SHIP', 'warn'); return; }
+      this.dismount();
       this.mode = 'ship';
       this.player.active = false;
       this.notify('BOARDED STARSHIP', 'ok');
@@ -544,7 +581,7 @@ const Game = {
     if (this.mode === 'foot') {
       this.player.update(dt, this.input, this.activePlanet, this);
       this.playerAnim.update(dt, this.player.groundSpeed, this.player.grounded,
-        this.player.climbRate, this.player.turnRate);
+        this.player.climbRate, this.player.turnRate, !!this.player.mount);
     } else {
       this.ship.update(dt, this.input, this.activePlanet, this);
     }
@@ -610,10 +647,13 @@ const Game = {
     if (active !== this.activePlanet) {
       if (this.terrain) { this.terrain.dispose(); this.terrain = null; }
       if (this.belt) { Debris.dispose(this.belt); this.belt = null; }
+      this.dismount();
+      Fauna.dispose();
       this.activePlanet = active;
       if (active) {
         this.terrain = new Terrain(this.gl, active, this.quality);
         this.belt = Debris.build(this.gl, active, this.qualityName);
+        Fauna.build(this.gl, active);
         if (this.belt && !idle) this.notify('DEBRIS FIELD DETECTED', 'warn');
         if (!idle) this.notify('APPROACHING ' + (active.discovered ? active.name.toUpperCase() : 'UNCHARTED WORLD'));
       }
@@ -630,6 +670,7 @@ const Game = {
 
       if (!idle && !p.discovered && d < p.radius * 2.6) this.discover(p);
       Debris.update(this.belt, dt);
+      if (!idle) Fauna.update(dt, p, this);
 
       if (this.drawTerrain && this.terrain) {
         V3.sub(_gCamLocal, this.camPos, p.pos);
@@ -651,13 +692,19 @@ const Game = {
         /* Over the shoulder rather than straight behind: a character centred in
            frame covers exactly what you are walking toward.  The camera pulls
            back and rises as you break into a run. */
+        const mnt = this.player.mount;
+        const top = mnt ? mnt.sp.rideSpeed : FOOT.sprintSpeed;
         const sprintK = saturate((this.player.groundSpeed - FOOT.walkSpeed * 0.7) /
-          Math.max(FOOT.sprintSpeed - FOOT.walkSpeed * 0.7, 0.1));
+          Math.max(top - FOOT.walkSpeed * 0.7, 0.1));
         this._footCam = damp(this._footCam || 0, sprintK, 4, dt);
+        /* Mounted, the camera has a whole animal to clear as well as a rider,
+           and these things can be four metres at the shoulder. */
+        this._rideCam = damp(this._rideCam || 0,
+          mnt ? mnt.sp.bodyLen * mnt.size + mnt.sp.saddleH * mnt.size : 0, 4, dt);
         const back = quatFwd(_gTmp, this.camRot);
         const side = quatRight(_gF, this.camRot);
-        V3.addScaled(this.camPos, this.camPos, back, -(4.6 + this._footCam * 1.5));
-        V3.addScaled(this.camPos, this.camPos, this.player.up, 0.85 + this._footCam * 0.3);
+        V3.addScaled(this.camPos, this.camPos, back, -(4.6 + this._footCam * 1.5 + this._rideCam * 1.35));
+        V3.addScaled(this.camPos, this.camPos, this.player.up, 0.85 + this._footCam * 0.3 + this._rideCam * 0.22);
         V3.addScaled(this.camPos, this.camPos, side, 0.85);
       }
     } else {
@@ -796,6 +843,7 @@ const Game = {
 
     if (p && this.drawTerrain && this.terrain) this.drawTerrainPass(sun, sunCol, p);
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
+    if (p) this.drawFaunaPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
     this.drawPlayerPass(sun, sunCol, p);
 
@@ -971,6 +1019,48 @@ const Game = {
     belt.mesh.drawInstanced();
   },
 
+  /* Wildlife.  Two instanced draws per species — body and leg — with the
+     instance buffers rewritten from the simulation each frame.  Instance
+     offsets are already camera-relative, so the model transform is identity. */
+  drawFaunaPass(sun, sunCol, p) {
+    if (!Fauna.species || !Fauna.herd || !Fauna.herd.length) return;
+    const gl = this.gl, pr = this.prog.debris;
+
+    Fauna.fillInstances(p, this.camPos, this.time);
+
+    gl.useProgram(pr.prog);
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
+    gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
+    gl.uniform1f(pr.u.uTime, this.time);
+    gl.uniform1f(pr.u.uThrust, 0);
+    gl.uniform1f(pr.u.uGear, 1);
+    gl.uniform1f(pr.u.uHideCanopy, 0);
+    gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
+    gl.uniform3fv(pr.u.uSunColor, sunCol);
+    gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
+    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
+    gl.uniform1f(pr.u.uR, p.radius);
+    this.bindLight(pr);
+    /* An animal is a metre-scale thing a few dozen metres away — it never needs
+       the debris belt's minimum apparent size, and forcing one would inflate it
+       into a balloon the moment it walked off. */
+    gl.uniform1f(pr.u.uMinAngular, 0);
+    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
+    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
+
+    for (const s of Fauna.species) {
+      if (s.bodyCount) {
+        s.body.updateInstances(s.bodyInst);
+        s.body.drawInstanced(s.bodyCount);
+      }
+      if (s.legCount) {
+        s.leg.updateInstances(s.legInst);
+        s.leg.drawInstanced(s.legCount);
+      }
+    }
+  },
+
   drawShipPass(sun, sunCol, p) {
     const gl = this.gl;
     const sh = this.ship;
@@ -1064,6 +1154,10 @@ const Game = {
 
     pl.footPos(_gPlayPos);
     V3.addScaled(_gPlayPos, _gPlayPos, _gPlayUp, -PLAYER_MODEL.groundY);
+    /* Riders sit over the shoulders, not over the hips. */
+    if (pl.mount) {
+      V3.addScaled(_gPlayPos, _gPlayPos, _gPlayFwd, pl.mount.sp.bodyLen * pl.mount.size * 0.14);
+    }
     gl.uniform3f(pr.u.uOffset,
       _gPlayPos[0] - this.camPos[0],
       _gPlayPos[1] - this.camPos[1],

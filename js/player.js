@@ -16,7 +16,9 @@ const FOOT = {
   jetThrust: 17.0,
   jetFuelMax: 2.6,
   jetRefill: 0.55,
-  boardRange: 26
+  boardRange: 26,
+  /* How far a seated rider's root sits below where their feet would be. */
+  seatDrop: 0.55
 };
 
 class Player {
@@ -45,7 +47,15 @@ class Player {
     this.groundSpeed = 0;
     this.climbRate = 0;
     this.turnRate = 0;
+
+    /* The creature being ridden, if any.  Mounted, this is still the body that
+       gets simulated — the animal is drawn under it. */
+    this.mount = null;
   }
+
+  /* Riding raises the eyes to the animal's back and lifts every speed limit to
+     the animal's own. */
+  get rideHeight() { return this.mount ? this.mount.sp.saddleH * this.mount.size : 0; }
 
   /* Drop the player beside the ship, facing it. */
   disembark(ship, planet) {
@@ -90,9 +100,14 @@ class Player {
     this.pitch = 0;
   }
 
-  /* Where the model's feet go: `pos` tracks the eyes. */
+  /* The model's root.  `pos` tracks the eyes, so on foot this is simply the
+     ground; mounted, the walker is already standing `rideHeight` up, which puts
+     the same point on the animal's back — drop it by the height of a seated
+     rider's hips so the legs fold round the barrel instead of dangling through
+     it. */
   footPos(out) {
-    return V3.addScaled(out, this.pos, this.up, -FOOT.eyeHeight);
+    return V3.addScaled(out, this.pos, this.up,
+      -(FOOT.eyeHeight + (this.mount ? FOOT.seatDrop : 0)));
   }
 
   update(dt, input, planet, game) {
@@ -126,10 +141,11 @@ class Player {
     V3.normalize(this.right, this.right);
 
     /* ---- ground ---- */
+    const eyeH = FOOT.eyeHeight + this.rideHeight;
     const groundR = planet.surfaceRadius(dir[0], dir[1], dir[2]);
     const seaR = planet.hasWater ? planet.seaRadius : -1;
     const floorR = Math.max(groundR, seaR > 0 ? seaR - 0.4 : -1e9);
-    const feetR = r - FOOT.eyeHeight;
+    const feetR = r - eyeH;
     const altitude = feetR - floorR;
     this.altitude = altitude;
     this.inWater = seaR > 0 && feetR < seaR;
@@ -144,8 +160,14 @@ class Player {
     const wl = V3.len(wish);
     if (wl > 1) V3.scale(wish, wish, 1 / wl);
 
+    /* An animal carries you faster than your own legs, and a mounted sprint is
+       the only way to cross a continent without the ship. */
     const sprint = input.boost && input.move.y > 0.1;
-    const target = (sprint ? FOOT.sprintSpeed : FOOT.walkSpeed) * (this.inWater ? 0.55 : 1);
+    const mnt = this.mount;
+    const base = mnt
+      ? (sprint ? mnt.sp.rideSpeed : mnt.sp.run * 0.62)
+      : (sprint ? FOOT.sprintSpeed : FOOT.walkSpeed);
+    const target = base * (this.inWater ? 0.55 : 1);
 
     /* Split velocity into surface-tangential and vertical parts. */
     const vUp = V3.dot(this.vel, this.up);
@@ -161,7 +183,14 @@ class Player {
 
     /* ---- jetpack ---- */
     this.jetting = false;
-    if (input.jump && this.jetFuel > 0.02) {
+    if (mnt) {
+      /* No jetpack from the saddle — the animal leaps instead. */
+      if (input.jump && this.grounded) {
+        newVUp = FOOT.jumpSpeed * 1.5;
+        this.grounded = false;
+        game.audio.jump();
+      }
+    } else if (input.jump && this.jetFuel > 0.02) {
       if (this.grounded && this.jetFuel > FOOT.jetFuelMax * 0.98) {
         newVUp = FOOT.jumpSpeed;
         this.grounded = false;
@@ -186,7 +215,7 @@ class Player {
     const r2 = V3.len(_pRel);
     V3.scale(_pDir, _pRel, 1 / r2);
     const g2 = planet.surfaceRadius(_pDir[0], _pDir[1], _pDir[2]);
-    const targetR = g2 + FOOT.eyeHeight;
+    const targetR = g2 + eyeH;
 
     if (r2 <= targetR) {
       V3.addScaled(this.pos, planet.pos, _pDir, targetR);
@@ -258,6 +287,18 @@ class Player {
     V3.cross(upv, rgt, look);
     V3.normalize(upv, upv);
     Q4.fromBasis(this.rot, rgt, upv, look);
+
+    /* ---- drive the mount from the rider ---- */
+    if (mnt) {
+      V3.sub(_pRel, this.pos, planet.pos);
+      V3.normalize(mnt.dir, _pRel);
+      V3.copy(mnt.heading, this.bodyFwd);
+      V3.planeProject(mnt.heading, mnt.heading, mnt.dir);
+      if (V3.lenSq(mnt.heading) < 1e-8) V3.copy(mnt.heading, this.fwd);
+      V3.normalize(mnt.heading, mnt.heading);
+      mnt.speed = planar;
+      mnt.grazeT = 0;
+    }
 
     /* ---- can we board? ---- */
     this.nearShip = V3.dist(this.pos, game.ship.pos) < FOOT.boardRange;

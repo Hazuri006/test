@@ -19,7 +19,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const JS = ['math.js', 'gl.js', 'shaders.js', 'planets.js', 'terrain.js',
-  'props.js', 'debris.js', 'ship.js', 'character.js',
+  'props.js', 'debris.js', 'fauna.js', 'ship.js', 'character.js',
   'player.js', 'audio.js', 'hud.js', 'game.js'];
 
 let failed = 0;

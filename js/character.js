@@ -275,8 +275,9 @@ class PlayerAnimator {
 
   /* `speed` is ground speed in m/s, `grounded` and `vertVel` come from the
      walker.  `turnRate` is radians per second of heading change. */
-  update(dt, speed, grounded, vertVel, turnRate) {
+  update(dt, speed, grounded, vertVel, turnRate, riding) {
     this.time += dt;
+    this.ride = damp(this.ride || 0, riding ? 1 : 0, 6, dt);
 
     const run = saturate((speed - CHAR_CFG.walkSpeed * 0.8) /
       Math.max(CHAR_CFG.runSpeed - CHAR_CFG.walkSpeed * 0.8, 0.1));
@@ -304,8 +305,11 @@ class PlayerAnimator {
     P.sampleIdle(this.time, 1);
 
     const g = this.gait;
-    const walkAmt = saturate(g) * (1 - this.air);
-    const runAmt = saturate(g - 1) * (1 - this.air);
+    /* In the saddle the legs stop striding — they are wrapped round an animal
+       — but the phase keeps running, because the rider still gets bounced. */
+    const ride = this.ride || 0;
+    const walkAmt = saturate(g) * (1 - this.air) * (1 - ride);
+    const runAmt = saturate(g - 1) * (1 - this.air) * (1 - ride);
     const ph = this.phase;
 
     /* Sign convention, measured against the rig rather than assumed: a
@@ -331,9 +335,12 @@ class PlayerAnimator {
     const elbow = (0.30 + runAmt * 0.45) * walkAmt;
     const bounce = (0.030 + runAmt * 0.045) * walkAmt;
 
-    const air = this.air;
+    const air = this.air * (1 - ride);
     const fall = saturate(-this.vertVel / 8);
     const rise = saturate(this.vertVel / 6);
+    /* Saddle pose: hips and knees folded round the animal, hands forward, and a
+       jolt through the spine timed to the gait. */
+    const jolt = Math.sin(ph * 2) * 0.055 * ride * saturate(g);
     /* Airborne: knees fold, thighs come up, arms drop back and out.  Coming
        down the legs reach for the ground again. */
     const tuck = air * (0.45 + rise * 0.35) * (1 - fall * 0.7);
@@ -346,39 +353,39 @@ class PlayerAnimator {
              in the rig's centimetres. */
           const o3 = i * 3;
           P.localT[o3 + 1] += (Math.abs(s2) * bounce - bounce * 0.5) * 100;
-          P.swing(i, this.axSide, this.lean * (1 - air) + air * (fall * 0.25 - rise * 0.20));
+          P.swing(i, this.axSide, this.lean * (1 - air) + air * (fall * 0.25 - rise * 0.20) + jolt);
           P.swing(i, this.axFwd, -this.turn * 0.5 + c * 0.05 * walkAmt);
           P.swing(i, this.axUp, sL * 0.09 * walkAmt);
           break;
         }
         case J.spine2:
           P.swing(i, this.axUp, -sL * 0.11 * walkAmt);
-          P.swing(i, this.axSide, this.lean * 0.35);
+          P.swing(i, this.axSide, this.lean * 0.35 + ride * 0.10 - jolt * 0.5);
           break;
         case J.head:
           /* Keep the head level as the body leans — the eyes lead the run. */
-          P.swing(i, this.axSide, -this.lean * 0.9 - air * fall * 0.25);
+          P.swing(i, this.axSide, -this.lean * 0.9 - air * fall * 0.25 - ride * 0.15);
           break;
 
         /* ---- legs ---- */
-        case J.lThigh: P.swing(i, this.axSide, sL * legSwing - tuck); break;
-        case J.lCalf:  P.swing(i, this.axSide, kL * kneeBend + 0.05 * walkAmt + air * (0.95 - fall * 0.55)); break;
-        case J.lFoot:  P.swing(i, this.axSide, (aL * 0.30 - 0.08) * walkAmt + air * 0.30); break;
-        case J.rThigh: P.swing(i, this.axSide, sR * legSwing - tuck * 0.55); break;
-        case J.rCalf:  P.swing(i, this.axSide, kR * kneeBend + 0.05 * walkAmt + air * (0.55 - fall * 0.30)); break;
-        case J.rFoot:  P.swing(i, this.axSide, (aR * 0.30 - 0.08) * walkAmt + air * 0.22); break;
+        case J.lThigh: P.swing(i, this.axSide, sL * legSwing - tuck - ride * 1.20); break;
+        case J.lCalf:  P.swing(i, this.axSide, kL * kneeBend + 0.05 * walkAmt + air * (0.95 - fall * 0.55) + ride * 1.15); break;
+        case J.lFoot:  P.swing(i, this.axSide, (aL * 0.30 - 0.08) * walkAmt + air * 0.30 + ride * 0.20); break;
+        case J.rThigh: P.swing(i, this.axSide, sR * legSwing - tuck * 0.55 - ride * 1.20); break;
+        case J.rCalf:  P.swing(i, this.axSide, kR * kneeBend + 0.05 * walkAmt + air * (0.55 - fall * 0.30) + ride * 1.15); break;
+        case J.rFoot:  P.swing(i, this.axSide, (aR * 0.30 - 0.08) * walkAmt + air * 0.22 + ride * 0.20); break;
 
         /* ---- arms: opposite the same-side leg, elbows always a little bent -- */
         case J.lArm:
-          P.swing(i, this.axSide, -sL * armSwing + air * 0.30);
-          P.swing(i, this.axFwd, -runAmt * 0.14 - air * 0.22);
+          P.swing(i, this.axSide, -sL * armSwing + air * 0.30 - ride * 0.55);
+          P.swing(i, this.axFwd, -runAmt * 0.14 - air * 0.22 - ride * 0.18);
           break;
-        case J.lFore: P.swing(i, this.axSide, -(elbow + Math.max(-sL, 0) * 0.22 * walkAmt) - air * 0.45); break;
+        case J.lFore: P.swing(i, this.axSide, -(elbow + Math.max(-sL, 0) * 0.22 * walkAmt) - air * 0.45 - ride * 0.75); break;
         case J.rArm:
-          P.swing(i, this.axSide, -sR * armSwing + air * 0.30);
-          P.swing(i, this.axFwd, runAmt * 0.14 + air * 0.22);
+          P.swing(i, this.axSide, -sR * armSwing + air * 0.30 - ride * 0.55);
+          P.swing(i, this.axFwd, runAmt * 0.14 + air * 0.22 + ride * 0.18);
           break;
-        case J.rFore: P.swing(i, this.axSide, -(elbow + Math.max(-sR, 0) * 0.22 * walkAmt) - air * 0.45); break;
+        case J.rFore: P.swing(i, this.axSide, -(elbow + Math.max(-sR, 0) * 0.22 * walkAmt) - air * 0.45 - ride * 0.75); break;
       }
     });
     return P.palette;

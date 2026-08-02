@@ -215,7 +215,14 @@ const HUD = {
   updatePrompt(game) {
     let key = null, text = null;
     if (game.mode === 'foot') {
-      if (game.player.nearShip) { key = 'E'; text = 'Board Starship'; }
+      /* Same order the E key uses: dismount, mount, board. */
+      const mnt = game.player.mount;
+      if (mnt) { key = 'E'; text = 'Dismount — ' + mnt.sp.name; }
+      else {
+        const c = Fauna.mountable(game.player.pos);
+        if (c) { key = 'E'; text = 'Ride ' + c.sp.name; }
+        else if (game.player.nearShip) { key = 'E'; text = 'Board Starship'; }
+      }
     } else if (game.ship.landed) {
       key = 'E'; text = 'Disembark — F to launch';
     } else if (game.ship.canLand && !game.ship.landing) {
