@@ -131,6 +131,23 @@ const GLU = {
     return { fbo, color, w, h };
   },
 
+  /* A framebuffer over textures somebody else owns: an existing colour target
+     plus an existing depth buffer.  It exists so translucent geometry can be
+     composited on top of a deferred pass — over the finished water rather than
+     into the scene buffer the water is about to be drawn over — while still
+     being depth-tested against the scene that pass was built from. */
+  makeOverlayTarget(color, depth, w, h) {
+    const gl = this.gl;
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (!ok) console.warn('overlay framebuffer incomplete');
+    return { fbo, w, h };
+  },
+
   deleteTarget(t) {
     if (!t) return;
     const gl = this.gl;

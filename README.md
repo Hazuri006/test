@@ -216,7 +216,7 @@ third-of-a-degree blaster into a four-degree one, which at a couple of hundred
 metres is a fourteen-metre miss.
 
 **Six ships, and two ways to draw them.** Five are static glTF bakes decimated to
-about fifteen thousand triangles with their textures packed into an atlas; the
+about thirty thousand triangles with their textures packed into an atlas; the
 sixth is the animated gunship. Every source had its own idea of which way was up
 and which way was forward, so the bake carries a per-model basis, scales each
 hull to a stated length and drops its keel to y = 0 so it sits on its gear. The
@@ -224,6 +224,19 @@ chase camera then has to clear whichever one you are flying — a fixed distance
 that suits a sixteen-metre gunship parks the viewpoint inside a thirty-metre
 freighter — and the framing uses the larger of length and width, because the
 Drifter is wider than it is long.
+
+**Weld before you decimate, or the hulls come apart.** The first bake of those
+five ran the quadric decimator straight over the merged mesh and produced
+wreckage: booms torn into flat sheets, fuselages gutted, whole panels hanging in
+space. The cause is not the decimator. Every glTF exporter splits a vertex
+wherever the UV or the normal changes, so a hull that is one closed surface
+arrives as a quarter of a million loose corners — and to a quadric decimator a
+split vertex is a boundary it must not move. Given a mesh that is nothing but
+boundary it does the only thing it can: collapses the interiors and leaves the
+seams behind. Welding by position first turns 210k corners into 129k real
+vertices, and the same decimator at the same ratio then takes 246k triangles
+down to 26k with the silhouette intact. Attributes come back afterwards by
+nearest-original-vertex transfer, so the atlas still lines up.
 
 **Traffic has to be seeded where you are.** A star system here is twenty million
 metres across. A ship flying between two planets at a plausible cruise would
@@ -234,6 +247,26 @@ They keep a minimum apparent size for the same reason the debris does, because
 at ten kilometres a forty-metre ship is a fraction of a pixel and the thing you
 are meant to notice is a light moving against the stars. Some systems have no
 traffic at all; the system seed decides.
+
+**The spray has to be drawn after the water, not before it.** Fly low over an
+ocean and the drive wash lifts the surface: a few hundred parcels launched from
+the sea rather than from the hull, so the plume stays behind as you pass. Two
+populations, because one cannot be both — droplets are small, fast and nearly
+opaque, mist is large, slow, translucent and drifts — and both are camera-facing
+discs through their own shader rather than little spheres through the object
+shader, because at this size what says *water* is the soft edge and the light
+coming through it, and a sphere mesh has neither. The first version used lit
+spheres and produced a trail of beach balls.
+
+Where it goes in the frame matters more than any of that. The ocean is drawn
+analytically in the deferred sky pass, so anything blended into the scene buffer
+in front of it is composited against the sea *floor* and then painted over —
+which reads as stickers cut out of the sea. So the spray composites afterwards,
+into the sky target through a framebuffer that borrows the scene's depth buffer,
+depth-tested so the hull still occludes it but writing no depth of its own. That
+also means it must be sorted back to front, and that it has to be several times
+the luminance of the water: over a black scene buffer any grey looked like foam,
+and over sunlit sea it vanished.
 
 **A herd is four draw calls.** Every animal on a world comes from that world's
 seed — body proportions, leg count, horns, colour, temperament, whether it is

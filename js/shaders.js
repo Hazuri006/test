@@ -683,6 +683,120 @@ void main(){
 `;
 
 /* ============================================================================
+   SPRAY — the water a ship lifts off an ocean.
+
+   Camera-facing discs, not spheres.  A lit sphere reads as a marble at any
+   size, because what tells you something is water is the soft edge and the
+   light coming through it, and a triangle mesh has neither.  Each disc is
+   shaded as if it were a sphere — the quad offset is the normal's screen-space
+   xy, the third component follows — so it still turns with the sun, but its
+   outline dissolves and its rim glows where the light scatters through.
+
+   They write depth, which is not optional here: the ocean is drawn
+   analytically in the sky pass and paints over anything in front of it that
+   the depth buffer does not know about.  Writing depth means no sorting and no
+   double-blending either — the nearest disc wins the pixel and blends once
+   over whatever is behind it.
+   ============================================================================ */
+SH.sprayVS = SH.head + SH.common + `
+layout(location=0) in vec2 aCorner;    // unit quad, -1..1
+layout(location=1) in vec4 iPos;       // xyz camera-relative, w radius
+layout(location=2) in vec4 iParam;     // x opacity, y seed, z foam, w unused
+
+uniform mat4 uViewProj;
+uniform vec3 uCamRight, uCamUp;
+uniform float uFcoefHalf;
+uniform float uMinAngular;             // smallest apparent radius, in radians
+
+out vec2 vQuad;
+out float vAlpha;
+out float vSeed;
+out float vFoam;
+out vec3 vPos;
+out float vLogZ;
+
+void main(){
+  float d = length(iPos.xyz);
+  float r = max(iPos.w, d * uMinAngular);
+  vec3 p = iPos.xyz + (uCamRight * aCorner.x + uCamUp * aCorner.y) * r;
+  vQuad = aCorner;
+  /* Fade out anything close enough to fill the frame.  These discs write
+     depth, so a near one hides every parcel behind it, and a two-metre puff
+     three metres from the eye becomes a white sheet with the rest of the plume
+     cut out around it.  Fading it instead costs nothing and is what a
+     depth-of-field would have done anyway. */
+  vAlpha = iParam.x * smoothstep(0.7, 5.0, d);
+  vSeed = iParam.y;
+  vFoam = iParam.z;
+  vPos = p;
+
+  vec4 cp = uViewProj * vec4(p, 1.0);
+  vLogZ = 1.0 + cp.w;
+  gl_Position = cp;
+}
+`;
+
+SH.sprayFS = SH.head + SH.common + `
+in vec2 vQuad;
+in float vAlpha;
+in float vSeed;
+in float vFoam;
+in vec3 vPos;
+in float vLogZ;
+
+uniform vec3 uSunDir, uSunColor, uAmbient;
+uniform vec3 uCamRight, uCamUp;
+uniform float uFcoefHalf;
+
+out vec4 fragColor;
+
+void main(){
+  float d = length(vQuad);
+  if (d > 1.0) discard;
+
+  /* A droplet is not a disc.  Wobbling the outline by a couple of harmonics of
+     the angle, seeded per particle, is the difference between spray and a bag
+     of marbles — at three pixels across it is the only shape cue there is. */
+  float ang = atan(vQuad.y, vQuad.x);
+  float wob = 0.93 + 0.07 * sin(ang * 3.0 + vSeed * 6.2831) * sin(ang * 5.0 - vSeed * 3.1);
+  /* Quadratic falloff to nothing at the rim.  A parcel has no hard edge
+     anywhere, which is the single most important thing about drawing water at
+     this size — an outline is what makes a puff read as an object. */
+  float k = clamp(1.0 - d / wob, 0.0, 1.0);
+  float a = vAlpha * k * k;
+  if (a < 0.003) discard;
+
+  /* Shade it as the sphere it is standing in for: the quad offset is the
+     normal's screen-space xy, and the rest follows from the unit length. */
+  vec3 view = normalize(-vPos);
+  vec3 n = normalize(uCamRight * vQuad.x + uCamUp * vQuad.y +
+                     view * sqrt(max(0.0, 1.0 - d * d)));
+  float ndl = max(dot(n, uSunDir), 0.0);
+
+  /* Water is mostly forward-scattering: a droplet with the sun behind it is
+     brighter than one with the sun on it, which is why sea spray blows out
+     against a low sun and reads grey against a high one. */
+  float through = pow(max(dot(-uSunDir, view), 0.0), 3.0);
+
+  /* Bright, and deliberately so.  Sunlit spray is several times the luminance
+     of the sea it came out of — that is the whole reason it reads as white
+     against blue — and this pass composites over the finished water rather
+     than over the black scene buffer, so anything near the water's own
+     brightness simply disappears into it. */
+  vec3 col = uAmbient * 4.0 + uSunColor * (1.05 + 1.25 * ndl + 0.85 * through);
+  col *= mix(vec3(0.74, 0.84, 0.97), vec3(1.0), vFoam);
+  /* the lit rim, where the light comes through the edge of the drop */
+  col += uSunColor * pow(d, 5.0) * (0.35 + 0.7 * through);
+
+  /* Premultiplied: the scene buffer is cleared to black, so where there is no
+     geometry behind, what lands in it is exactly what the sky pass should add
+     back over the water. */
+  fragColor = vec4(col * a, a);
+  gl_FragDepth = logDepth(vLogZ, uFcoefHalf);
+}
+`;
+
+/* ============================================================================
    FULLSCREEN TRIANGLE
    ============================================================================ */
 SH.fullVS = SH.head + `

@@ -90,6 +90,7 @@ const Game = {
       object: GLU.program(SH.objectVS, SH.objectFS, 'object'),
       debris: GLU.program(SH.objectInstVS, SH.objectFS, 'debris'),
       station: GLU.program(SH.stationVS, SH.stationFS, 'station'),
+      spray: GLU.program(SH.sprayVS, SH.sprayFS, 'spray'),
       ship: GLU.program(SH.shipVS, SH.shipFS, 'ship'),
       skin: GLU.program(SH.skinVS, SH.skinFS, 'skin'),
       tree: GLU.program(SH.treeVS, SH.treeFS, 'tree'),
@@ -211,6 +212,7 @@ const Game = {
     const rh = Math.max(2, Math.round(h * s));
     if (this.rt && this.rt.w === rw && this.rt.h === rh) return;
 
+    if (this.sprayFB) this.gl.deleteFramebuffer(this.sprayFB.fbo);
     GLU.deleteTarget(this.rt);
     GLU.deleteTarget(this.skyRT);
     if (this.bloomL) for (const t of this.bloomL) GLU.deleteTarget(t);
@@ -218,6 +220,11 @@ const Game = {
 
     this.rt = GLU.makeSceneTarget(rw, rh);
     this.skyRT = GLU.makeColorTarget(rw, rh);
+    /* Its own framebuffer rather than a depth attachment bolted onto skyRT:
+       the sky pass samples the scene depth, and a texture that is both the
+       sampler source and an attachment of the bound framebuffer is a feedback
+       loop whatever the write mask says. */
+    this.sprayFB = GLU.makeOverlayTarget(this.skyRT.color, this.rt.depth, rw, rh);
     this.bloomL = []; this.bloomT = [];
     let bw = Math.max(2, rw >> 1), bh = Math.max(2, rh >> 1);
     for (let i = 0; i < 3; i++) {
@@ -929,7 +936,6 @@ const Game = {
     if (p && this.belt) this.drawDebrisPass(sun, sunCol, p);
     if (p) this.drawFaunaPass(sun, sunCol, p);
     this.drawStationPass(sun, sunCol, p);
-    if (p) this.drawSprayPass(sun, sunCol, p);
     this.drawCombatPass(sun, sunCol, p);
     this.drawTrafficPass(sun, sunCol, p);
     this.drawShipPass(sun, sunCol, p);
@@ -940,6 +946,14 @@ const Game = {
     gl.viewport(0, 0, this.skyRT.w, this.skyRT.h);
     gl.disable(gl.DEPTH_TEST);
     this.drawSkyPass(sun, sunCol, p);
+
+    /* ------------------------------------------------- 2b. spray on top -- */
+    /* After the water, not before it.  The ocean is drawn analytically in the
+       sky pass, so anything blended into the scene buffer in front of it ends
+       up composited against the sea *floor* and reads as a sticker cut out of
+       the sea.  Drawn here it blends over the finished water, and the scene
+       depth still occludes it behind the hull. */
+    if (p) this.drawSprayPass(sun, sunCol, p);
 
     /* --------------------------------------------------------- 3. bloom -- */
     this.drawBloom();
@@ -1107,33 +1121,42 @@ const Game = {
     belt.mesh.drawInstanced();
   },
 
-  /* Water thrown up by a ship flying low over an ocean.  Same instanced object
-     shader as the debris, and for the same reason: a few hundred small solids
-     that want sunlight and a minimum apparent size. */
+  /* Water thrown up by a ship flying low over an ocean.  Premultiplied alpha
+     over the sky target, depth-tested against the scene but writing no depth,
+     so the parcels accumulate properly instead of cutting each other out. */
   drawSprayPass(sun, sunCol, p) {
-    if (!Spray.mesh) return;
+    if (!Spray.mesh || !this.sprayFB) return;
     Spray.fillInstances(this.camPos);
     if (!Spray.count) return;
-    const gl = this.gl, pr = this.prog.debris;
+    const gl = this.gl, pr = this.prog.spray;
+    /* The sky pass left the scene depth bound as a sampler, and that same
+       texture is this framebuffer's depth attachment.  Bound to a unit and
+       attached at once is a feedback loop as far as the driver is concerned,
+       whether or not anything reads it, and the whole draw quietly vanishes. */
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sprayFB.fbo);
+    gl.viewport(0, 0, this.sprayFB.w, this.sprayFB.h);
     gl.useProgram(pr.prog);
     gl.uniformMatrix4fv(pr.u.uViewProj, false, this.viewProj);
     gl.uniform1f(pr.u.uFcoefHalf, this.fcoefHalf);
-    gl.uniform1f(pr.u.uTime, this.time);
-    gl.uniform1f(pr.u.uThrust, 0);
-    gl.uniform1f(pr.u.uGear, 1);
-    gl.uniform1f(pr.u.uHideCanopy, 0);
     gl.uniform3f(pr.u.uSunDir, sun[0], sun[1], sun[2]);
     gl.uniform3fv(pr.u.uSunColor, sunCol);
     gl.uniform3fv(pr.u.uAmbient, this.ambientColor(p));
-    gl.uniform3f(pr.u.uPlanetC, p.pos[0] - this.camPos[0], p.pos[1] - this.camPos[1], p.pos[2] - this.camPos[2]);
-    gl.uniform1f(pr.u.uR, p.radius);
-    this.bindLight(pr);
+    gl.uniform3f(pr.u.uCamRight, this.camRight[0], this.camRight[1], this.camRight[2]);
+    gl.uniform3f(pr.u.uCamUp, this.camUp[0], this.camUp[1], this.camUp[2]);
     gl.uniform1f(pr.u.uMinAngular, this.tanFovY * 2 * SPRAY.minPixels / Math.max(this.rt.h, 1));
-    _gMat3.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-    gl.uniformMatrix3fv(pr.u.uModelRot, false, _gMat3);
-    gl.uniform3f(pr.u.uOffset, 0, 0, 0);
     Spray.mesh.updateInstances(Spray.inst);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     Spray.mesh.drawInstanced(Spray.count);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(true);
   },
 
   /* The station: one opaque draw for the hull and everything inside it, then
