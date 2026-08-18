@@ -1,0 +1,3325 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>SPIDER-VERSE : New York — Jeu de balancement</title>
+<style>
+  :root{
+    --red:#d32027; --blue:#1f4bd8; --ink:#05070c; --paper:#f2f5ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05070c;color:#f2f5ff;
+    font-family:"Bahnschrift","DIN Alternate","Segoe UI",system-ui,-apple-system,sans-serif;
+    -webkit-user-select:none;user-select:none;touch-action:none}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .hidden{display:none !important}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .5s}
+  #hud.on{opacity:1}
+  .panel{position:absolute;padding:10px 14px;background:linear-gradient(180deg,rgba(6,9,18,.62),rgba(6,9,18,.38));
+    border:1px solid rgba(150,180,255,.18);border-radius:12px;backdrop-filter:blur(6px)}
+  #speedBox{left:26px;bottom:26px;min-width:190px}
+  .lbl{font-size:10px;letter-spacing:.22em;color:#8fa6d8;text-transform:uppercase}
+  .big{font-size:34px;font-weight:700;line-height:1;letter-spacing:.02em;
+    font-variant-numeric:tabular-nums;text-shadow:0 0 22px rgba(90,150,255,.45)}
+  .unit{font-size:12px;color:#9fb4e0;margin-left:6px;letter-spacing:.12em}
+  #speedBar{margin-top:8px;height:4px;border-radius:3px;background:rgba(255,255,255,.10);overflow:hidden}
+  #speedFill{height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,#3aa0ff,#7ee7ff 60%,#fff);
+    box-shadow:0 0 14px rgba(90,190,255,.8);transition:width .06s linear}
+  #altBox{left:236px;bottom:26px;min-width:126px}
+  #styleBox{right:26px;top:26px;text-align:right;min-width:170px}
+  #comboTag{font-size:12px;color:#ffd36e;letter-spacing:.14em;height:15px}
+  #trickFeed{position:absolute;right:26px;top:112px;text-align:right;width:320px}
+  .trick{font-size:15px;font-weight:700;letter-spacing:.06em;color:#ffe08a;
+    text-shadow:0 2px 16px rgba(255,180,60,.5);opacity:0;transform:translateX(26px);
+    animation:tk 2.1s ease-out forwards}
+  @keyframes tk{
+    0%{opacity:0;transform:translateX(26px) scale(.9)}
+    12%{opacity:1;transform:translateX(0) scale(1)}
+    72%{opacity:1;transform:translateX(0)}
+    100%{opacity:0;transform:translateX(-10px)}
+  }
+  #modeBox{left:26px;top:26px;min-width:200px}
+  #modeName{font-size:17px;font-weight:700;letter-spacing:.10em;color:#eaf1ff}
+  #clockRow{margin-top:6px;font-size:11px;color:#93a8d4;letter-spacing:.10em}
+
+  /* réticule */
+  #cross{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px}
+  #cross svg{width:100%;height:100%;overflow:visible}
+  .cwire{stroke:rgba(226,236,255,.75);stroke-width:1.6;fill:none;transition:stroke .18s}
+  #cross.lock .cwire{stroke:#ff5d63}
+  #cross .cdot{fill:rgba(226,236,255,.9)}
+  #cross.lock .cdot{fill:#ff5d63}
+  #cross .ring{transform-origin:center;transition:transform .18s,opacity .18s;opacity:.0}
+  #cross.lock .ring{opacity:1;transform:scale(1)}
+
+  /* aide touches */
+  #keys{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:9px;
+    font-size:10.5px;letter-spacing:.10em;color:#a9bce4;opacity:.85}
+  .k{padding:5px 9px;border:1px solid rgba(150,180,255,.22);border-radius:7px;background:rgba(6,9,18,.5)}
+  .k b{color:#fff;font-weight:700}
+
+  /* vignette de vitesse */
+  #speedVig{position:absolute;inset:0;opacity:0;transition:opacity .25s;
+    background:radial-gradient(ellipse at center,rgba(0,0,0,0) 42%,rgba(10,20,50,.55) 100%)}
+
+  /* ---------- Menu ---------- */
+  #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 50% 30%,#152144 0%,#070a16 55%,#03040a 100%);z-index:10}
+  #menuCard{width:min(880px,92vw);padding:38px 40px 30px;border-radius:22px;
+    background:linear-gradient(180deg,rgba(14,20,40,.86),rgba(6,9,20,.92));
+    border:1px solid rgba(120,160,255,.20);box-shadow:0 40px 120px rgba(0,0,0,.65)}
+  #logo{font-size:min(62px,9vw);font-weight:800;letter-spacing:.10em;line-height:.98;
+    background:linear-gradient(92deg,#ff2f38 0%,#ff6b5a 26%,#f2f6ff 52%,#4d86ff 78%,#1636c8 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 6px 30px rgba(255,60,70,.30))}
+  #sub{margin-top:8px;font-size:12.5px;letter-spacing:.34em;color:#8ea4d6;text-transform:uppercase}
+  #cols{display:grid;grid-template-columns:1.15fr .85fr;gap:26px;margin-top:26px}
+  @media (max-width:760px){#cols{grid-template-columns:1fr}}
+  .box{padding:16px 18px;border-radius:14px;background:rgba(255,255,255,.035);
+    border:1px solid rgba(140,170,255,.14)}
+  .box h3{font-size:11px;letter-spacing:.24em;color:#8fa6d8;text-transform:uppercase;margin-bottom:10px;font-weight:600}
+  .row{display:flex;justify-content:space-between;gap:14px;font-size:13px;color:#d6e0f7;padding:4px 0}
+  .row span:first-child{color:#9fb2da}
+  .row b{color:#fff;font-weight:600}
+  .seg{display:flex;gap:6px;margin-top:4px}
+  .seg button{flex:1;padding:8px 0;font:inherit;font-size:12px;letter-spacing:.08em;color:#b9c9ec;
+    background:rgba(255,255,255,.05);border:1px solid rgba(140,170,255,.18);border-radius:9px;cursor:pointer;
+    transition:.15s;pointer-events:auto}
+  .seg button:hover{background:rgba(120,160,255,.18);color:#fff}
+  .seg button.sel{background:linear-gradient(180deg,#2f6bff,#1b3fd0);color:#fff;border-color:#5b8cff;
+    box-shadow:0 6px 18px rgba(40,90,255,.35)}
+  #play{margin-top:24px;width:100%;padding:17px 0;font:inherit;font-size:17px;font-weight:800;letter-spacing:.20em;
+    color:#fff;cursor:pointer;border:0;border-radius:14px;text-transform:uppercase;
+    background:linear-gradient(92deg,#d81f28,#ff4b4b 40%,#2f6bff 100%);
+    box-shadow:0 14px 44px rgba(210,40,60,.35),inset 0 1px 0 rgba(255,255,255,.28);transition:.18s}
+  #play:hover{transform:translateY(-2px);box-shadow:0 20px 56px rgba(210,40,60,.5)}
+  #tip{margin-top:12px;text-align:center;font-size:11px;color:#7c8fba;letter-spacing:.10em}
+  #err{margin-top:14px;padding:12px;border-radius:10px;background:rgba(255,70,70,.10);
+    border:1px solid rgba(255,90,90,.35);color:#ffc7c7;font-size:12.5px;line-height:1.5}
+
+  /* pause */
+  #pause{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;
+    background:rgba(4,6,14,.72);backdrop-filter:blur(9px)}
+  #pause .box{width:min(420px,88vw);text-align:center;padding:30px}
+  #pause h2{font-size:26px;letter-spacing:.20em;margin-bottom:6px}
+  #pause p{font-size:12.5px;color:#9fb2da;letter-spacing:.10em;line-height:1.9}
+  #stats{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{padding:10px;border-radius:10px;background:rgba(255,255,255,.05)}
+  .stat b{display:block;font-size:20px;color:#fff}
+  .stat span{font-size:10px;letter-spacing:.16em;color:#93a8d4}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div id="speedVig"></div>
+
+  <div class="panel" id="modeBox">
+    <div class="lbl">État</div>
+    <div id="modeName">AU SOL</div>
+    <div id="clockRow">NEW YORK · 19:42 · CIEL DÉGAGÉ</div>
+  </div>
+
+  <div class="panel" id="speedBox">
+    <div class="lbl">Vitesse</div>
+    <div><span class="big" id="spd">0</span><span class="unit">KM/H</span></div>
+    <div id="speedBar"><div id="speedFill"></div></div>
+  </div>
+
+  <div class="panel" id="altBox">
+    <div class="lbl">Altitude</div>
+    <div><span class="big" id="alt">0</span><span class="unit">M</span></div>
+  </div>
+
+  <div class="panel" id="styleBox">
+    <div class="lbl">Points de style</div>
+    <div><span class="big" id="score">0</span></div>
+    <div id="comboTag"></div>
+  </div>
+
+  <div id="trickFeed"></div>
+
+  <div id="cross">
+    <svg viewBox="0 0 46 46">
+      <g class="ring"><circle cx="23" cy="23" r="15" class="cwire" stroke-dasharray="7 8"/></g>
+      <path class="cwire" d="M23 9 L23 17 M23 29 L23 37 M9 23 L17 23 M29 23 L37 23"/>
+      <circle class="cdot" cx="23" cy="23" r="1.7"/>
+    </svg>
+  </div>
+
+  <div id="keys">
+    <div class="k"><b>ZQSD/WASD</b> DÉPLACER</div>
+    <div class="k"><b>CLIC G</b> TOILE</div>
+    <div class="k"><b>ESPACE</b> SAUT</div>
+    <div class="k"><b>MAJ</b> PIQUÉ</div>
+    <div class="k"><b>CLIC D</b> TRACTION</div>
+    <div class="k"><b>ÉCHAP</b> PAUSE</div>
+  </div>
+</div>
+
+<div id="pause" class="hidden">
+  <div class="box">
+    <h2>PAUSE</h2>
+    <p>Clique n'importe où pour reprendre</p>
+    <div id="stats">
+      <div class="stat"><b id="pDist">0</b><span>MÈTRES PARCOURUS</span></div>
+      <div class="stat"><b id="pTop">0</b><span>VITESSE MAX KM/H</span></div>
+      <div class="stat"><b id="pSwings">0</b><span>BALANCEMENTS</span></div>
+      <div class="stat"><b id="pScore">0</b><span>POINTS DE STYLE</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="menu">
+  <div id="menuCard">
+    <div id="logo">SPIDER-VERSE</div>
+    <div id="sub">Manhattan · balancement libre</div>
+    <div id="cols">
+      <div class="box">
+        <h3>Commandes</h3>
+        <div class="row"><span>Se déplacer / courir</span><b>Z Q S D — W A S D</b></div>
+        <div class="row"><span>Lancer une toile &amp; se balancer</span><b>Clic gauche (maintenir)</b></div>
+        <div class="row"><span>Sauter / se détacher</span><b>Espace</b></div>
+        <div class="row"><span>Piqué (accélérer en chute)</span><b>Maj gauche</b></div>
+        <div class="row"><span>Traction rapide (zip)</span><b>Clic droit / E</b></div>
+        <div class="row"><span>Se coller / grimper un mur</span><b>Automatique au contact</b></div>
+        <div class="row"><span>Regarder</span><b>Souris</b></div>
+        <div class="row"><span>Vue rapprochée</span><b>Molette</b></div>
+      </div>
+      <div class="box">
+        <h3>Qualité graphique</h3>
+        <div class="seg" id="qseg">
+          <button data-q="0">BASSE</button>
+          <button data-q="1" class="sel">MOYENNE</button>
+          <button data-q="2">HAUTE</button>
+        </div>
+        <h3 style="margin-top:18px">Heure</h3>
+        <div class="seg" id="tseg">
+          <button data-t="0">JOUR</button>
+          <button data-t="1" class="sel">COUCHER</button>
+          <button data-t="2">NUIT</button>
+        </div>
+        <h3 style="margin-top:18px">Astuce</h3>
+        <div style="font-size:12px;color:#b7c6e8;line-height:1.7">
+          Relâche la toile en bas de l'arc pour catapulter, puis relance aussitôt : c'est la clé
+          d'un enchaînement fluide et rapide.
+        </div>
+      </div>
+    </div>
+    <button id="play">Entrer dans New York</button>
+    <div id="tip">La souris est capturée au lancement — Échap pour la libérer</div>
+    <div id="err" class="hidden"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   SPIDER-VERSE — moteur WebGL2 autonome (aucune bibliothèque externe)
+   ---------------------------------------------------------------------
+   1. Mathématiques (mat4 / quat / vec3)
+   2. Utilitaires WebGL + géométries procédurales
+   3. Shaders
+   4. Génération de Manhattan
+   5. Personnage (squelette + animation procédurale)
+   6. Physique du joueur (course, saut, balancement, mur) + caméra
+   7. Rendu (ombres, HDR, bloom, tonemapping) + boucle principale
+   ===================================================================== */
+
+/* ------------------------------------------------------------------ *
+ * 1. MATHS
+ * ------------------------------------------------------------------ */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+/* lissage exponentiel indépendant du framerate */
+const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
+const rndSeed = (s) => { let x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+function m4() { return new Float32Array(16); }
+function m4Identity(o) {
+  o[0]=1;o[1]=0;o[2]=0;o[3]=0; o[4]=0;o[5]=1;o[6]=0;o[7]=0;
+  o[8]=0;o[9]=0;o[10]=1;o[11]=0; o[12]=0;o[13]=0;o[14]=0;o[15]=1; return o;
+}
+function m4Mul(o, a, b) {
+  const a00=a[0],a01=a[1],a02=a[2],a03=a[3], a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+        a20=a[8],a21=a[9],a22=a[10],a23=a[11], a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+  let b0=b[0],b1=b[1],b2=b[2],b3=b[3];
+  o[0]=b0*a00+b1*a10+b2*a20+b3*a30; o[1]=b0*a01+b1*a11+b2*a21+b3*a31;
+  o[2]=b0*a02+b1*a12+b2*a22+b3*a32; o[3]=b0*a03+b1*a13+b2*a23+b3*a33;
+  b0=b[4];b1=b[5];b2=b[6];b3=b[7];
+  o[4]=b0*a00+b1*a10+b2*a20+b3*a30; o[5]=b0*a01+b1*a11+b2*a21+b3*a31;
+  o[6]=b0*a02+b1*a12+b2*a22+b3*a32; o[7]=b0*a03+b1*a13+b2*a23+b3*a33;
+  b0=b[8];b1=b[9];b2=b[10];b3=b[11];
+  o[8]=b0*a00+b1*a10+b2*a20+b3*a30; o[9]=b0*a01+b1*a11+b2*a21+b3*a31;
+  o[10]=b0*a02+b1*a12+b2*a22+b3*a32; o[11]=b0*a03+b1*a13+b2*a23+b3*a33;
+  b0=b[12];b1=b[13];b2=b[14];b3=b[15];
+  o[12]=b0*a00+b1*a10+b2*a20+b3*a30; o[13]=b0*a01+b1*a11+b2*a21+b3*a31;
+  o[14]=b0*a02+b1*a12+b2*a22+b3*a32; o[15]=b0*a03+b1*a13+b2*a23+b3*a33;
+  return o;
+}
+function m4Perspective(o, fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  o[0]=f/aspect;o[1]=0;o[2]=0;o[3]=0; o[4]=0;o[5]=f;o[6]=0;o[7]=0;
+  o[8]=0;o[9]=0;o[10]=(far+near)*nf;o[11]=-1;
+  o[12]=0;o[13]=0;o[14]=2*far*near*nf;o[15]=0; return o;
+}
+function m4Ortho(o, l, r, b, t, n, f) {
+  const lr=1/(l-r), bt=1/(b-t), nf=1/(n-f);
+  o[0]=-2*lr;o[1]=0;o[2]=0;o[3]=0; o[4]=0;o[5]=-2*bt;o[6]=0;o[7]=0;
+  o[8]=0;o[9]=0;o[10]=2*nf;o[11]=0;
+  o[12]=(l+r)*lr;o[13]=(t+b)*bt;o[14]=(f+n)*nf;o[15]=1; return o;
+}
+function m4LookAt(o, eye, center, up) {
+  let z0=eye[0]-center[0], z1=eye[1]-center[1], z2=eye[2]-center[2];
+  let len = Math.hypot(z0,z1,z2); if (len < 1e-6) { z0=0;z1=0;z2=1;len=1; }
+  len=1/len; z0*=len; z1*=len; z2*=len;
+  let x0=up[1]*z2-up[2]*z1, x1=up[2]*z0-up[0]*z2, x2=up[0]*z1-up[1]*z0;
+  len = Math.hypot(x0,x1,x2);
+  if (len < 1e-6) { x0=1;x1=0;x2=0; } else { len=1/len; x0*=len;x1*=len;x2*=len; }
+  const y0=z1*x2-z2*x1, y1=z2*x0-z0*x2, y2=z0*x1-z1*x0;
+  o[0]=x0;o[1]=y0;o[2]=z0;o[3]=0; o[4]=x1;o[5]=y1;o[6]=z1;o[7]=0;
+  o[8]=x2;o[9]=y2;o[10]=z2;o[11]=0;
+  o[12]=-(x0*eye[0]+x1*eye[1]+x2*eye[2]);
+  o[13]=-(y0*eye[0]+y1*eye[1]+y2*eye[2]);
+  o[14]=-(z0*eye[0]+z1*eye[1]+z2*eye[2]); o[15]=1; return o;
+}
+function m4Invert(o, a) {
+  const a00=a[0],a01=a[1],a02=a[2],a03=a[3], a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+        a20=a[8],a21=a[9],a22=a[10],a23=a[11], a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+  const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10,
+        b03=a01*a12-a02*a11, b04=a01*a13-a03*a11, b05=a02*a13-a03*a12,
+        b06=a20*a31-a21*a30, b07=a20*a32-a22*a30, b08=a20*a33-a23*a30,
+        b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+  let det = b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  if (!det) return m4Identity(o);
+  det = 1/det;
+  o[0]=(a11*b11-a12*b10+a13*b09)*det; o[1]=(a02*b10-a01*b11-a03*b09)*det;
+  o[2]=(a31*b05-a32*b04+a33*b03)*det; o[3]=(a22*b04-a21*b05-a23*b03)*det;
+  o[4]=(a12*b08-a10*b11-a13*b07)*det; o[5]=(a00*b11-a02*b08+a03*b07)*det;
+  o[6]=(a32*b02-a30*b05-a33*b01)*det; o[7]=(a20*b05-a22*b02+a23*b01)*det;
+  o[8]=(a10*b10-a11*b08+a13*b06)*det; o[9]=(a01*b08-a00*b10-a03*b06)*det;
+  o[10]=(a30*b04-a31*b02+a33*b00)*det; o[11]=(a21*b02-a20*b04-a23*b00)*det;
+  o[12]=(a11*b07-a10*b09-a12*b06)*det; o[13]=(a00*b09-a01*b07+a02*b06)*det;
+  o[14]=(a31*b01-a30*b03-a32*b00)*det; o[15]=(a20*b03-a21*b01+a22*b00)*det;
+  return o;
+}
+/* compose translation + quaternion + échelle */
+function m4Compose(o, p, q, s) {
+  const x=q[0],y=q[1],z=q[2],w=q[3];
+  const x2=x+x, y2=y+y, z2=z+z;
+  const xx=x*x2, xy=x*y2, xz=x*z2, yy=y*y2, yz=y*z2, zz=z*z2;
+  const wx=w*x2, wy=w*y2, wz=w*z2;
+  const sx=s[0], sy=s[1], sz=s[2];
+  o[0]=(1-(yy+zz))*sx; o[1]=(xy+wz)*sx;     o[2]=(xz-wy)*sx;     o[3]=0;
+  o[4]=(xy-wz)*sy;     o[5]=(1-(xx+zz))*sy; o[6]=(yz+wx)*sy;     o[7]=0;
+  o[8]=(xz+wy)*sz;     o[9]=(yz-wx)*sz;     o[10]=(1-(xx+yy))*sz;o[11]=0;
+  o[12]=p[0];o[13]=p[1];o[14]=p[2];o[15]=1; return o;
+}
+function m4XformPoint(out, m, p) {
+  const x=p[0],y=p[1],z=p[2];
+  out[0]=m[0]*x+m[4]*y+m[8]*z+m[12];
+  out[1]=m[1]*x+m[5]*y+m[9]*z+m[13];
+  out[2]=m[2]*x+m[6]*y+m[10]*z+m[14];
+  return out;
+}
+function m4XformDir(out, m, p) {
+  const x=p[0],y=p[1],z=p[2];
+  out[0]=m[0]*x+m[4]*y+m[8]*z;
+  out[1]=m[1]*x+m[5]*y+m[9]*z;
+  out[2]=m[2]*x+m[6]*y+m[10]*z;
+  return out;
+}
+
+/* --- quaternions [x,y,z,w] --- */
+function qNew() { return new Float32Array([0,0,0,1]); }
+function qSet(o,x,y,z,w){o[0]=x;o[1]=y;o[2]=z;o[3]=w;return o;}
+function qCopy(o,a){o[0]=a[0];o[1]=a[1];o[2]=a[2];o[3]=a[3];return o;}
+function qMul(o, a, b) {
+  const ax=a[0],ay=a[1],az=a[2],aw=a[3], bx=b[0],by=b[1],bz=b[2],bw=b[3];
+  o[0]=ax*bw+aw*bx+ay*bz-az*by;
+  o[1]=ay*bw+aw*by+az*bx-ax*bz;
+  o[2]=az*bw+aw*bz+ax*by-ay*bx;
+  o[3]=aw*bw-ax*bx-ay*by-az*bz; return o;
+}
+/* ordre XYZ (appliqué X puis Y puis Z) */
+function qFromEuler(o, x, y, z) {
+  const c1=Math.cos(x/2), s1=Math.sin(x/2);
+  const c2=Math.cos(y/2), s2=Math.sin(y/2);
+  const c3=Math.cos(z/2), s3=Math.sin(z/2);
+  o[0]=s1*c2*c3+c1*s2*s3;
+  o[1]=c1*s2*c3-s1*c2*s3;
+  o[2]=c1*c2*s3+s1*s2*c3;
+  o[3]=c1*c2*c3-s1*s2*s3; return o;
+}
+function qFromAxisAngle(o, ax, ay, az, ang) {
+  const h = ang/2, s = Math.sin(h);
+  o[0]=ax*s;o[1]=ay*s;o[2]=az*s;o[3]=Math.cos(h); return o;
+}
+function qSlerp(o, a, b, t) {
+  let ax=a[0],ay=a[1],az=a[2],aw=a[3];
+  let bx=b[0],by=b[1],bz=b[2],bw=b[3];
+  let cos = ax*bx+ay*by+az*bz+aw*bw;
+  if (cos < 0) { cos=-cos; bx=-bx; by=-by; bz=-bz; bw=-bw; }
+  let s0, s1;
+  if (1 - cos > 1e-6) {
+    const om = Math.acos(cos), sn = Math.sin(om);
+    s0 = Math.sin((1-t)*om)/sn; s1 = Math.sin(t*om)/sn;
+  } else { s0 = 1-t; s1 = t; }
+  o[0]=s0*ax+s1*bx; o[1]=s0*ay+s1*by; o[2]=s0*az+s1*bz; o[3]=s0*aw+s1*bw; return o;
+}
+/* quaternion amenant le vecteur unitaire a sur b */
+function qFromUnitVectors(o, a, b) {
+  let r = a[0]*b[0]+a[1]*b[1]+a[2]*b[2] + 1;
+  if (r < 1e-6) { // opposés
+    r = 0;
+    if (Math.abs(a[0]) > Math.abs(a[2])) { o[0]=-a[1];o[1]=a[0];o[2]=0; }
+    else { o[0]=0;o[1]=-a[2];o[2]=a[1]; }
+  } else {
+    o[0]=a[1]*b[2]-a[2]*b[1];
+    o[1]=a[2]*b[0]-a[0]*b[2];
+    o[2]=a[0]*b[1]-a[1]*b[0];
+  }
+  o[3]=r;
+  const l = Math.hypot(o[0],o[1],o[2],o[3]) || 1;
+  o[0]/=l;o[1]/=l;o[2]/=l;o[3]/=l; return o;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. UTILITAIRES WEBGL + GÉOMÉTRIES
+ * ------------------------------------------------------------------ */
+const canvas = document.getElementById('gl');
+let gl = null;
+try {
+  gl = canvas.getContext('webgl2', {
+    antialias: false, alpha: false, depth: true, stencil: false,
+    powerPreference: 'high-performance', preserveDrawingBuffer: false
+  });
+} catch (e) { gl = null; }
+
+function fatal(msg) {
+  const el = document.getElementById('err');
+  el.classList.remove('hidden');
+  el.textContent = msg;
+  const p = document.getElementById('play');
+  if (p) { p.disabled = true; p.style.opacity = .4; p.style.cursor = 'not-allowed'; }
+}
+if (!gl) {
+  fatal("WebGL2 n'est pas disponible sur ce navigateur. Utilise une version récente de Chrome, Edge, Firefox ou Safari, et vérifie que l'accélération matérielle est activée.");
+}
+
+const GLX = {
+  floatColor: false,     // rendu HDR possible ?
+  aniso: null,
+  maxTex: 2048
+};
+
+function compileShader(type, src, label) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(sh);
+    console.error('[shader] ' + label + '\n' + log + '\n' + src.split('\n')
+      .map((l, i) => (i + 1) + ': ' + l).join('\n'));
+    throw new Error('Compilation shader "' + label + '" : ' + log);
+  }
+  return sh;
+}
+
+function makeProgram(vsSrc, fsSrc, label) {
+  const p = gl.createProgram();
+  const vs = compileShader(gl.VERTEX_SHADER, vsSrc, label + '.vert');
+  const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc, label + '.frag');
+  gl.attachShader(p, vs); gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error('Édition de liens "' + label + '" : ' + gl.getProgramInfoLog(p));
+  }
+  gl.deleteShader(vs); gl.deleteShader(fs);
+  // cache des uniforms
+  const u = Object.create(null);
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    const nm = info.name.replace(/\[0\]$/, '');
+    u[nm] = gl.getUniformLocation(p, info.name);
+  }
+  return { prog: p, u: u, name: label };
+}
+
+/* --- géométries : format entrelacé pos(3) nrm(3) uv(2) --- */
+function makeMesh(verts, indices) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+  const S = 8 * 4;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, S, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, S, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, S, 24);
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao: vao, vbo: vbo, ibo: ibo, count: indices.length };
+}
+
+/* cube unité centré, arêtes de 1 */
+function geoBox() {
+  const v = [], idx = [];
+  const faces = [
+    [[ 1,0,0], [0,0,1], [0,1,0]], [[-1,0,0], [0,0,-1],[0,1,0]],
+    [[0, 1,0], [1,0,0], [0,0,-1]],[[0,-1,0], [1,0,0], [0,0,1]],
+    [[0,0, 1], [-1,0,0],[0,1,0]], [[0,0,-1], [1,0,0], [0,1,0]]
+  ];
+  for (let f = 0; f < 6; f++) {
+    const n = faces[f][0], t = faces[f][1], b = faces[f][2];
+    const base = v.length / 8;
+    for (let i = 0; i < 4; i++) {
+      const su = (i === 1 || i === 2) ? 0.5 : -0.5;
+      const sv = (i >= 2) ? 0.5 : -0.5;
+      v.push(n[0]*0.5 + t[0]*su + b[0]*sv,
+             n[1]*0.5 + t[1]*su + b[1]*sv,
+             n[2]*0.5 + t[2]*su + b[2]*sv,
+             n[0], n[1], n[2], su + 0.5, sv + 0.5);
+    }
+    idx.push(base, base+2, base+1, base, base+3, base+2);
+  }
+  return makeMesh(v, idx);
+}
+
+/* Capsule aux dimensions réelles : de y=0 à y=len, rayon r.
+   Les calottes restent hémisphériques quelle que soit la longueur. */
+function geoCapsuleAbs(r, len, seg, rings) {
+  seg = seg || 14; rings = rings || 5;
+  const cyl = Math.max(0, len - 2 * r);
+  const v = [], idx = [], rows = [];
+  for (let i = 0; i <= rings; i++) {          /* calotte basse */
+    const a = (i / rings) * Math.PI * 0.5;
+    rows.push({ y: r - Math.cos(a) * r, rad: Math.sin(a) * r, ny: -Math.cos(a) });
+  }
+  rows.push({ y: r + cyl, rad: r, ny: 0 });   /* haut du fût */
+  for (let i = 1; i <= rings; i++) {          /* calotte haute */
+    const a = (i / rings) * Math.PI * 0.5;
+    rows.push({ y: r + cyl + Math.sin(a) * r, rad: Math.cos(a) * r, ny: Math.sin(a) });
+  }
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri];
+    const nr = Math.sqrt(Math.max(0, 1 - row.ny * row.ny));
+    for (let sI = 0; sI <= seg; sI++) {
+      const th = (sI / seg) * TAU, cx = Math.cos(th), sz = Math.sin(th);
+      v.push(cx * row.rad, row.y, sz * row.rad, cx * nr, row.ny, sz * nr, sI / seg, row.y / len);
+    }
+  }
+  const stride = seg + 1;
+  for (let ri = 0; ri < rows.length - 1; ri++) {
+    for (let sI = 0; sI < seg; sI++) {
+      const a = ri * stride + sI, b = a + stride;
+      idx.push(a, b + 1, b, a, a + 1, b + 1);
+    }
+  }
+  const m = makeMesh(v, idx);
+  m.len = len; m.rad = r;
+  return m;
+}
+
+/* sphère unité (diamètre 1) centrée */
+function geoSphere(seg, rings) {
+  seg = seg || 16; rings = rings || 12;
+  const v = [], idx = [];
+  for (let r = 0; r <= rings; r++) {
+    const phi = (r / rings) * Math.PI;
+    const y = Math.cos(phi), rad = Math.sin(phi);
+    for (let s = 0; s <= seg; s++) {
+      const th = (s / seg) * TAU;
+      const x = Math.cos(th) * rad, z = Math.sin(th) * rad;
+      v.push(x * 0.5, y * 0.5, z * 0.5, x, y, z, s / seg, r / rings);
+    }
+  }
+  const stride = seg + 1;
+  for (let r = 0; r < rings; r++) for (let s = 0; s < seg; s++) {
+    const a = r * stride + s, b = a + stride;
+    idx.push(a, b + 1, b, a, a + 1, b + 1);
+  }
+  return makeMesh(v, idx);
+}
+
+/* cylindre : base y=0, sommet y=1, rayon 0.5 */
+function geoCylinder(seg) {
+  seg = seg || 8;
+  const v = [], idx = [];
+  for (let s = 0; s <= seg; s++) {
+    const th = (s / seg) * TAU, cx = Math.cos(th), sz = Math.sin(th);
+    v.push(cx * 0.5, 0, sz * 0.5, cx, 0, sz, s / seg, 0);
+    v.push(cx * 0.5, 1, sz * 0.5, cx, 0, sz, s / seg, 1);
+  }
+  for (let s = 0; s < seg; s++) {
+    const a = s * 2;
+    idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
+  }
+  return makeMesh(v, idx);
+}
+
+/* plan XZ centré, taille 1 */
+function geoPlane(sub) {
+  sub = sub || 1;
+  const v = [], idx = [];
+  for (let z = 0; z <= sub; z++) for (let x = 0; x <= sub; x++) {
+    v.push(x / sub - 0.5, 0, z / sub - 0.5, 0, 1, 0, x / sub, z / sub);
+  }
+  const st = sub + 1;
+  for (let z = 0; z < sub; z++) for (let x = 0; x < sub; x++) {
+    const a = z * st + x, b = a + st;
+    idx.push(a, b, b + 1, a, b + 1, a + 1);
+  }
+  return makeMesh(v, idx);
+}
+
+/* triangle plein écran (sans VBO d'attributs) */
+function makeFsTri() {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  return { vao: vao, count: 3 };
+}
+
+/* ------- framebuffers ------- */
+function makeColorTarget(w, h, float, withDepth) {
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  const ifmt = float ? gl.RGBA16F : gl.RGBA8;
+  const type = float ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+  gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, gl.RGBA, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  let depth = null;
+  if (withDepth) {
+    depth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fb: fb, tex: tex, depth: depth, w: w, h: h };
+}
+
+function makeShadowTarget(size) {
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, size, size, 0,
+                gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0);
+  gl.drawBuffers([gl.NONE]);
+  gl.readBuffer(gl.NONE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fb: fb, tex: tex, size: size };
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. SHADERS
+ * ------------------------------------------------------------------ */
+const S_HEAD = `#version 300 es
+precision highp float;
+precision highp int;
+`;
+
+/* fonctions partagées : bruit, ciel, brume, ombres */
+const S_COMMON = `
+uniform vec3  uSunDir;
+uniform vec3  uSunColor;
+uniform vec3  uSkyZenith;
+uniform vec3  uSkyHorizon;
+uniform vec3  uSkyGround;
+uniform vec3  uCamPos;
+uniform float uFogDensity;
+uniform float uTime;
+uniform float uNight;
+uniform sampler2D uShadowMap;
+uniform mat4  uLightVP;
+uniform float uShadowTexel;
+uniform float uShadowOn;
+
+float hash11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
+float hash12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+float hash13(vec3 p3){ p3=fract(p3*0.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+float noise2(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash12(i),hash12(i+vec2(1,0)),f.x),
+             mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),f.x), f.y);
+}
+float fbm(vec2 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*noise2(p); p*=2.03; a*=0.5; } return s; }
+
+vec3 skyColor(vec3 dir){
+  float y = dir.y;
+  float h = pow(clamp(y,0.0,1.0), 0.62);
+  vec3 c = mix(uSkyHorizon, uSkyZenith, h);
+  c = mix(c, uSkyGround, smoothstep(0.0,-0.20,y));
+  float sd = max(dot(normalize(dir), uSunDir), 0.0);
+  c += uSunColor * (pow(sd,10.0)*0.30 + pow(sd,2.5)*0.09);
+  return c;
+}
+
+vec3 applyFog(vec3 col, vec3 worldPos, float dist){
+  vec3 dir = normalize(worldPos - uCamPos);
+  float f = 1.0 - exp(-dist*uFogDensity);
+  f *= mix(1.0, 0.30, clamp(worldPos.y/420.0,0.0,1.0));
+  f = clamp(f,0.0,1.0);
+  return mix(col, skyColor(dir), f);
+}
+
+float shadowFactor(vec3 wp, float ndl){
+  if(uShadowOn < 0.5) return 1.0;
+  vec4 lp = uLightVP*vec4(wp,1.0);
+  vec3 pc = lp.xyz/lp.w*0.5+0.5;
+  if(pc.x<0.003||pc.x>0.997||pc.y<0.003||pc.y>0.997||pc.z>1.0) return 1.0;
+  float bias = max(0.0035*(1.0-ndl), 0.0009);
+  float s = 0.0;
+  for(int y=-1;y<=1;y++){
+    for(int x=-1;x<=1;x++){
+      float d = texture(uShadowMap, pc.xy + vec2(float(x),float(y))*uShadowTexel).r;
+      s += (pc.z - bias > d) ? 0.0 : 1.0;
+    }
+  }
+  return s/9.0;
+}
+
+/* éclairage commun : soleil + ambiance hémisphérique + spéculaire */
+vec3 lightSurface(vec3 albedo, vec3 N, vec3 wp, float specInt, float gloss){
+  vec3 V = normalize(uCamPos - wp);
+  float ndl = max(dot(N,uSunDir),0.0);
+  float sh = shadowFactor(wp, ndl);
+  vec3 direct = uSunColor * ndl * sh;
+  vec3 skyAmb = mix(uSkyGround*0.55, uSkyZenith, N.y*0.5+0.5);
+  vec3 amb = skyAmb * (0.34 + 0.20*uNight);
+  vec3 col = albedo * (direct + amb);
+  vec3 H = normalize(uSunDir + V);
+  float sp = pow(max(dot(N,H),0.0), gloss) * specInt * sh;
+  col += uSunColor * sp;
+  return col;
+}
+`;
+
+/* ---------------- CIEL ---------------- */
+const VS_SKY = S_HEAD + `
+layout(location=0) in vec2 aP;
+out vec2 vNdc;
+void main(){ vNdc = aP; gl_Position = vec4(aP, 1.0, 1.0); }
+`;
+const FS_SKY = S_HEAD + S_COMMON + `
+in vec2 vNdc;
+uniform mat4 uInvVP;
+out vec4 fragColor;
+
+float cloudLayer(vec3 dir, float height, float scale, float t){
+  if(dir.y < 0.012) return 0.0;
+  float dist = (height - uCamPos.y)/dir.y;
+  if(dist < 0.0) return 0.0;
+  vec2 uv = (uCamPos.xz + dir.xz*dist)*scale + vec2(t*0.006, t*0.002);
+  float f = fbm(uv);
+  f = smoothstep(0.46, 0.88, f);
+  return f * smoothstep(0.012, 0.14, dir.y);
+}
+
+void main(){
+  vec4 p = uInvVP * vec4(vNdc, 1.0, 1.0);
+  vec3 dir = normalize(p.xyz/p.w - uCamPos);
+  vec3 col = skyColor(dir);
+
+  /* étoiles (nuit) */
+  if(uNight > 0.05 && dir.y > 0.0){
+    vec3 sd = dir*180.0;
+    vec2 cell = floor(sd.xz/2.0 + sd.y*0.5);
+    float st = hash12(cell);
+    float twinkle = 0.6+0.4*sin(uTime*2.0 + st*40.0);
+    float s = smoothstep(0.9975, 1.0, st) * twinkle;
+    col += vec3(0.85,0.9,1.0) * s * 2.4 * uNight * smoothstep(0.02,0.35,dir.y);
+  }
+
+  /* disque solaire + halo */
+  float sd = max(dot(dir, uSunDir), 0.0);
+  col += uSunColor * pow(sd, 2400.0) * 26.0;
+  col += uSunColor * pow(sd, 60.0) * 0.55;
+
+  /* deux couches de nuages */
+  float c1 = cloudLayer(dir, 900.0, 0.00042, uTime);
+  float c2 = cloudLayer(dir, 1500.0, 0.00021, uTime*0.6);
+  float lightSide = clamp(dot(dir, uSunDir)*0.5+0.5, 0.0, 1.0);
+  vec3 cloudCol = mix(uSkyGround*0.85, uSunColor*0.95 + vec3(0.35), lightSide);
+  cloudCol = mix(cloudCol*0.55, cloudCol, 1.0-uNight*0.55);
+  col = mix(col, cloudCol*1.15, c1*0.75);
+  col = mix(col, cloudCol*0.95, c2*0.45);
+
+  /* voile de pollution lumineuse à l'horizon */
+  float haze = exp(-abs(dir.y)*7.0);
+  col = mix(col, uSkyHorizon*(1.0+uNight*0.4), haze*0.55);
+
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------------- INSTANCES (immeubles / accessoires / véhicules) ---------------- */
+const VS_INST = S_HEAD + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aUV;
+layout(location=3) in vec3 iPos;
+layout(location=4) in vec3 iSize;
+layout(location=5) in vec3 iColor;
+layout(location=6) in vec4 iParam;
+uniform mat4 uVP;
+out vec3 vWorld; out vec3 vNrm; out vec3 vLocal;
+flat out vec3 vSize; flat out vec3 vColor; flat out vec4 vParam;
+void main(){
+  vec3 lp = aPos*iSize;
+  vec3 n  = aNrm;
+  /* rotation Y facultative (véhicules) : iParam.z = angle si style >= 2 */
+  if(iParam.y > 1.5){
+    float a = iParam.z;
+    float c = cos(a), s = sin(a);
+    lp = vec3(c*lp.x + s*lp.z, lp.y, -s*lp.x + c*lp.z);
+    n  = vec3(c*n.x + s*n.z, n.y, -s*n.x + c*n.z);
+  }
+  vec3 wp = lp + iPos;
+  vWorld = wp; vNrm = n; vLocal = aPos*iSize;
+  vSize = iSize; vColor = iColor; vParam = iParam;
+  gl_Position = uVP*vec4(wp,1.0);
+}
+`;
+
+const FS_INST = S_HEAD + S_COMMON + `
+in vec3 vWorld; in vec3 vNrm; in vec3 vLocal;
+flat in vec3 vSize; flat in vec3 vColor; flat in vec4 vParam;
+out vec4 fragColor;
+
+void main(){
+  vec3 N = normalize(vNrm);
+  float style = vParam.y;
+  float seed = vParam.x;
+  vec3 albedo = vColor;
+  vec3 emissive = vec3(0.0);
+  float specInt = 0.05, gloss = 30.0;
+
+  if(style < 0.5){
+    /* ---------- gratte-ciel ---------- */
+    float floorH = vParam.z;
+    float winW   = vParam.w;
+    float up = vLocal.y + vSize.y*0.5;
+    if(abs(N.y) > 0.5){
+      float n = noise2(vWorld.xz*0.9);
+      float n2 = noise2(vWorld.xz*0.15);
+      albedo = mix(vec3(0.115,0.120,0.125), vec3(0.20,0.195,0.185), n*0.6+n2*0.4);
+      specInt = 0.02; gloss = 12.0;
+    } else {
+      float u = (abs(N.x) > 0.5) ? vWorld.z : vWorld.x;
+      vec2 cell = vec2(u/winW, up/floorH);
+      vec2 id = floor(cell);
+      vec2 f  = fract(cell);
+      float rnd = hash12(id + vec2(seed*13.7, seed*4.1));
+
+      float inW = step(0.13,f.x)*step(f.x,0.87)*step(0.17,f.y)*step(f.y,0.83);
+      float band = smoothstep(0.88,1.0,f.y) + smoothstep(0.09,0.0,f.y);
+
+      vec3 wall = vColor * (0.88 + 0.24*hash12(id*1.7 + seed));
+      wall *= 1.0 - 0.22*band;
+      wall *= 0.86 + 0.24*fbm(vec2(u*0.30, up*0.05));
+      wall *= mix(0.42, 1.0, smoothstep(0.0, 30.0, up));
+
+      vec3 R = reflect(normalize(vWorld-uCamPos), N);
+      vec3 glass = mix(vec3(0.030,0.045,0.070), skyColor(R), 0.62);
+
+      float litProb = 0.05 + 0.36*uNight + 0.07*hash11(seed*3.1);
+      float lit = step(rnd, litProb);
+      float flick = 0.88 + 0.12*sin(uTime*(0.35+rnd*0.6) + rnd*44.0);
+      vec3 warm = mix(vec3(1.0,0.80,0.50), vec3(0.74,0.87,1.0), step(0.62, fract(rnd*7.31)));
+
+      albedo = mix(wall, glass, inW);
+      emissive = warm * inW * lit * flick * (0.22 + 1.05*uNight);
+
+      /* vitrines du rez-de-chaussée */
+      float shop = step(up, 7.0) * step(0.10,f.x)*step(f.x,0.90);
+      emissive += mix(vec3(1.0,0.85,0.55), vec3(0.6,0.9,1.0), hash11(seed*9.0)) *
+                  shop * (0.12 + 0.65*uNight);
+
+      specInt = mix(0.04, 0.55, inW);
+      gloss   = mix(20.0, 150.0, inW);
+    }
+  } else if(style < 1.5){
+    /* ---------- accessoires de toit (citernes, blocs de clim, antennes) ---------- */
+    float n = noise2(vWorld.xz*2.3 + seed);
+    albedo = vColor * (0.82 + 0.30*n);
+    specInt = 0.06; gloss = 26.0;
+    emissive = vec3(0.0);
+    /* balise rouge au sommet des antennes */
+    if(vParam.w > 0.5){
+      float blink = step(0.55, fract(uTime*0.45 + seed));
+      emissive = vec3(1.0,0.06,0.05) * blink * 2.6;
+      albedo *= 0.4;
+    }
+  } else if(style < 2.5){
+    /* ---------- véhicules ---------- */
+    float fwd = vLocal.z / max(vSize.z*0.5, 0.001);
+    albedo = vColor;
+    specInt = 0.55; gloss = 90.0;
+    float sideMask = step(0.65, abs(fwd));
+    float lampRow = step(abs(vLocal.y - vSize.y*0.08), vSize.y*0.16);
+    float lamp = sideMask * lampRow * step(0.35, abs(vLocal.x)/max(vSize.x*0.5,0.001));
+    vec3 head = vec3(1.0,0.95,0.85)*2.6;
+    vec3 tail = vec3(1.0,0.10,0.06)*1.7;
+    emissive = mix(tail, head, step(0.0, fwd)) * lamp;
+    /* vitres sombres */
+    float glassBand = step(abs(vLocal.y - vSize.y*0.28), vSize.y*0.14) * (1.0-sideMask);
+    albedo = mix(albedo, vec3(0.02,0.03,0.05), glassBand);
+  } else {
+    /* ---------- panneaux lumineux / néons ---------- */
+    float n = fbm(vec2(vLocal.x*0.7, vLocal.y*0.7) + seed*10.0);
+    vec3 neon = vColor;
+    float scan = 0.75 + 0.25*sin(vLocal.y*7.0 + uTime*2.2 + seed*20.0);
+    albedo = neon*0.15;
+    emissive = neon * (0.8 + 0.8*n) * scan * (0.45 + 1.15*uNight) * step(0.55, abs(N.z)+abs(N.x));
+    specInt = 0.1; gloss = 40.0;
+  }
+
+  vec3 col = lightSurface(albedo, N, vWorld, specInt, gloss) + emissive;
+  float dist = length(vWorld - uCamPos);
+  col = applyFog(col, vWorld, dist);
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------------- SOL : rues, trottoirs, marquages ---------------- */
+const VS_GROUND = S_HEAD + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aUV;
+uniform mat4 uVP;
+uniform float uScale;
+out vec3 vWorld;
+void main(){
+  vec3 wp = vec3(aPos.x*uScale, 0.0, aPos.z*uScale);
+  vWorld = wp;
+  gl_Position = uVP*vec4(wp,1.0);
+}
+`;
+const FS_GROUND = S_HEAD + S_COMMON + `
+in vec3 vWorld;
+uniform float uBlock;   /* période de la grille */
+uniform float uRoad;    /* largeur de chaussée */
+out vec4 fragColor;
+
+void main(){
+  vec2 w = vWorld.xz;
+  vec2 g = mod(w + uBlock*0.5, uBlock) - uBlock*0.5;
+  float hw = uRoad*0.5;
+  float sw = 5.0;                         /* trottoir */
+  float rx = step(abs(g.x), hw);
+  float rz = step(abs(g.y), hw);
+  float road = max(rx, rz);
+  float inter = rx*rz;
+  float walk = max(step(abs(g.x), hw+sw), step(abs(g.y), hw+sw)) - road;
+
+  float grain = fbm(w*0.55);
+  float grain2 = fbm(w*4.0);
+
+  vec3 albedo; float specInt; float gloss;
+
+  /* --- chaussée --- */
+  vec3 asphalt = mix(vec3(0.030,0.032,0.038), vec3(0.075,0.078,0.086), grain*0.7+grain2*0.3);
+  /* lignes axiales discontinues */
+  float dashX = rx*(1.0-inter)*step(abs(g.x),0.30)*step(0.45, fract(w.y*0.10));
+  float dashZ = rz*(1.0-inter)*step(abs(g.y),0.30)*step(0.45, fract(w.x*0.10));
+  /* passages piétons près des carrefours */
+  float nearIx = step(abs(abs(g.x)-hw*0.72), hw*0.16);
+  float nearIz = step(abs(abs(g.y)-hw*0.72), hw*0.16);
+  float crossX = rx*rz*nearIx*step(0.5, fract(g.y*0.55));
+  float crossZ = rx*rz*nearIz*step(0.5, fract(g.x*0.55));
+  float paint = clamp(dashX+dashZ+crossX+crossZ, 0.0, 1.0);
+  asphalt = mix(asphalt, vec3(0.62,0.60,0.50), paint*0.85);
+  /* flaques */
+  float pud = smoothstep(0.62, 0.80, fbm(w*0.09));
+
+  /* --- trottoir --- */
+  vec2 tile = fract(w/1.6);
+  float joint = step(0.94, max(tile.x, tile.y));
+  vec3 walkCol = mix(vec3(0.19,0.19,0.20), vec3(0.30,0.30,0.31), grain2*0.8);
+  walkCol *= 1.0 - joint*0.35;
+  /* bordure */
+  float curb = max(step(abs(abs(g.x)-hw), 0.5), step(abs(abs(g.y)-hw), 0.5));
+  walkCol = mix(walkCol, vec3(0.36,0.36,0.37), curb*0.7);
+
+  /* --- intérieur d'îlot (socle) --- */
+  vec3 lot = mix(vec3(0.055,0.055,0.060), vec3(0.10,0.10,0.105), grain);
+
+  albedo = lot;
+  albedo = mix(albedo, walkCol, clamp(walk,0.0,1.0));
+  albedo = mix(albedo, asphalt, road);
+
+  specInt = mix(0.03, mix(0.10, 0.70, pud), road);
+  gloss   = mix(18.0, 110.0, road);
+
+  vec3 N = vec3(0.0,1.0,0.0);
+  vec3 col = lightSurface(albedo, N, vWorld, specInt, gloss);
+
+  /* halos des lampadaires la nuit */
+  vec2 lp = mod(w + uBlock*0.5, uBlock) - uBlock*0.5;
+  float lampGrid = smoothstep(6.0, 0.0, abs(abs(lp.x)-(hw+2.0))) *
+                   step(0.72, fract(w.y*0.035));
+  float lampGrid2 = smoothstep(6.0, 0.0, abs(abs(lp.y)-(hw+2.0))) *
+                    step(0.72, fract(w.x*0.035));
+  col += vec3(1.0,0.72,0.38) * (lampGrid+lampGrid2) * (0.10 + 0.85*uNight);
+
+  float dist = length(vWorld - uCamPos);
+  col = applyFog(col, vWorld, dist);
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------------- PERSONNAGE ---------------- */
+const VS_CHAR = S_HEAD + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aUV;
+uniform mat4 uVP;
+uniform mat4 uModel;
+uniform mat3 uNormalMat;
+out vec3 vWorld; out vec3 vNrm; out vec3 vLocal; out vec2 vUV;
+void main(){
+  vec4 wp = uModel*vec4(aPos,1.0);
+  vWorld = wp.xyz;
+  vNrm = normalize(uNormalMat*aNrm);
+  vLocal = aPos;
+  vUV = aUV;
+  gl_Position = uVP*wp;
+}
+`;
+const FS_CHAR = S_HEAD + S_COMMON + `
+in vec3 vWorld; in vec3 vNrm; in vec3 vLocal; in vec2 vUV;
+uniform vec3 uBaseColor;
+uniform int  uMode;       /* 0 rouge toilé · 1 bleu · 2 lentille · 3 noir · 4 torse+logo · 5 métal */
+uniform vec3 uPatScale;   /* dimensions réelles de la pièce (échelle du motif) */
+uniform float uPatOfs;    /* recentrage vertical (maillages capsule) */
+out vec4 fragColor;
+
+float lineMask(float v, float thick){
+  float d = abs(fract(v) - 0.5);
+  return 1.0 - smoothstep(thick*0.5, thick, d);
+}
+float segDist(vec2 p, vec2 a, vec2 b){
+  vec2 pa = p-a, ba = b-a;
+  float h = clamp(dot(pa,ba)/max(dot(ba,ba),1e-6), 0.0, 1.0);
+  return length(pa - ba*h);
+}
+/* araignée stylisée dans le plan XY (mètres) */
+float spiderMask(vec2 p){
+  float d = 1e3;
+  d = min(d, length(p*vec2(1.0,0.62))-0.030);            /* abdomen */
+  d = min(d, length((p-vec2(0.0,0.048))*vec2(1.0,1.0))-0.016); /* tête */
+  for(int i=0;i<4;i++){
+    float fi = float(i);
+    float y0 = 0.052 - fi*0.030;
+    float sx = 0.030 + fi*0.006;
+    float y1 = y0 + 0.030 - fi*0.016;
+    float y2 = y1 - 0.055 - fi*0.010;
+    d = min(d, segDist(p, vec2( 0.012, y0), vec2( sx+0.055, y1)));
+    d = min(d, segDist(p, vec2( sx+0.055, y1), vec2( sx+0.085, y2)));
+    d = min(d, segDist(p, vec2(-0.012, y0), vec2(-sx-0.055, y1)));
+    d = min(d, segDist(p, vec2(-sx-0.055, y1), vec2(-sx-0.085, y2)));
+  }
+  return 1.0 - smoothstep(0.006, 0.011, d);
+}
+
+void main(){
+  vec3 N = normalize(vNrm);
+  vec3 albedo = uBaseColor;
+  vec3 emissive = vec3(0.0);
+  float specInt = 0.09, gloss = 22.0;
+  vec3 P = (vLocal + vec3(0.0, uPatOfs, 0.0)) * uPatScale;   /* mètres, centré sur la pièce */
+
+  if(uMode == 0 || uMode == 4){
+    /* toile en losanges sur les zones rouges */
+    float k = 17.0;
+    float l1 = lineMask((P.x+P.y)*k, 0.11);
+    float l2 = lineMask((P.x-P.y)*k, 0.11);
+    float l3 = lineMask((P.z+P.y)*k, 0.11);
+    float l4 = lineMask((P.z-P.y)*k, 0.11);
+    float side = abs(N.x);
+    float web = clamp(mix(max(l1,l2), max(l3,l4), side), 0.0, 1.0);
+    albedo = mix(uBaseColor, uBaseColor*0.30, web*0.85);
+    gloss = mix(26.0, 14.0, web);
+    specInt = mix(0.11, 0.05, web);
+    if(uMode == 4){
+      float front = smoothstep(0.15, 0.6, N.z);
+      float back  = smoothstep(0.15, 0.6, -N.z);
+      float sp = spiderMask(vec2(P.x, P.y*1.15));
+      float spb = spiderMask(vec2(P.x, -P.y*0.95));
+      albedo = mix(albedo, vec3(0.02,0.02,0.025), clamp(sp*front + spb*back*0.9, 0.0, 1.0));
+    }
+  } else if(uMode == 1){
+    /* bleu : panneaux souples + léger tissage */
+    float w = lineMask((P.x*3.0+P.y*3.0), 0.5)*0.12;
+    albedo = uBaseColor*(0.94+0.12*w);
+    specInt = 0.07; gloss = 18.0;
+  } else if(uMode == 2){
+    /* lentille : blanc nacré, très brillant, léger reflet du ciel */
+    vec3 R = reflect(normalize(vWorld-uCamPos), N);
+    albedo = mix(vec3(0.94,0.95,0.98), skyColor(R)*0.5, 0.25);
+    specInt = 1.35; gloss = 220.0;
+    emissive = vec3(0.05,0.06,0.07);
+  } else if(uMode == 3){
+    albedo = vec3(0.018,0.018,0.022);
+    specInt = 0.55; gloss = 90.0;
+  } else {
+    albedo = vec3(0.55,0.57,0.62);
+    specInt = 0.9; gloss = 140.0;
+  }
+
+  vec3 col = lightSurface(albedo, N, vWorld, specInt, gloss);
+  /* lumière d'appoint côté ombre : garde la couleur du costume lisible */
+  vec3 fillDir = normalize(vec3(-uSunDir.x, 0.45, -uSunDir.z));
+  col += albedo * mix(uSkyZenith, vec3(0.8), 0.25) * max(dot(N,fillDir),0.0) * 0.55;
+  /* fin liseré lumineux : détache la silhouette sans délaver le costume */
+  vec3 V = normalize(uCamPos - vWorld);
+  float rim = pow(1.0 - max(dot(N,V),0.0), 6.0);
+  col += mix(uSkyZenith, uSunColor, 0.30) * rim * 0.06;
+  col += emissive;
+  float dist = length(vWorld - uCamPos);
+  col = applyFog(col, vWorld, dist);
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------------- TOILE ---------------- */
+const VS_WEB = S_HEAD + `
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aUV;
+uniform mat4 uVP; uniform mat4 uModel;
+out vec3 vWorld; out vec3 vNrm;
+void main(){
+  vec4 wp = uModel*vec4(aPos,1.0);
+  vWorld = wp.xyz;
+  vNrm = mat3(uModel)*aNrm;
+  gl_Position = uVP*wp;
+}
+`;
+const FS_WEB = S_HEAD + S_COMMON + `
+in vec3 vWorld; in vec3 vNrm;
+uniform float uAlpha;
+out vec4 fragColor;
+void main(){
+  vec3 N = normalize(vNrm);
+  vec3 V = normalize(uCamPos - vWorld);
+  float rim = pow(1.0-max(dot(N,V),0.0), 1.5);
+  vec3 col = mix(vec3(0.86,0.90,0.98), vec3(1.0), rim);
+  col *= 0.55 + 0.85*max(dot(N,uSunDir),0.0) + 0.5;
+  float dist = length(vWorld-uCamPos);
+  col = applyFog(col, vWorld, dist);
+  fragColor = vec4(col, uAlpha);
+}
+`;
+
+/* ---------------- PROFONDEUR (ombres) ---------------- */
+const VS_DEPTH_INST = S_HEAD + `
+layout(location=0) in vec3 aPos;
+layout(location=3) in vec3 iPos;
+layout(location=4) in vec3 iSize;
+layout(location=5) in vec3 iColor;
+layout(location=6) in vec4 iParam;
+uniform mat4 uLightVP;
+void main(){
+  vec3 lp = aPos*iSize;
+  if(iParam.y > 1.5){
+    float a = iParam.z, c = cos(a), s = sin(a);
+    lp = vec3(c*lp.x + s*lp.z, lp.y, -s*lp.x + c*lp.z);
+  }
+  gl_Position = uLightVP*vec4(lp + iPos, 1.0);
+}
+`;
+const VS_DEPTH_MODEL = S_HEAD + `
+layout(location=0) in vec3 aPos;
+uniform mat4 uLightVP; uniform mat4 uModel;
+void main(){ gl_Position = uLightVP*uModel*vec4(aPos,1.0); }
+`;
+const FS_DEPTH = S_HEAD + `
+void main(){ }
+`;
+
+/* ---------------- POST-TRAITEMENT ---------------- */
+const VS_POST = S_HEAD + `
+layout(location=0) in vec2 aP;
+out vec2 vUV;
+void main(){ vUV = aP*0.5+0.5; gl_Position = vec4(aP,0.0,1.0); }
+`;
+const FS_BRIGHT = S_HEAD + `
+in vec2 vUV; uniform sampler2D uTex; uniform float uThreshold;
+out vec4 fragColor;
+void main(){
+  vec3 c = texture(uTex, vUV).rgb;
+  float l = dot(c, vec3(0.2126,0.7152,0.0722));
+  float k = max(l - uThreshold, 0.0)/max(l, 1e-4);
+  fragColor = vec4(c*k, 1.0);
+}
+`;
+const FS_BLUR = S_HEAD + `
+in vec2 vUV; uniform sampler2D uTex; uniform vec2 uDir;
+out vec4 fragColor;
+void main(){
+  vec3 s = texture(uTex, vUV).rgb*0.227027;
+  s += (texture(uTex, vUV+uDir*1.3846).rgb + texture(uTex, vUV-uDir*1.3846).rgb)*0.316216;
+  s += (texture(uTex, vUV+uDir*3.2308).rgb + texture(uTex, vUV-uDir*3.2308).rgb)*0.070270;
+  fragColor = vec4(s, 1.0);
+}
+`;
+const FS_COMPOSITE = S_HEAD + `
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform sampler2D uBloom;
+uniform float uBloomInt;
+uniform float uSpeedBlur;
+uniform float uExposure;
+uniform float uVignette;
+out vec4 fragColor;
+
+vec3 aces(vec3 x){
+  const float a=2.51, b=0.03, c=2.43, d=0.59, e=0.14;
+  return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+void main(){
+  vec2 uv = vUV;
+  vec3 col = texture(uScene, uv).rgb;
+
+  /* flou radial de vitesse */
+  if(uSpeedBlur > 0.001){
+    vec2 dir = (uv - 0.5);
+    float r = length(dir);
+    vec3 acc = col;
+    float w = 1.0;
+    for(int i=1;i<=6;i++){
+      float t = float(i)/6.0;
+      vec2 o = uv - dir*t*uSpeedBlur*0.13*smoothstep(0.10,0.75,r);
+      float wi = 1.0 - t*0.55;
+      acc += texture(uScene, o).rgb*wi; w += wi;
+    }
+    col = acc/w;
+  }
+
+  col += texture(uBloom, uv).rgb * uBloomInt;
+  col *= uExposure;
+  col = aces(col);
+  /* vignettage + très léger grain */
+  float d = length(vUV-0.5);
+  col *= mix(1.0, 1.0 - uVignette, smoothstep(0.35, 0.95, d));
+  float g = fract(sin(dot(vUV, vec2(12.9898,78.233)))*43758.5453);
+  col += (g-0.5)*0.012;
+  fragColor = vec4(pow(max(col,0.0), vec3(1.0/2.2)), 1.0);
+}
+`;
+
+/* ------------------------------------------------------------------ *
+ * 4. MANHATTAN PROCÉDURAL
+ * ------------------------------------------------------------------ */
+const CITY = {
+  block: 78,          /* période de la grille (îlot + rue) */
+  road: 20,           /* largeur de chaussée */
+  gridN: 30,          /* nombre d'îlots par côté */
+  half: 0,            /* demi-étendue en mètres */
+  cell: 78,
+  gridW: 0,
+  buildings: [],      /* AABB pour la physique */
+  hash: null,         /* grille spatiale */
+  instB: null, instBn: 0,   /* données d'instances : immeubles */
+  instP: null, instPn: 0,   /* accessoires */
+  cars: [],
+  instC: null, instCn: 0,
+  landmarks: []
+};
+
+let RNG_STATE = 1337;
+function rnd() {           /* générateur déterministe */
+  RNG_STATE = (RNG_STATE * 1664525 + 1013904223) >>> 0;
+  return RNG_STATE / 4294967296;
+}
+const rr = (a, b) => a + (b - a) * rnd();
+
+const FACADES = [
+  [0.36,0.29,0.26],[0.42,0.34,0.30],[0.30,0.31,0.34],[0.24,0.26,0.30],
+  [0.46,0.44,0.40],[0.20,0.23,0.28],[0.33,0.35,0.38],[0.52,0.47,0.41],
+  [0.18,0.20,0.24],[0.40,0.38,0.36]
+];
+
+function buildCity(quality) {
+  RNG_STATE = 20040101;
+  CITY.gridN = [24, 30, 36][quality];
+  const P = CITY.block, N = CITY.gridN;
+  CITY.half = N * P * 0.5;
+  CITY.cell = P;
+  CITY.gridW = N + 2;
+  CITY.buildings.length = 0;
+  CITY.landmarks.length = 0;
+  const bl = [];      /* instances immeubles */
+  const pr = [];      /* instances accessoires */
+
+  const lot = P - CITY.road - 6;           /* emprise constructible */
+  const pushBox = (arr, x, y, z, sx, sy, sz, col, param) => {
+    arr.push(x, y, z, sx, sy, sz, col[0], col[1], col[2], param[0], param[1], param[2], param[3]);
+  };
+
+  for (let gz = 0; gz < N; gz++) {
+    for (let gx = 0; gx < N; gx++) {
+      const cx = (gx - N / 2 + 0.5) * P;
+      const cz = (gz - N / 2 + 0.5) * P;
+      const d = Math.hypot(cx, cz);
+
+      /* profil de hauteur : deux quartiers d'affaires + décroissance */
+      const midtown = Math.exp(-((cx - 40) * (cx - 40) + (cz + 120) * (cz + 120)) / 260000);
+      const downtown = Math.exp(-((cx + 430) * (cx + 430) + (cz - 520) * (cz - 520)) / 190000);
+      const cluster = Math.max(midtown, downtown * 0.92);
+      const falloff = Math.exp(-d * d / 1900000);
+
+      /* petit "Central Park" : un îlot sur douze reste vide */
+      const parkZone = (cx > -260 && cx < 40 && cz > 250 && cz < 900);
+      if (parkZone && rnd() < 0.85) {
+        /* arbres/kiosques bas */
+        const nTree = 5 + (rnd() * 5) | 0;
+        for (let t = 0; t < nTree; t++) {
+          const tx = cx + rr(-lot / 2, lot / 2), tz = cz + rr(-lot / 2, lot / 2);
+          const h = rr(6, 12), w = rr(4, 7);
+          pushBox(pr, tx, h * 0.5, tz, w, h, w, [0.06, 0.16, 0.07], [rnd() * 10, 1, 0, 0]);
+        }
+        continue;
+      }
+
+      /* 1 à 3 bâtiments par îlot */
+      const nb = rnd() < 0.42 ? 1 : (rnd() < 0.72 ? 2 : 3);
+      for (let b = 0; b < nb; b++) {
+        let sx, sz, ox, oz;
+        if (nb === 1) { sx = lot * rr(0.78, 1.0); sz = lot * rr(0.78, 1.0); ox = 0; oz = 0; }
+        else if (nb === 2) {
+          const vert = rnd() < 0.5;
+          const f = rr(0.40, 0.56);
+          if (vert) { sx = lot; sz = lot * f; ox = 0; oz = (b === 0 ? -1 : 1) * lot * (0.5 - f * 0.52); }
+          else { sz = lot; sx = lot * f; oz = 0; ox = (b === 0 ? -1 : 1) * lot * (0.5 - f * 0.52); }
+        } else {
+          sx = lot * rr(0.34, 0.48); sz = lot * rr(0.34, 0.48);
+          ox = rr(-1, 1) * (lot * 0.5 - sx * 0.5);
+          oz = rr(-1, 1) * (lot * 0.5 - sz * 0.5);
+        }
+        sx = Math.max(sx, 14); sz = Math.max(sz, 14);
+
+        const base = 22 + falloff * 26;
+        let h = base + cluster * rr(90, 240) + Math.pow(rnd(), 2.4) * (55 + cluster * 210);
+        if (rnd() < 0.014) h *= rr(1.5, 2.15);              /* tours signatures */
+        h = Math.min(h, 385);
+        if (parkZone) h = Math.min(h, 30);
+
+        const x = cx + ox, z = cz + oz;
+        const col = FACADES[(rnd() * FACADES.length) | 0];
+        const floorH = rr(3.05, 3.85);
+        const winW = rr(1.9, 3.05);
+        const seed = rnd() * 100;
+
+        /* corps principal */
+        pushBox(bl, x, h * 0.5, z, sx, h, sz, col, [seed, 0, floorH, winW]);
+        CITY.buildings.push({
+          x0: x - sx / 2, x1: x + sx / 2, z0: z - sz / 2, z1: z + sz / 2, top: h
+        });
+
+        /* retraits successifs façon Art déco */
+        let ch = h, csx = sx, csz = sz;
+        if (h > 95) {
+          const tiers = h > 210 ? 3 : (h > 140 ? 2 : 1);
+          for (let t = 0; t < tiers; t++) {
+            const th = rr(12, 34) * (1 + cluster);
+            csx *= rr(0.62, 0.82); csz *= rr(0.62, 0.82);
+            if (csx < 8 || csz < 8) break;
+            pushBox(bl, x, ch + th * 0.5, z, csx, th, csz, col, [seed + t + 1, 0, floorH, winW]);
+            CITY.buildings.push({
+              x0: x - csx / 2, x1: x + csx / 2, z0: z - csz / 2, z1: z + csz / 2, top: ch + th
+            });
+            ch += th;
+          }
+          /* flèche + balise */
+          if (rnd() < 0.55) {
+            const spire = rr(14, 46);
+            pushBox(pr, x, ch + spire * 0.5, z, rr(1.4, 3.2), spire, rr(1.4, 3.2),
+                    [0.20, 0.21, 0.23], [rnd() * 10, 1, 0, 0]);
+            pushBox(pr, x, ch + spire + 1.2, z, 1.8, 2.4, 1.8, [0.6, 0.1, 0.1],
+                    [rnd() * 10, 1, 0, 1]);       /* balise clignotante */
+            ch += spire;
+          }
+          CITY.landmarks.push({ x: x, z: z, top: ch });
+        } else {
+          /* toits de petits immeubles : citernes, blocs de clim, cages d'escalier */
+          const nProp = 1 + (rnd() * 3) | 0;
+          for (let p = 0; p < nProp; p++) {
+            const px = x + rr(-sx * 0.32, sx * 0.32);
+            const pz = z + rr(-sz * 0.32, sz * 0.32);
+            const t = rnd();
+            if (t < 0.34) {           /* château d'eau */
+              pushBox(pr, px, h + 3.0, pz, 4.2, 6.0, 4.2, [0.26, 0.17, 0.11], [rnd() * 10, 1, 0, 0]);
+              pushBox(pr, px, h + 7.2, pz, 5.0, 2.6, 5.0, [0.22, 0.14, 0.09], [rnd() * 10, 1, 0, 0]);
+            } else if (t < 0.72) {    /* groupes de climatisation */
+              pushBox(pr, px, h + 1.1, pz, rr(3, 6), 2.2, rr(3, 6), [0.30, 0.31, 0.33], [rnd() * 10, 1, 0, 0]);
+            } else {                  /* cage d'escalier */
+              pushBox(pr, px, h + 1.8, pz, rr(4, 7), 3.6, rr(4, 7), [0.24, 0.23, 0.22], [rnd() * 10, 1, 0, 0]);
+            }
+          }
+        }
+
+        /* panneaux lumineux dans le quartier central */
+        if (cluster > 0.42 && rnd() < 0.30 && h > 60) {
+          const neonCol = [[1.0, 0.15, 0.25], [0.15, 0.75, 1.0], [1.0, 0.72, 0.10],
+                           [0.55, 0.20, 1.0], [0.15, 1.0, 0.55]][(rnd() * 5) | 0];
+          const bw = Math.min(sx, sz) * rr(0.5, 0.85);
+          const by = rr(24, Math.max(30, h * 0.62));
+          const face = (rnd() * 4) | 0;
+          const off = 0.6;
+          if (face === 0) pushBox(bl, x, by, z + sz / 2 + off, bw, bw * 0.62, 0.8, neonCol, [rnd() * 10, 3, 0, 0]);
+          else if (face === 1) pushBox(bl, x, by, z - sz / 2 - off, bw, bw * 0.62, 0.8, neonCol, [rnd() * 10, 3, 0, 0]);
+          else if (face === 2) pushBox(bl, x + sx / 2 + off, by, z, 0.8, bw * 0.62, bw, neonCol, [rnd() * 10, 3, 0, 0]);
+          else pushBox(bl, x - sx / 2 - off, by, z, 0.8, bw * 0.62, bw, neonCol, [rnd() * 10, 3, 0, 0]);
+        }
+      }
+    }
+  }
+
+  CITY.instB = new Float32Array(bl);  CITY.instBn = bl.length / 13;
+  CITY.instP = new Float32Array(pr);  CITY.instPn = pr.length / 13;
+
+  /* --- grille spatiale pour la physique --- */
+  const gw = CITY.gridW;
+  CITY.hash = new Array(gw * gw);
+  for (let i = 0; i < gw * gw; i++) CITY.hash[i] = null;
+  const cellOf = (v) => clamp(Math.floor((v + CITY.half) / CITY.cell) + 1, 0, gw - 1);
+  for (let i = 0; i < CITY.buildings.length; i++) {
+    const b = CITY.buildings[i];
+    const x0 = cellOf(b.x0), x1 = cellOf(b.x1), z0 = cellOf(b.z0), z1 = cellOf(b.z1);
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      const k = z * gw + x;
+      if (!CITY.hash[k]) CITY.hash[k] = [];
+      CITY.hash[k].push(i);
+    }
+  }
+  CITY.cellOf = cellOf;
+  CITY.seen = new Int32Array(CITY.buildings.length);
+  CITY.stamp = 0;
+
+  /* --- circulation --- */
+  CITY.cars.length = 0;
+  const nCars = [70, 130, 190][quality];
+  for (let i = 0; i < nCars; i++) {
+    const alongZ = rnd() < 0.5;
+    const lane = (Math.floor(rnd() * N) - N / 2 + 0.5) * P - P * 0.5;
+    const dir = rnd() < 0.5 ? 1 : -1;
+    const offset = dir * (CITY.road * 0.24);
+    const carCol = [[0.55,0.05,0.06],[0.05,0.06,0.09],[0.75,0.76,0.78],[0.06,0.18,0.45],
+                    [0.85,0.68,0.05],[0.25,0.26,0.28],[0.9,0.9,0.92]][(rnd()*7)|0];
+    CITY.cars.push({
+      alongZ: alongZ, lane: lane + offset, pos: rr(-CITY.half, CITY.half), dir: dir,
+      speed: rr(11, 20), col: carCol,
+      len: rr(4.2, 6.4), wid: rr(1.9, 2.3), hgt: rr(1.4, 2.0),
+      taxi: rnd() < 0.30
+    });
+  }
+  CITY.instC = new Float32Array(CITY.cars.length * 13);
+  CITY.instCn = CITY.cars.length;
+}
+
+function updateCars(dt) {
+  const arr = CITY.instC, lim = CITY.half;
+  for (let i = 0; i < CITY.cars.length; i++) {
+    const c = CITY.cars[i];
+    c.pos += c.speed * c.dir * dt;
+    if (c.pos > lim) c.pos = -lim; else if (c.pos < -lim) c.pos = lim;
+    const x = c.alongZ ? c.lane : c.pos;
+    const z = c.alongZ ? c.pos : c.lane;
+    const yaw = c.alongZ ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const o = i * 13;
+    arr[o] = x; arr[o+1] = c.hgt * 0.5 + 0.15; arr[o+2] = z;
+    arr[o+3] = c.wid; arr[o+4] = c.hgt; arr[o+5] = c.len;
+    const col = c.taxi ? [0.95, 0.72, 0.06] : c.col;
+    arr[o+6] = col[0]; arr[o+7] = col[1]; arr[o+8] = col[2];
+    arr[o+9] = i * 0.37; arr[o+10] = 2; arr[o+11] = yaw; arr[o+12] = 0;
+  }
+}
+
+/* --- requêtes sur la ville --- */
+const _nearBuf = [];
+function nearbyBuildings(x, z, radius) {
+  _nearBuf.length = 0;
+  const gw = CITY.gridW, c = CITY.cellOf;
+  const seen = CITY.seen, st = ++CITY.stamp;
+  const x0 = c(x - radius), x1 = c(x + radius), z0 = c(z - radius), z1 = c(z + radius);
+  for (let gz = z0; gz <= z1; gz++) {
+    for (let gx = x0; gx <= x1; gx++) {
+      const list = CITY.hash[gz * gw + gx];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const id = list[i];
+        if (seen[id] !== st) { seen[id] = st; _nearBuf.push(id); }
+      }
+    }
+  }
+  return _nearBuf;
+}
+
+function groundHeightAt(x, z) {
+  const ids = nearbyBuildings(x, z, 2);
+  let h = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const b = CITY.buildings[ids[i]];
+    if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && b.top > h) h = b.top;
+  }
+  return h;
+}
+
+/* lancer de rayon contre les AABB de la ville */
+const RAY = { hit: false, dist: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0, id: -1 };
+function raycastCity(ox, oy, oz, dx, dy, dz, maxDist) {
+  const midX = ox + dx * maxDist * 0.5, midZ = oz + dz * maxDist * 0.5;
+  const rad = maxDist * 0.5 + CITY.cell;
+  return raycastIds(nearbyBuildings(midX, midZ, rad), ox, oy, oz, dx, dy, dz, maxDist);
+}
+function raycastIds(ids, ox, oy, oz, dx, dy, dz, maxDist) {
+  RAY.hit = false; RAY.dist = maxDist;
+  for (let i = 0; i < ids.length; i++) {
+    const b = CITY.buildings[ids[i]];
+    let tmin = 0, tmax = RAY.dist;
+    let nAxis = -1, nSign = 0;
+    /* X */
+    for (let a = 0; a < 3; a++) {
+      const o = a === 0 ? ox : (a === 1 ? oy : oz);
+      const d = a === 0 ? dx : (a === 1 ? dy : dz);
+      const lo = a === 0 ? b.x0 : (a === 1 ? 0 : b.z0);
+      const hi = a === 0 ? b.x1 : (a === 1 ? b.top : b.z1);
+      if (Math.abs(d) < 1e-7) {
+        if (o < lo || o > hi) { tmin = 1e9; break; }
+      } else {
+        let t1 = (lo - o) / d, t2 = (hi - o) / d, sg = -1;
+        if (t1 > t2) { const tt = t1; t1 = t2; t2 = tt; sg = 1; }
+        if (t1 > tmin) { tmin = t1; nAxis = a; nSign = sg; }
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) { tmin = 1e9; break; }
+      }
+    }
+    if (tmin < RAY.dist && tmin > 0.02 && tmin < 1e8) {
+      RAY.hit = true; RAY.dist = tmin; RAY.id = ids[i];
+      RAY.px = ox + dx * tmin; RAY.py = oy + dy * tmin; RAY.pz = oz + dz * tmin;
+      RAY.nx = nAxis === 0 ? nSign : 0;
+      RAY.ny = nAxis === 1 ? nSign : 0;
+      RAY.nz = nAxis === 2 ? nSign : 0;
+    }
+  }
+  return RAY.hit;
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. PERSONNAGE : squelette, pièces, animation procédurale
+ * ------------------------------------------------------------------ *
+ * Convention : l'axe local +Y d'un os suit l'os. Le personnage regarde
+ * vers +Z, +X est son côté gauche. Une rotation X négative = "vers l'avant".
+ */
+const RIG = { bones: [], byName: {}, parts: [], ready: false };
+
+function addBone(name, parent, ox, oy, oz, rex, rey, rez) {
+  const b = {
+    name: name,
+    parent: parent === null ? -1 : RIG.byName[parent],
+    off: [ox, oy, oz],
+    rest: qFromEuler(qNew(), rex || 0, rey || 0, rez || 0),
+    anim: qNew(),      /* rotation d'animation cible (espace parent) */
+    tgt: qNew(),       /* quaternion local cible */
+    cur: qNew(),       /* quaternion local lissé */
+    world: m4Identity(m4()),
+    ovr: null          /* surcharge IK éventuelle */
+  };
+  RIG.byName[name] = RIG.bones.length;
+  RIG.bones.push(b);
+  return b;
+}
+
+const HIP_H = 0.98;          /* hauteur des hanches, personnage ~1.83 m */
+
+function buildRig(meshes) {
+  RIG.bones.length = 0; RIG.parts.length = 0; RIG.byName = {};
+  const D = Math.PI / 180;
+
+  addBone('root', null, 0, HIP_H, 0, 0, 0, 0);
+  addBone('hips', 'root', 0, 0, 0, 0, 0, 0);
+  addBone('spine', 'hips', 0, 0.13, 0, 0, 0, 0);
+  addBone('chest', 'spine', 0, 0.19, 0, 0, 0, 0);
+  addBone('neck', 'chest', 0, 0.20, 0, 0, 0, 0);
+  addBone('head', 'neck', 0, 0.07, 0, 0, 0, 0);
+
+  addBone('clavL', 'chest', 0.045, 0.150, 0, 0, 0, -78 * D);
+  addBone('armL', 'clavL', 0, 0.150, 0, 0, 0, -87 * D);
+  addBone('foreL', 'armL', 0, 0.285, 0, 0, 0, 0);
+  addBone('handL', 'foreL', 0, 0.255, 0, 0, 0, 0);
+
+  addBone('clavR', 'chest', -0.045, 0.150, 0, 0, 0, 78 * D);
+  addBone('armR', 'clavR', 0, 0.150, 0, 0, 0, 87 * D);
+  addBone('foreR', 'armR', 0, 0.285, 0, 0, 0, 0);
+  addBone('handR', 'foreR', 0, 0.255, 0, 0, 0, 0);
+
+  addBone('thighL', 'hips', 0.088, -0.05, 0, 180 * D, 0, 0);
+  addBone('shinL', 'thighL', 0, 0.44, 0, 0, 0, 0);
+  addBone('footL', 'shinL', 0, 0.42, 0, 0, 0, 0);
+
+  addBone('thighR', 'hips', -0.088, -0.05, 0, 180 * D, 0, 0);
+  addBone('shinR', 'thighR', 0, 0.44, 0, 0, 0, 0);
+  addBone('footR', 'shinR', 0, 0.42, 0, 0, 0, 0);
+
+  for (let i = 0; i < RIG.bones.length; i++) qCopy(RIG.bones[i].cur, RIG.bones[i].rest);
+
+  /* --- pièces visibles ---------------------------------------------
+     Les membres utilisent des capsules déjà aux bonnes dimensions
+     (scale = 1) ; le torse et la tête sont des ellipsoïdes.          */
+  const RED = [0.62, 0.045, 0.062];
+  const BLU = [0.026, 0.058, 0.32];
+  const part = (bone, mesh, pos, scale, mode, color, rot, patScale, patOfs) => {
+    RIG.parts.push({
+      bone: RIG.byName[bone], mesh: mesh, pos: pos, scale: scale,
+      mode: mode, color: color || [1, 1, 1],
+      rot: rot ? qFromEuler(qNew(), rot[0], rot[1], rot[2]) : qNew(),
+      patScale: patScale || scale,
+      patOfs: (patOfs === undefined) ? 0 : patOfs,
+      world: m4Identity(m4()), nrm: new Float32Array(9)
+    });
+  };
+  const S = meshes.sphere, B = meshes.box;
+  /* raccourci pour un membre : capsule absolue, motif recentré */
+  const limb = (bone, mesh, mode, color) =>
+    part(bone, mesh, [0, 0, 0], [1, 1, 1], mode, color, null,
+         [1, 1, 1], -mesh.len * 0.5);
+
+  /* torse */
+  part('hips', S, [0, -0.055, 0], [0.275, 0.225, 0.198], 1, BLU);
+  part('spine', S, [0, 0.025, 0], [0.300, 0.255, 0.205], 1, BLU);
+  part('chest', S, [0, 0.055, 0], [0.395, 0.330, 0.235], 4, RED);
+  part('chest', S, [0, 0.150, 0], [0.330, 0.190, 0.215], 0, RED);   /* trapèzes */
+  part('neck', S, [0, 0.015, 0], [0.098, 0.115, 0.098], 0, RED);
+  part('head', S, [0, 0.098, 0.008], [0.192, 0.232, 0.203], 0, RED);
+  /* lentilles : contour noir + verre blanc légèrement incliné */
+  part('head', S, [0.070, 0.108, 0.088], [0.128, 0.093, 0.055], 3, [0, 0, 0], [0, 0, -0.36]);
+  part('head', S, [-0.070, 0.108, 0.088], [0.128, 0.093, 0.055], 3, [0, 0, 0], [0, 0, 0.36]);
+  part('head', S, [0.069, 0.108, 0.096], [0.104, 0.070, 0.050], 2, [1, 1, 1], [0, 0, -0.36]);
+  part('head', S, [-0.069, 0.108, 0.096], [0.104, 0.070, 0.050], 2, [1, 1, 1], [0, 0, 0.36]);
+
+  /* bras */
+  part('clavL', S, [0, 0.115, 0], [0.140, 0.135, 0.148], 0, RED);
+  limb('armL', meshes.armU, 0, RED);
+  limb('foreL', meshes.armF, 0, RED);
+  part('handL', S, [0, 0.042, 0], [0.092, 0.125, 0.070], 0, RED);
+  part('foreL', B, [0, 0.212, 0.036], [0.070, 0.042, 0.042], 5, [1, 1, 1]);
+  part('clavR', S, [0, 0.115, 0], [0.140, 0.135, 0.148], 0, RED);
+  limb('armR', meshes.armU, 0, RED);
+  limb('foreR', meshes.armF, 0, RED);
+  part('handR', S, [0, 0.042, 0], [0.092, 0.125, 0.070], 0, RED);
+  part('foreR', B, [0, 0.212, 0.036], [0.070, 0.042, 0.042], 5, [1, 1, 1]);
+
+  /* jambes */
+  limb('thighL', meshes.thigh, 1, BLU);
+  limb('shinL', meshes.shin, 1, BLU);
+  part('footL', B, [0, 0.042, 0.048], [0.108, 0.085, 0.245], 0, RED);
+  limb('thighR', meshes.thigh, 1, BLU);
+  limb('shinR', meshes.shin, 1, BLU);
+  part('footR', B, [0, 0.042, 0.048], [0.108, 0.085, 0.245], 0, RED);
+
+  RIG.ready = true;
+}
+
+/* --- description de pose : angles d'Euler par os (espace parent) --- */
+const POSE = Object.create(null);
+function P(name, rx, ry, rz) { POSE[name] = [rx || 0, ry || 0, rz || 0]; }
+function clearPose() { for (const k in POSE) delete POSE[k]; }
+
+/* poses de base ------------------------------------------------------ */
+function poseIdle(t, speed) {
+  const br = Math.sin(t * 1.6) * 0.035;          /* respiration */
+  const sway = Math.sin(t * 0.8) * 0.05;
+  P('spine', -0.05 + br * 0.5, sway * 0.3, 0);
+  P('chest', 0.03 + br, sway * 0.2, 0);
+  P('neck', -0.02, -sway * 0.4, 0);
+  P('armL', 0.05 + br, 0, -0.12 + br * 0.4);
+  P('armR', 0.05 + br, 0, 0.12 - br * 0.4);
+  P('foreL', 0.30 + br, 0, 0);
+  P('foreR', 0.30 + br, 0, 0);
+  P('thighL', -0.06 + br * 0.3, 0, 0.075);
+  P('thighR', -0.02 + br * 0.3, 0, -0.075);
+  P('shinL', 0.16, 0, 0);
+  P('shinR', 0.12, 0, 0);
+  P('footL', -0.10, 0, 0);
+  P('footR', -0.08, 0, 0);
+}
+
+function poseRun(phase, speed) {
+  const w = phase * TAU;
+  const s = Math.sin(w), c = Math.cos(w);
+  const amp = clamp(speed / 12, 0.35, 1.25);
+  const spr = clamp((speed - 7) / 8, 0, 1);       /* passage course → sprint */
+
+  P('thighL', -0.95 * amp * s - 0.12 * spr, 0, 0.04);
+  P('thighR', 0.95 * amp * s - 0.12 * spr, 0, -0.04);
+  P('shinL', 0.32 + 0.95 * amp * clamp(-Math.sin(w - 0.9), 0, 1) + 0.5 * spr, 0, 0);
+  P('shinR', 0.32 + 0.95 * amp * clamp(-Math.sin(w + TAU / 2 - 0.9), 0, 1) + 0.5 * spr, 0, 0);
+  P('footL', -0.25 + 0.35 * s, 0, 0);
+  P('footR', -0.25 - 0.35 * s, 0, 0);
+
+  P('armL', 0.85 * amp * s, 0, -0.18 - 0.10 * spr);
+  P('armR', -0.85 * amp * s, 0, 0.18 + 0.10 * spr);
+  P('foreL', 0.75 + 0.55 * spr + 0.30 * c, 0, 0);
+  P('foreR', 0.75 + 0.55 * spr - 0.30 * c, 0, 0);
+
+  P('spine', -0.16 - 0.34 * spr, -0.14 * s, 0);
+  P('chest', -0.06 - 0.10 * spr, 0.20 * s, 0);
+  P('hips', 0.02, 0.16 * s, 0.05 * c);
+  P('neck', 0.14 + 0.30 * spr, 0, 0);
+}
+
+function poseAir(t, vy, fwd) {
+  const f = Math.sin(t * 3.1) * 0.06;
+  const rising = clamp(vy / 12, -1, 1);
+  P('spine', -0.10 - 0.10 * rising, 0, 0);
+  P('chest', -0.05, 0, 0);
+  P('armL', -0.85 - 0.35 * rising + f, 0, -0.75);
+  P('armR', -0.85 - 0.35 * rising - f, 0, 0.75);
+  P('foreL', 0.55 + f, 0, 0);
+  P('foreR', 0.55 - f, 0, 0);
+  P('thighL', -0.60 - 0.30 * rising, 0, 0.12);
+  P('thighR', -0.35 - 0.20 * rising, 0, -0.12);
+  P('shinL', 0.95 + 0.5 * rising, 0, 0);
+  P('shinR', 0.55 + 0.3 * rising, 0, 0);
+  P('footL', -0.35, 0, 0); P('footR', -0.35, 0, 0);
+  P('neck', -0.10, 0, 0);
+}
+
+function poseDive(t) {
+  const f = Math.sin(t * 5.0) * 0.05;
+  P('spine', 0.20, 0, 0);
+  P('chest', 0.16, 0, 0);
+  P('neck', -0.55, 0, 0);
+  P('armL', 1.75 + f, 0, -0.28);
+  P('armR', 1.75 - f, 0, 0.28);
+  P('foreL', 0.12, 0, 0); P('foreR', 0.12, 0, 0);
+  P('thighL', 0.16, 0, 0.06); P('thighR', 0.16, 0, -0.06);
+  P('shinL', 0.12 + f, 0, 0); P('shinR', 0.12 - f, 0, 0);
+  P('footL', -0.6, 0, 0); P('footR', -0.6, 0, 0);
+}
+
+function poseSwing(t, phase, side, pump) {
+  /* phase : -1 (montée avant) → +1 (bas d'arc) ; side : +1 bras gauche */
+  const sw = Math.sin(t * 2.0) * 0.05;
+  const tuck = clamp(pump, 0, 1);
+  P('spine', 0.18 - 0.30 * tuck, -0.18 * side, 0.10 * side);
+  P('chest', 0.10, -0.22 * side, 0.06 * side);
+  P('neck', -0.32, 0.10 * side, 0);
+  /* le bras libre part en arrière, ouvert */
+  const free = side > 0 ? 'armR' : 'armL';
+  const freeF = side > 0 ? 'foreR' : 'foreL';
+  P(free, 0.95 + 0.45 * phase + sw, 0, side > 0 ? 0.95 : -0.95);
+  P(freeF, 0.42 + 0.25 * tuck, 0, 0);
+  /* jambes : une repliée, l'autre tendue, avec balancier */
+  const legSwing = 0.55 * phase;
+  P('thighL', -0.35 - legSwing - 0.55 * tuck, 0, 0.16);
+  P('thighR', 0.15 - legSwing * 0.4 - 0.30 * tuck, 0, -0.10);
+  P('shinL', 0.85 + 0.70 * tuck + 0.25 * Math.sin(t * 1.7), 0, 0);
+  P('shinR', 0.35 + 0.45 * tuck + 0.20 * Math.cos(t * 1.5), 0, 0);
+  P('footL', -0.30, 0, 0); P('footR', -0.45, 0, 0);
+}
+
+function poseLand(k) {
+  /* k : 1 → impact, 0 → relevé */
+  P('spine', -0.30 - 0.45 * k, 0, 0);
+  P('chest', -0.10 - 0.20 * k, 0, 0);
+  P('neck', 0.25 + 0.35 * k, 0, 0);
+  P('thighL', -0.55 - 0.85 * k, 0, 0.30);
+  P('thighR', -0.55 - 0.85 * k, 0, -0.30);
+  P('shinL', 1.10 + 1.10 * k, 0, 0);
+  P('shinR', 1.10 + 1.10 * k, 0, 0);
+  P('footL', -0.45 - 0.35 * k, 0, 0);
+  P('footR', -0.45 - 0.35 * k, 0, 0);
+  P('armL', 0.60 + 0.55 * k, 0, -0.55 - 0.30 * k);
+  P('armR', 0.60 + 0.55 * k, 0, 0.55 + 0.30 * k);
+  P('foreL', 0.55 + 0.55 * k, 0, 0);
+  P('foreR', 0.55 + 0.55 * k, 0, 0);
+}
+
+function poseWall(phase, moving) {
+  const w = phase * TAU;
+  const s = Math.sin(w) * moving, c = Math.cos(w) * moving;
+  P('spine', -0.22, 0.10 * s, 0);
+  P('chest', -0.12, 0.14 * s, 0);
+  P('neck', 0.75, 0, 0);
+  P('armL', -1.95 - 0.45 * s, 0, -0.55);
+  P('armR', -1.95 + 0.45 * s, 0, 0.55);
+  P('foreL', 0.85 + 0.35 * c, 0, 0);
+  P('foreR', 0.85 - 0.35 * c, 0, 0);
+  P('thighL', -1.25 - 0.35 * s, 0, 0.55);
+  P('thighR', -1.25 + 0.35 * s, 0, -0.55);
+  P('shinL', 1.35 + 0.30 * c, 0, 0);
+  P('shinR', 1.35 - 0.30 * c, 0, 0);
+  P('footL', -0.30, 0, 0); P('footR', -0.30, 0, 0);
+}
+
+function poseZip(side) {
+  const aim = side > 0 ? 'armL' : 'armR';
+  const aimF = side > 0 ? 'foreL' : 'foreR';
+  const oth = side > 0 ? 'armR' : 'armL';
+  const othF = side > 0 ? 'foreR' : 'foreL';
+  P('spine', -0.18, 0, 0);
+  P('neck', -0.25, 0, 0);
+  P(aim, -2.55, 0, side > 0 ? -0.18 : 0.18);
+  P(aimF, 0.10, 0, 0);
+  P(oth, 0.85, 0, side > 0 ? 0.55 : -0.55);
+  P(othF, 0.95, 0, 0);
+  P('thighL', -0.35, 0, 0.14); P('thighR', -0.20, 0, -0.14);
+  P('shinL', 0.95, 0, 0); P('shinR', 0.65, 0, 0);
+}
+
+/* --- application de la pose et calcul des matrices --- */
+const _tmpQ = qNew(), _tmpQ2 = qNew(), _one = [1, 1, 1], _tmpM = m4();
+
+function applyPose(dt, blendRate) {
+  const bones = RIG.bones;
+  for (let i = 0; i < bones.length; i++) {
+    const b = bones[i];
+    const e = POSE[b.name];
+    if (b.ovr) {
+      qCopy(b.tgt, b.ovr);
+      b.ovr = null;
+    } else if (e) {
+      qFromEuler(_tmpQ, e[0], e[1], e[2]);
+      qMul(b.tgt, _tmpQ, b.rest);           /* animation exprimée dans l'espace parent */
+    } else {
+      qCopy(b.tgt, b.rest);
+    }
+    const k = 1 - Math.exp(-blendRate * dt);
+    qSlerp(b.cur, b.cur, b.tgt, k);
+  }
+}
+
+function updateRigMatrices(rootPos, rootQuat) {
+  const bones = RIG.bones;
+  for (let i = 0; i < bones.length; i++) {
+    const b = bones[i];
+    if (b.parent < 0) {
+      /* la racine porte la position et l'orientation globales */
+      m4Compose(_tmpM, [0, b.off[1], 0], b.cur, _one);
+      const rootM = m4Compose(m4(), rootPos, rootQuat, _one);
+      m4Mul(b.world, rootM, _tmpM);
+    } else {
+      m4Compose(_tmpM, b.off, b.cur, _one);
+      m4Mul(b.world, bones[b.parent].world, _tmpM);
+    }
+  }
+  for (let i = 0; i < RIG.parts.length; i++) {
+    const p = RIG.parts[i];
+    m4Compose(_tmpM, p.pos, p.rot, p.scale);
+    m4Mul(p.world, bones[p.bone].world, _tmpM);
+    /* matrice normale (rotation seule, échelle uniforme approximée) */
+    const m = p.world, n = p.nrm;
+    const sx = 1 / (Math.hypot(m[0], m[1], m[2]) || 1);
+    const sy = 1 / (Math.hypot(m[4], m[5], m[6]) || 1);
+    const sz = 1 / (Math.hypot(m[8], m[9], m[10]) || 1);
+    n[0]=m[0]*sx; n[1]=m[1]*sx; n[2]=m[2]*sx;
+    n[3]=m[4]*sy; n[4]=m[5]*sy; n[5]=m[6]*sy;
+    n[6]=m[8]*sz; n[7]=m[9]*sz; n[8]=m[10]*sz;
+  }
+}
+
+/* position monde d'un os (origine) */
+function boneWorldPos(name, out) {
+  const m = RIG.bones[RIG.byName[name]].world;
+  out[0] = m[12]; out[1] = m[13]; out[2] = m[14];
+  return out;
+}
+/* IK : oriente un os vers une direction monde (approximation par l'espace racine) */
+function aimBoneAt(boneName, dirWorld) {
+  const b = RIG.bones[RIG.byName[boneName]];
+  const parent = RIG.bones[b.parent];
+  /* direction exprimée dans l'espace du parent */
+  const inv = m4Invert(m4(), parent.world);
+  const d = m4XformDir([0, 0, 0], inv, dirWorld);
+  const l = Math.hypot(d[0], d[1], d[2]) || 1;
+  d[0] /= l; d[1] /= l; d[2] /= l;
+  b.ovr = qFromUnitVectors(qNew(), [0, 1, 0], d);
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. JOUEUR : entrées, physique, caméra
+ * ------------------------------------------------------------------ */
+const INPUT = {
+  keys: Object.create(null),
+  tap: Object.create(null),      /* appuis mémorisés jusqu'à consommation */
+  mdx: 0, mdy: 0, wheel: 0,
+  m1: false, m2: false,
+  locked: false,
+  lastMouseMove: 0
+};
+const K = (c) => INPUT.keys[c] === true;
+/* Un appui bref ne doit jamais être perdu, même si la frame est longue :
+   il reste mémorisé jusqu'à ce que le jeu le consomme. */
+const tapped = (c) => { if (INPUT.tap[c]) { INPUT.tap[c] = false; return true; } return false; };
+const kFwd = () => K('KeyW') || K('KeyZ') || K('ArrowUp');
+const kBack = () => K('KeyS') || K('ArrowDown');
+const kLeft = () => K('KeyA') || K('KeyQ') || K('ArrowLeft');
+const kRight = () => K('KeyD') || K('ArrowRight');
+
+const PHYS = {
+  gravity: 26.0,
+  runSpeed: 8.6,
+  sprintSpeed: 13.5,
+  groundAccel: 42,
+  airAccel: 15,
+  jump: 10.2,
+  maxSpeed: 82,
+  webRange: 145,
+  radius: 0.42
+};
+
+const player = {
+  pos: [0, 0, 0], vel: [0, 0, 0],
+  mode: 'air',
+  grounded: false, groundY: 0,
+  yaw: 0, pitch: 0, roll: 0,
+  faceYaw: 0,
+  wallN: [0, 0, 0],
+  web: { on: false, ax: 0, ay: 0, az: 0, len: 20, side: 1, t: 0, fire: 0 },
+  zip: { on: false, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 },
+  land: 0,
+  runPhase: 0, wallPhase: 0,
+  swingPhase: 0, pump: 0,
+  animT: 0,
+  score: 0, combo: 1, comboTimer: 0,
+  swings: 0, dist: 0, topSpeed: 0,
+  airTime: 0, lastGroundY: 0,
+  camShake: 0,
+  dead: 0
+};
+
+const cam = {
+  yaw: 0, pitch: -0.12, dist: 7.2, distTgt: 7.2,
+  pos: [0, 30, 40], tgt: [0, 0, 0], up: [0, 1, 0],
+  fov: 62, fovTgt: 62, roll: 0, rollTgt: 0,
+  view: m4(), proj: m4(), vp: m4(), invVP: m4(),
+  autoYaw: 0
+};
+
+/* --- son procédural (aucun fichier externe) --- */
+const SFX = {
+  ctx: null, master: null, windGain: null, windFilter: null, ready: false,
+  init() {
+    if (this.ready) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.5;
+      this.master.connect(this.ctx.destination);
+      /* vent : bruit blanc filtré, piloté par la vitesse */
+      const len = this.ctx.sampleRate * 2;
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      this.windFilter = this.ctx.createBiquadFilter();
+      this.windFilter.type = 'bandpass';
+      this.windFilter.frequency.value = 500;
+      this.windFilter.Q.value = 0.7;
+      this.windGain = this.ctx.createGain();
+      this.windGain.gain.value = 0.0;
+      src.connect(this.windFilter); this.windFilter.connect(this.windGain);
+      this.windGain.connect(this.master);
+      src.start();
+      this.ready = true;
+    } catch (e) { this.ready = false; }
+  },
+  wind(speed) {
+    if (!this.ready) return;
+    const t = clamp(speed / 60, 0, 1);
+    this.windGain.gain.value = t * t * 0.34;
+    this.windFilter.frequency.value = 320 + t * 1500;
+  },
+  thwip() {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime;
+    const len = 0.18, sr = c.sampleRate;
+    const buf = c.createBuffer(1, (sr * len) | 0, sr);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const k = i / d.length;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - k, 2.2);
+    }
+    const s = c.createBufferSource(); s.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 4;
+    f.frequency.setValueAtTime(3200, t);
+    f.frequency.exponentialRampToValueAtTime(700, t + len);
+    const g = c.createGain(); g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t); s.stop(t + len);
+  },
+  thud(force) {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.28);
+    const g = c.createGain();
+    g.gain.setValueAtTime(clamp(force, 0.05, 0.9), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.36);
+  },
+  whoosh() {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime, sr = c.sampleRate, len = 0.35;
+    const buf = c.createBuffer(1, (sr * len) | 0, sr);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const k = i / d.length;
+      d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * k);
+    }
+    const s = c.createBufferSource(); s.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(400, t);
+    f.frequency.linearRampToValueAtTime(2400, t + len * 0.5);
+    f.frequency.linearRampToValueAtTime(300, t + len);
+    const g = c.createGain(); g.gain.value = 0.22;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t); s.stop(t + len);
+  }
+};
+
+/* --- retours à l'écran --- */
+const feedEl = document.getElementById('trickFeed');
+function trick(text, points) {
+  player.score += (points * player.combo) | 0;
+  player.combo = Math.min(player.combo + 0.25, 8);
+  player.comboTimer = 3.4;
+  if (feedEl.childElementCount > 5) feedEl.removeChild(feedEl.firstChild);
+  const d = document.createElement('div');
+  d.className = 'trick';
+  d.textContent = text + '  +' + ((points * player.combo) | 0);
+  feedEl.appendChild(d);
+  setTimeout(() => { if (d.parentNode) d.parentNode.removeChild(d); }, 2200);
+}
+
+/* --- utilitaires vecteurs joueur --- */
+function speedOf(v) { return Math.hypot(v[0], v[1], v[2]); }
+
+/* Collision capsule/AABB simplifiée : renvoie l'état de contact */
+const CONTACT = { hit: false, nx: 0, ny: 0, nz: 0, depth: 0, top: 0, vn: 0 };
+function resolveCollision(pos, vel, h) {
+  CONTACT.hit = false;
+  const r = PHYS.radius;
+  const stepUp = 0.65;                    /* on peut se hisser sur un rebord bas */
+  const ids = nearbyBuildings(pos[0], pos[2], 8);
+  let support = 0;                        /* la rue par défaut */
+
+  /* 1. surface d'appui sous les pieds */
+  for (let i = 0; i < ids.length; i++) {
+    const b = CITY.buildings[ids[i]];
+    if (pos[0] > b.x0 && pos[0] < b.x1 && pos[2] > b.z0 && pos[2] < b.z1) {
+      if (b.top <= pos[1] + stepUp && b.top > support) support = b.top;
+    }
+  }
+  /* 2. murs : tout volume dont le sommet dépasse les pieds */
+  for (let i = 0; i < ids.length; i++) {
+    const b = CITY.buildings[ids[i]];
+    if (b.top <= pos[1] + stepUp) continue;
+    if (pos[0] <= b.x0 - r || pos[0] >= b.x1 + r) continue;
+    if (pos[2] <= b.z0 - r || pos[2] >= b.z1 + r) continue;
+    const dxo = (b.x1 + r) - pos[0], dxi = pos[0] - (b.x0 - r);
+    const dzo = (b.z1 + r) - pos[2], dzi = pos[2] - (b.z0 - r);
+    const mx = Math.min(dxo, dxi), mz = Math.min(dzo, dzi);
+    CONTACT.hit = true; CONTACT.top = b.top; CONTACT.vn = 0;
+    if (mx < mz) {
+      const sgn = (dxi < dxo) ? -1 : 1;
+      pos[0] += sgn * mx;
+      CONTACT.nx = sgn; CONTACT.ny = 0; CONTACT.nz = 0; CONTACT.depth = mx;
+      if (vel[0] * sgn < 0) { CONTACT.vn = Math.abs(vel[0]); vel[0] = 0; }
+    } else {
+      const sgn = (dzi < dzo) ? -1 : 1;
+      pos[2] += sgn * mz;
+      CONTACT.nx = 0; CONTACT.ny = 0; CONTACT.nz = sgn; CONTACT.depth = mz;
+      if (vel[2] * sgn < 0) { CONTACT.vn = Math.abs(vel[2]); vel[2] = 0; }
+    }
+  }
+  if (pos[1] < support) { pos[1] = support; if (vel[1] < 0) vel[1] = 0; }
+  player.groundY = support;
+  player.grounded = (pos[1] <= support + 0.08) && vel[1] <= 0.5;
+  return CONTACT.hit;
+}
+
+/* Cherche un point d'ancrage pour la toile */
+const ANCHOR = { ok: false, x: 0, y: 0, z: 0, dist: 0 };
+function findAnchor(fromX, fromY, fromZ, dirX, dirZ, wide) {
+  ANCHOR.ok = false;
+  let best = -1e9;
+  const tries = wide ? 13 : 7;
+  const ids = nearbyBuildings(fromX, fromZ, PHYS.webRange * 0.8).slice();
+  for (let i = 0; i < tries; i++) {
+    const spread = ((i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2)) / tries * (wide ? 1.5 : 0.9);
+    const ca = Math.cos(spread), sa = Math.sin(spread);
+    const dx = dirX * ca - dirZ * sa;
+    const dz = dirX * sa + dirZ * ca;
+    for (let j = 0; j < 4; j++) {
+      const up = 0.34 + j * 0.30;              /* inclinaisons vers le haut */
+      const l = Math.hypot(dx, dz) || 1;
+      const rx = dx / l * Math.cos(up), rz = dz / l * Math.cos(up), ry = Math.sin(up);
+      if (raycastIds(ids, fromX, fromY, fromZ, rx, ry, rz, PHYS.webRange)) {
+        if (RAY.py < fromY + 3) continue;      /* l'ancrage doit être au-dessus */
+        const fwdScore = (rx * dirX + rz * dirZ);
+        const s = fwdScore * 30 - RAY.dist * 0.28 + (RAY.py - fromY) * 0.55 - Math.abs(spread) * 12;
+        if (s > best) {
+          best = s; ANCHOR.ok = true;
+          ANCHOR.x = RAY.px; ANCHOR.y = RAY.py; ANCHOR.z = RAY.pz; ANCHOR.dist = RAY.dist;
+        }
+      }
+    }
+  }
+  return ANCHOR.ok;
+}
+
+function attachWeb() {
+  const px = player.pos[0], py = player.pos[1] + 1.35, pz = player.pos[2];
+  let dx = Math.sin(cam.yaw), dz = Math.cos(cam.yaw);
+  const sp = speedOf(player.vel);
+  if (sp > 6) {   /* privilégie la direction du mouvement à grande vitesse */
+    const hl = Math.hypot(player.vel[0], player.vel[2]) || 1;
+    dx = lerp(dx, player.vel[0] / hl, 0.45);
+    dz = lerp(dz, player.vel[2] / hl, 0.45);
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+  }
+  if (!findAnchor(px, py, pz, dx, dz, true)) return false;
+  const d = Math.hypot(ANCHOR.x - px, ANCHOR.y - py, ANCHOR.z - pz);
+  player.web.on = true;
+  player.web.ax = ANCHOR.x; player.web.ay = ANCHOR.y; player.web.az = ANCHOR.z;
+  player.web.len = clamp(d * 0.94, 9, PHYS.webRange);
+  player.web.t = 0;
+  player.web.fire = 1;
+  /* côté du bras : selon la position latérale de l'ancrage */
+  const rightX = -Math.cos(cam.yaw), rightZ = Math.sin(cam.yaw);
+  const side = ((ANCHOR.x - px) * rightX + (ANCHOR.z - pz) * rightZ);
+  player.web.side = side > 0 ? -1 : 1;        /* +1 : bras gauche, -1 : bras droit */
+  player.mode = 'swing';
+  player.swings++;
+  player.pump = 0;
+  SFX.thwip();
+  return true;
+}
+
+function releaseWeb(boost) {
+  if (!player.web.on) return;
+  player.web.on = false;
+  if (player.mode === 'swing') player.mode = 'air';
+  if (boost) {
+    const v = player.vel;
+    const sp = speedOf(v);
+    if (v[1] > -1 && sp > 12) { v[1] += 2.6; }
+    SFX.whoosh();
+    if (sp > 34) trick('LANCÉ PARFAIT', 120);
+  }
+}
+
+/* --- étape de physique (pas fixe) --- */
+function physicsStep(h) {
+  const p = player.pos, v = player.vel;
+  const sp0 = speedOf(v);
+
+  /* direction d'entrée relative à la caméra */
+  let ix = 0, iz = 0;
+  if (kFwd()) iz += 1;
+  if (kBack()) iz -= 1;
+  if (kLeft()) ix += 1;
+  if (kRight()) ix -= 1;
+  const il = Math.hypot(ix, iz);
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+  let wx = 0, wz = 0;
+  if (il > 0) {
+    ix /= il; iz /= il;
+    wx = sy * iz + cy * ix;
+    wz = cy * iz - sy * ix;
+  }
+
+  if (player.mode === 'swing' && player.web.on) {
+    /* ---------------- BALANCEMENT ---------------- */
+    v[1] -= PHYS.gravity * h;
+    const ax = player.web.ax, ay = player.web.ay, az = player.web.az;
+    let dx = p[0] + 1.35 * 0 - ax, dy = (p[1] + 1.35) - ay, dz = p[2] - az;
+    let L = Math.hypot(dx, dy, dz) || 1e-4;
+
+    /* raccourcir/allonger la corde */
+    if (kFwd()) player.web.len = Math.max(8, player.web.len - 16 * h);
+    if (kBack()) player.web.len = Math.min(PHYS.webRange, player.web.len + 18 * h);
+
+    /* pompage : accélère dans le sens du mouvement en bas d'arc */
+    const nx = dx / L, ny = dy / L, nz = dz / L;
+    const radial = v[0] * nx + v[1] * ny + v[2] * nz;
+    let tx = v[0] - radial * nx, ty = v[1] - radial * ny, tz = v[2] - radial * nz;
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl > 0.3) {
+      tx /= tl; ty /= tl; tz /= tl;
+      const lowArc = clamp(-ny, 0, 1);          /* 1 quand on est sous l'ancrage */
+      const pumpF = 15.5 * lowArc + 3.0;
+      v[0] += tx * pumpF * h; v[1] += ty * pumpF * h; v[2] += tz * pumpF * h;
+      player.pump = damp(player.pump, lowArc, 6, h);
+    }
+    /* dirigeabilité latérale */
+    if (il > 0) {
+      v[0] += wx * 11 * h; v[2] += wz * 11 * h;
+    }
+
+    /* contrainte de corde */
+    if (L > player.web.len) {
+      const k = player.web.len / L;
+      p[0] = ax + dx * k; p[1] = ay + dy * k - 1.35; p[2] = az + dz * k;
+      dx *= k; dy *= k; dz *= k; L = player.web.len;
+      const rad2 = v[0] * nx + v[1] * ny + v[2] * nz;
+      if (rad2 > 0) { v[0] -= nx * rad2; v[1] -= ny * rad2; v[2] -= nz * rad2; }
+    }
+    /* traînée douce */
+    const dragK = 1 - 0.16 * h;
+    v[0] *= dragK; v[1] *= dragK; v[2] *= dragK;
+
+    player.swingPhase = clamp(-ny, -1, 1);
+    /* décrochage automatique en fin d'arc montant */
+    if (p[1] + 1.35 > ay - 2.5 && v[1] > 0) releaseWeb(true);
+
+    p[0] += v[0] * h; p[1] += v[1] * h; p[2] += v[2] * h;
+    resolveCollision(p, v, h);
+    if (player.grounded && v[1] <= 0.1) { releaseWeb(false); player.mode = 'ground'; }
+    else if (CONTACT.hit && sp0 > 18) { clingToWall(); }
+
+  } else if (player.mode === 'zip') {
+    /* ---------------- TRACTION RAPIDE ---------------- */
+    const z = player.zip;
+    let dx = z.x - p[0], dy = z.y - (p[1] + 1.2), dz = z.z - p[2];
+    const d = Math.hypot(dx, dy, dz) || 1e-4;
+    dx /= d; dy /= d; dz /= d;
+    const target = clamp(18 + d * 0.55, 20, 62);
+    v[0] = damp(v[0], dx * target, 9, h);
+    v[1] = damp(v[1], dy * target, 9, h);
+    v[2] = damp(v[2], dz * target, 9, h);
+    p[0] += v[0] * h; p[1] += v[1] * h; p[2] += v[2] * h;
+    if (d < 3.2) {
+      player.zip.on = false;
+      player.web.on = false;
+      if (Math.abs(z.ny) > 0.5) { player.mode = 'air'; }
+      else { player.wallN[0] = z.nx; player.wallN[1] = z.ny; player.wallN[2] = z.nz; clingToWall(); }
+      trick('TRACTION', 60);
+    }
+    resolveCollision(p, v, h);
+
+  } else if (player.mode === 'wall') {
+    /* ---------------- MUR ---------------- */
+    const n = player.wallN;
+    /* base orthonormée du mur */
+    const upx = 0, upy = 1, upz = 0;
+    let rx = upy * n[2] - upz * n[1], ry = upz * n[0] - upx * n[2], rz = upx * n[1] - upy * n[0];
+    const rl = Math.hypot(rx, ry, rz) || 1; rx /= rl; ry /= rl; rz /= rl;
+    const climb = 6.5;
+    let mvUp = 0, mvSide = 0;
+    if (kFwd()) mvUp += 1; if (kBack()) mvUp -= 1;
+    if (kLeft()) mvSide -= 1; if (kRight()) mvSide += 1;
+    const ml = Math.hypot(mvUp, mvSide);
+    if (ml > 0) { mvUp /= ml; mvSide /= ml; }
+    v[0] = damp(v[0], rx * mvSide * climb, 14, h);
+    v[1] = damp(v[1], mvUp * climb, 14, h);
+    v[2] = damp(v[2], rz * mvSide * climb, 14, h);
+    /* collé au mur */
+    v[0] -= n[0] * 2.5; v[2] -= n[2] * 2.5;
+    p[0] += v[0] * h; p[1] += v[1] * h; p[2] += v[2] * h;
+    player.wallPhase += ml * h * 1.5;
+
+    const stillWall = raycastCity(p[0], p[1] + 1.0, p[2], -n[0], -n[1], -n[2], 1.4);
+    resolveCollision(p, v, h);
+    if (!stillWall || player.grounded) {
+      /* haut du mur atteint → on bascule sur le toit */
+      player.mode = player.grounded ? 'ground' : 'air';
+      if (!player.grounded) { v[0] += -n[0] * 2; v[2] += -n[2] * 2; }
+    }
+    if (tapped('Space')) {
+      player.mode = 'air';
+      v[0] = n[0] * 10 + v[0] * 0.3; v[1] = 10.0; v[2] = n[2] * 10 + v[2] * 0.3;
+      SFX.whoosh();
+      trick('SAUT MURAL', 45);
+    }
+
+  } else {
+    /* ---------------- SOL / AIR ---------------- */
+    const onGround = player.grounded;
+    if (onGround) {
+      const sprint = K('ShiftLeft') || K('ShiftRight');
+      const tgt = sprint ? PHYS.sprintSpeed : PHYS.runSpeed;
+      const dvx = wx * tgt - v[0], dvz = wz * tgt - v[2];
+      const acc = PHYS.groundAccel * h;
+      const dl = Math.hypot(dvx, dvz);
+      if (dl > 1e-4) {
+        const k = Math.min(1, acc / dl);
+        v[0] += dvx * k; v[2] += dvz * k;
+      }
+      if (il === 0) { v[0] *= 1 - 9 * h; v[2] *= 1 - 9 * h; }
+      v[1] -= PHYS.gravity * h * 0.35;
+      if (tapped('Space')) {
+        v[1] = PHYS.jump;
+        player.mode = 'air';
+        SFX.whoosh();
+      }
+      player.mode = 'ground';
+      player.runPhase += (Math.hypot(v[0], v[2]) / 4.2) * h;
+    } else {
+      player.mode = 'air';
+      const dive = (K('ShiftLeft') || K('ShiftRight'));
+      v[1] -= PHYS.gravity * h * (dive ? 1.28 : 1.0);
+      const acc = PHYS.airAccel * (dive ? 1.5 : 1.0) * h;
+      v[0] += wx * acc; v[2] += wz * acc;
+      if (dive && il > 0) { v[0] += wx * 9 * h; v[2] += wz * 9 * h; }
+      /* traînée aérodynamique : faible en piqué */
+      const k = 1 - (dive ? 0.02 : 0.10) * h;
+      v[0] *= k; v[2] *= k;
+      v[1] *= 1 - 0.02 * h;
+    }
+    p[0] += v[0] * h; p[1] += v[1] * h; p[2] += v[2] * h;
+    const hit = resolveCollision(p, v, h);
+    if (!onGround && hit && !player.grounded && speedOf(v) > 5) clingToWall();
+  }
+
+  /* limite de vitesse + bornes du monde */
+  const sp = speedOf(v);
+  if (sp > PHYS.maxSpeed) { const k = PHYS.maxSpeed / sp; v[0] *= k; v[1] *= k; v[2] *= k; }
+  const lim = CITY.half - 40;
+  if (Math.abs(p[0]) > lim) { p[0] = clamp(p[0], -lim, lim); v[0] *= -0.35; releaseWeb(false); }
+  if (Math.abs(p[2]) > lim) { p[2] = clamp(p[2], -lim, lim); v[2] *= -0.35; releaseWeb(false); }
+  if (p[1] < 0) { p[1] = 0; if (v[1] < 0) v[1] = 0; }
+}
+
+function clingToWall() {
+  if (CONTACT.hit) {
+    player.wallN[0] = CONTACT.nx; player.wallN[1] = 0; player.wallN[2] = CONTACT.nz;
+  }
+  const n = player.wallN;
+  if (Math.abs(n[0]) + Math.abs(n[2]) < 0.1) return;
+  if (player.mode === 'wall') return;
+  const sp = speedOf(player.vel);
+  /* frôlement rasant à pleine vitesse : on glisse le long de la façade
+     au lieu de s'y coller, l'enchaînement n'est pas cassé */
+  if (CONTACT.vn < 6.5 && sp > 20) return;
+  player.mode = 'wall';
+  player.web.on = false;
+  player.vel[0] *= 0.05; player.vel[1] *= 0.15; player.vel[2] *= 0.05;
+  player.camShake = Math.min(0.5, sp * 0.006);
+  SFX.thud(clamp(sp * 0.012, 0.05, 0.5));
+  if (sp > 28) trick('ACCROCHE MURALE', 70);
+}
+
+/* --- orientation racine --- */
+function rootQuatYPR(out, yaw, pitch, roll) {
+  const qy = qFromEuler(qNew(), 0, yaw, 0);
+  const qx = qFromEuler(qNew(), pitch, 0, 0);
+  const qz = qFromEuler(qNew(), 0, 0, roll);
+  qMul(out, qy, qx); qMul(out, out, qz);
+  return out;
+}
+function qFromBasis(out, X, Y, Z) {
+  const m00=X[0], m10=X[1], m20=X[2];
+  const m01=Y[0], m11=Y[1], m21=Y[2];
+  const m02=Z[0], m12=Z[1], m22=Z[2];
+  const tr = m00 + m11 + m22;
+  let S;
+  if (tr > 0) {
+    S = Math.sqrt(tr + 1.0) * 2;
+    out[3] = 0.25 * S; out[0] = (m21 - m12) / S; out[1] = (m02 - m20) / S; out[2] = (m10 - m01) / S;
+  } else if (m00 > m11 && m00 > m22) {
+    S = Math.sqrt(1.0 + m00 - m11 - m22) * 2;
+    out[3] = (m21 - m12) / S; out[0] = 0.25 * S; out[1] = (m01 + m10) / S; out[2] = (m02 + m20) / S;
+  } else if (m11 > m22) {
+    S = Math.sqrt(1.0 + m11 - m00 - m22) * 2;
+    out[3] = (m02 - m20) / S; out[0] = (m01 + m10) / S; out[1] = 0.25 * S; out[2] = (m12 + m21) / S;
+  } else {
+    S = Math.sqrt(1.0 + m22 - m00 - m11) * 2;
+    out[3] = (m10 - m01) / S; out[0] = (m02 + m20) / S; out[1] = (m12 + m21) / S; out[2] = 0.25 * S;
+  }
+  return out;
+}
+function angleDamp(a, b, lambda, dt) {
+  let d = b - a;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  return a + d * (1 - Math.exp(-lambda * dt));
+}
+
+const rootQ = qNew();
+const _hand = [0, 0, 0], _dirTmp = [0, 0, 0];
+
+/* --- mise à jour complète du joueur --- */
+function updatePlayer(dt, now) {
+  const v = player.vel, p = player.pos;
+  const prevMode = player.mode;
+  const prevGrounded = player.grounded;
+  const prevSpeed = speedOf(v);
+
+  /* --- toile --- */
+  if (INPUT.m1 && player.mode === 'wall') {
+    /* on se détache du mur d'une poussée, la toile part dans la foulée */
+    const nw = player.wallN;
+    player.mode = 'air';
+    v[0] += nw[0] * 8.5; v[2] += nw[2] * 8.5; v[1] += 7.0;
+    player.camShake = 0.10;
+    SFX.whoosh();
+  }
+  if (INPUT.m1 && !player.web.on && player.mode !== 'zip' && player.mode !== 'wall') {
+    if (!attachWeb()) { player.web.fire = 0; }
+  }
+  if (!INPUT.m1 && player.web.on) releaseWeb(true);
+
+  /* --- traction rapide --- */
+  if ((INPUT.m2 || tapped('KeyE')) && !player.zip.on && player.mode !== 'zip') {
+    const cy = Math.cos(cam.pitch);
+    const dx = Math.sin(cam.yaw) * cy, dy = Math.sin(cam.pitch), dz = Math.cos(cam.yaw) * cy;
+    if (raycastCity(p[0], p[1] + 1.35, p[2], dx, dy, dz, 220)) {
+      player.zip.on = true; player.mode = 'zip';
+      player.zip.x = RAY.px + RAY.nx * 0.6;
+      player.zip.y = RAY.py + RAY.ny * 0.6;
+      player.zip.z = RAY.pz + RAY.nz * 0.6;
+      player.zip.nx = RAY.nx; player.zip.ny = RAY.ny; player.zip.nz = RAY.nz;
+      player.web.on = true;
+      player.web.ax = player.zip.x; player.web.ay = player.zip.y; player.web.az = player.zip.z;
+      player.web.side = 1;
+      player.web.fire = 1;
+      SFX.thwip();
+    }
+    INPUT.m2 = false;
+  }
+
+  /* --- pas de physique à fréquence fixe --- */
+  let remain = Math.min(dt, 0.10);
+  const H = 1 / 120;
+  let guard = 0;
+  while (remain > 1e-5 && guard++ < 16) {
+    const h = Math.min(H, remain);
+    physicsStep(h);
+    remain -= h;
+  }
+
+  /* --- suivi / récompenses --- */
+  const sp = speedOf(v);
+  player.dist += sp * dt;
+  if (sp > player.topSpeed) player.topSpeed = sp;
+  if (player.comboTimer > 0) { player.comboTimer -= dt; if (player.comboTimer <= 0) player.combo = 1; }
+  if (player.mode === 'air' || player.mode === 'swing') player.airTime += dt; else player.airTime = 0;
+
+  if (!prevGrounded && player.grounded) {
+    const impact = Math.abs(Math.min(prevSpeed, 60));
+    player.land = clamp(impact / 26, 0.15, 1);
+    player.camShake = clamp(impact * 0.010, 0.04, 0.55);
+    SFX.thud(clamp(impact * 0.014, 0.05, 0.75));
+    if (impact > 30) trick('RÉCEPTION PARFAITE', 90);
+  }
+  player.land = Math.max(0, player.land - dt * 2.2);
+  player.camShake = Math.max(0, player.camShake - dt * 2.4);
+
+  if (sp > 55 && Math.random() < dt * 1.6) trick('VITESSE FOLLE', 55);
+  /* frôlement d'immeuble */
+  if (sp > 26 && (player.mode === 'swing' || player.mode === 'air')) {
+    const hl = Math.hypot(v[0], v[2]) || 1;
+    if (raycastCity(p[0], p[1] + 1.2, p[2], v[0] / hl, 0, v[2] / hl, 6.5) && RAY.dist < 5.0) {
+      if (Math.random() < dt * 3.0) trick('FRÔLEMENT', 80);
+    }
+  }
+  if (prevMode !== 'swing' && player.mode === 'swing' && player.airTime > 1.6 && p[1] > 60)
+    trick('ENCHAÎNEMENT AÉRIEN', 65);
+
+  SFX.wind(sp);
+
+  /* --- orientation du corps --- */
+  const hs = Math.hypot(v[0], v[2]);
+  let tYaw = player.yaw, tPitch = 0, tRoll = 0;
+  if (player.mode === 'wall') {
+    /* base construite depuis la normale du mur */
+    const n = player.wallN;
+    const Y = [n[0], n[1], n[2]];
+    let Z = [0, 1, 0];
+    const dotYZ = Y[0]*Z[0] + Y[1]*Z[1] + Y[2]*Z[2];
+    Z = [Z[0] - Y[0]*dotYZ, Z[1] - Y[1]*dotYZ, Z[2] - Y[2]*dotYZ];
+    const zl = Math.hypot(Z[0], Z[1], Z[2]) || 1;
+    Z[0] /= zl; Z[1] /= zl; Z[2] /= zl;
+    const X = [Y[1]*Z[2] - Y[2]*Z[1], Y[2]*Z[0] - Y[0]*Z[2], Y[0]*Z[1] - Y[1]*Z[0]];
+    const q = qFromBasis(qNew(), X, Y, Z);
+    qSlerp(rootQ, rootQ, q, 1 - Math.exp(-12 * dt));
+  } else {
+    if (hs > 1.2) tYaw = Math.atan2(v[0], v[2]);
+    else if (player.mode === 'ground') tYaw = cam.yaw;
+    if (player.mode === 'air' || player.mode === 'swing' || player.mode === 'zip') {
+      tPitch = -Math.atan2(v[1], Math.max(hs, 3)) * (player.mode === 'swing' ? 0.55 : 0.80);
+      if ((K('ShiftLeft') || K('ShiftRight')) && player.mode === 'air') tPitch = clamp(tPitch, -1.4, 1.4);
+    }
+    if (player.mode === 'swing' && player.web.on) {
+      const dx = player.web.ax - p[0], dz = player.web.az - p[2];
+      const rx = Math.cos(tYaw), rz = -Math.sin(tYaw);
+      tRoll = clamp((dx * rx + dz * rz) * 0.030, -0.65, 0.65);
+    } else if (player.mode === 'ground' && hs > 3) {
+      tRoll = clamp(angleDelta(player.yaw, tYaw) * 1.2, -0.35, 0.35);
+    }
+    player.yaw = angleDamp(player.yaw, tYaw, player.mode === 'ground' ? 9 : 6, dt);
+    player.pitch = damp(player.pitch, tPitch, 7, dt);
+    player.roll = damp(player.roll, tRoll, 6, dt);
+    rootQuatYPR(rootQ, player.yaw, player.pitch, player.roll);
+  }
+
+  /* --- choix de la pose --- */
+  player.animT += dt;
+  clearPose();
+  const t = player.animT;
+  if (player.mode === 'swing') {
+    poseSwing(t, player.swingPhase, player.web.side, player.pump);
+  } else if (player.mode === 'zip') {
+    poseZip(player.web.side);
+  } else if (player.mode === 'wall') {
+    poseWall(player.wallPhase, Math.min(1, speedOf(v) / 4));
+  } else if (player.grounded) {
+    if (player.land > 0.05) poseLand(player.land);
+    else if (hs > 0.7) poseRun(player.runPhase, hs);
+    else poseIdle(t, hs);
+  } else {
+    if ((K('ShiftLeft') || K('ShiftRight')) && v[1] < 0) poseDive(t);
+    else poseAir(t, v[1], hs);
+  }
+
+  /* --- cinématique inverse du bras qui tient la toile ---
+     (calculée sur les matrices de la frame précédente : décalage invisible) */
+  if (player.web.on) {
+    const armName = player.web.side > 0 ? 'armL' : 'armR';
+    boneWorldPos(armName, _hand);
+    _dirTmp[0] = player.web.ax - _hand[0];
+    _dirTmp[1] = player.web.ay - _hand[1];
+    _dirTmp[2] = player.web.az - _hand[2];
+    aimBoneAt(armName, _dirTmp);
+    const fb = RIG.bones[RIG.byName[player.web.side > 0 ? 'foreL' : 'foreR']];
+    fb.ovr = qMul(qNew(), qFromEuler(_tmpQ2, 0.14, 0, 0), fb.rest);
+  }
+  applyPose(dt, player.mode === 'swing' ? 15 : 11);
+  updateRigMatrices(p, rootQ);
+}
+
+function angleDelta(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  return d;
+}
+
+/* --- caméra --- */
+function updateCamera(dt, now) {
+  const p = player.pos, v = player.vel;
+  const sens = 0.0022;
+  if (INPUT.mdx !== 0 || INPUT.mdy !== 0) INPUT.lastMouseMove = now;
+  cam.yaw -= INPUT.mdx * sens;
+  cam.pitch = clamp(cam.pitch - INPUT.mdy * sens, -1.25, 1.15);
+  INPUT.mdx = 0; INPUT.mdy = 0;
+  cam.distTgt = clamp(cam.distTgt - INPUT.wheel * 0.004, 2.4, 12);
+  INPUT.wheel = 0;
+
+  const sp = speedOf(v);
+  const hs = Math.hypot(v[0], v[2]);
+  /* sur un mur : la caméra passe côté rue pour voir le héros de dos */
+  if (player.mode === 'wall' && now - INPUT.lastMouseMove > 0.35) {
+    const nrm = player.wallN;
+    const wantYaw = Math.atan2(-nrm[0], -nrm[2]);
+    cam.yaw = angleDamp(cam.yaw, wantYaw, 3.2, dt);
+    cam.pitch = damp(cam.pitch, -0.05, 2.0, dt);
+  }
+  /* alignement automatique derrière la trajectoire (si la souris est au repos) */
+  if (hs > 14 && now - INPUT.lastMouseMove > 0.45) {
+    const vy = Math.atan2(v[0], v[2]);
+    cam.yaw = angleDamp(cam.yaw, vy, 1.35, dt);
+    const wantPitch = clamp(-Math.atan2(v[1], Math.max(hs, 6)) * 0.55 - 0.06, -0.55, 0.42);
+    cam.pitch = damp(cam.pitch, wantPitch, 1.1, dt);
+  }
+
+  const spN = clamp(sp / 55, 0, 1);
+  const dist = cam.distTgt + spN * 2.6 + (player.mode === 'swing' ? 0.9 : 0);
+  cam.dist = damp(cam.dist, dist, 5, dt);
+  cam.fovTgt = 60 + spN * 30 + (player.mode === 'swing' ? 3 : 0);
+  cam.fov = damp(cam.fov, cam.fovTgt, 4.5, dt);
+  cam.rollTgt = (player.mode === 'swing' ? -player.roll * 0.55 : 0) - clamp(v[0] * 0, -1, 1);
+  cam.roll = damp(cam.roll, cam.rollTgt, 4, dt);
+
+  /* cible : buste + anticipation */
+  const lead = clamp(sp * 0.055, 0, 2.6);
+  const tx = p[0] + v[0] / Math.max(sp, 1) * lead;
+  const ty = p[1] + 1.35 + clamp(v[1] * 0.035, -1.2, 0.8);
+  const tz = p[2] + v[2] / Math.max(sp, 1) * lead;
+  cam.tgt[0] = damp(cam.tgt[0], tx, 16, dt);
+  cam.tgt[1] = damp(cam.tgt[1], ty, 12, dt);
+  cam.tgt[2] = damp(cam.tgt[2], tz, 16, dt);
+
+  const cp = Math.cos(cam.pitch), sPi = Math.sin(cam.pitch);
+  const dirX = Math.sin(cam.yaw) * cp, dirY = sPi, dirZ = Math.cos(cam.yaw) * cp;
+  let want = [
+    cam.tgt[0] - dirX * cam.dist,
+    cam.tgt[1] - dirY * cam.dist + 0.45,
+    cam.tgt[2] - dirZ * cam.dist
+  ];
+  /* collision caméra */
+  let dx = want[0] - cam.tgt[0], dy = want[1] - cam.tgt[1], dz = want[2] - cam.tgt[2];
+  const dl = Math.hypot(dx, dy, dz) || 1;
+  if (raycastCity(cam.tgt[0], cam.tgt[1], cam.tgt[2], dx / dl, dy / dl, dz / dl, dl + 0.6)) {
+    const d = Math.max(1.4, RAY.dist - 0.6);
+    want[0] = cam.tgt[0] + dx / dl * d;
+    want[1] = cam.tgt[1] + dy / dl * d;
+    want[2] = cam.tgt[2] + dz / dl * d;
+  }
+  if (want[1] < 0.7) want[1] = 0.7;
+
+  const lam = player.mode === 'swing' ? 13 : 16;
+  cam.pos[0] = damp(cam.pos[0], want[0], lam, dt);
+  cam.pos[1] = damp(cam.pos[1], want[1], lam, dt);
+  cam.pos[2] = damp(cam.pos[2], want[2], lam, dt);
+
+  if (player.camShake > 0.001) {
+    const s = player.camShake;
+    cam.pos[0] += (Math.random() - 0.5) * s;
+    cam.pos[1] += (Math.random() - 0.5) * s;
+    cam.pos[2] += (Math.random() - 0.5) * s;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 7. RENDU
+ * ------------------------------------------------------------------ */
+const R = {
+  mesh: {}, prog: {}, fsTri: null,
+  hdr: null, bloomA: null, bloomB: null, shadow: null,
+  vaoBuild: null, vaoProp: null, vaoCar: null, vaoShadow: null,
+  bufBuild: null, bufProp: null, bufCar: null, bufShadow: null,
+  shadowData: null, shadowCount: 0, shadowAnchor: [1e9, 1e9],
+  w: 1, h: 1, dpr: 1,
+  quality: 1, timeOfDay: 1,
+  dynScale: 1.0, perfAcc: 0, perfN: 0, perfCool: 0,
+  lightVP: m4(), lightView: m4(), lightProj: m4(),
+  frame: 0
+};
+
+const ENV = {
+  sunDir: [0.4, 0.6, 0.3],
+  sunColor: [1, 1, 1],
+  skyZenith: [0.16, 0.32, 0.72],
+  skyHorizon: [0.62, 0.70, 0.85],
+  skyGround: [0.20, 0.22, 0.28],
+  fog: 0.00085,
+  night: 0,
+  exposure: 1.0,
+  bloom: 0.55,
+  label: 'JOUR'
+};
+
+const TIME_PRESETS = [
+  { /* jour */
+    sunDir: [0.36, 0.84, 0.40], sunColor: [1.55, 1.48, 1.34],
+    skyZenith: [0.13, 0.30, 0.72], skyHorizon: [0.66, 0.76, 0.92], skyGround: [0.28, 0.30, 0.34],
+    fog: 0.00072, night: 0.0, exposure: 1.02, bloom: 0.42, label: 'MIDI · CIEL DÉGAGÉ'
+  },
+  { /* coucher de soleil */
+    sunDir: [0.80, 0.135, -0.36], sunColor: [2.10, 0.92, 0.48],
+    skyZenith: [0.10, 0.16, 0.42], skyHorizon: [0.92, 0.46, 0.24], skyGround: [0.16, 0.14, 0.20],
+    fog: 0.00100, night: 0.28, exposure: 1.02, bloom: 0.62, label: '19:42 · COUCHER DE SOLEIL'
+  },
+  { /* nuit */
+    sunDir: [-0.32, 0.62, 0.42], sunColor: [0.15, 0.19, 0.34],
+    skyZenith: [0.015, 0.025, 0.065], skyHorizon: [0.10, 0.10, 0.17], skyGround: [0.05, 0.05, 0.08],
+    fog: 0.00108, night: 1.0, exposure: 1.02, bloom: 0.72, label: '02:15 · NEW YORK BY NIGHT'
+  }
+];
+
+function applyTimePreset(i) {
+  const t = TIME_PRESETS[i];
+  const l = Math.hypot(t.sunDir[0], t.sunDir[1], t.sunDir[2]);
+  ENV.sunDir = [t.sunDir[0] / l, t.sunDir[1] / l, t.sunDir[2] / l];
+  ENV.sunColor = t.sunColor.slice();
+  ENV.skyZenith = t.skyZenith.slice();
+  ENV.skyHorizon = t.skyHorizon.slice();
+  ENV.skyGround = t.skyGround.slice();
+  ENV.fog = t.fog; ENV.night = t.night;
+  ENV.exposure = t.exposure; ENV.bloom = t.bloom; ENV.label = t.label;
+  R.timeOfDay = i;
+}
+
+function makeInstVAO(mesh, buf) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+  const S = 8 * 4;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, S, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, S, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, S, 24);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  const IS = 13 * 4;
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, IS, 0);  gl.vertexAttribDivisor(3, 1);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 3, gl.FLOAT, false, IS, 12); gl.vertexAttribDivisor(4, 1);
+  gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 3, gl.FLOAT, false, IS, 24); gl.vertexAttribDivisor(5, 1);
+  gl.enableVertexAttribArray(6); gl.vertexAttribPointer(6, 4, gl.FLOAT, false, IS, 36); gl.vertexAttribDivisor(6, 1);
+  gl.bindVertexArray(null);
+  return vao;
+}
+
+function initRenderer() {
+  GLX.floatColor = !!gl.getExtension('EXT_color_buffer_float');
+  gl.getExtension('OES_texture_float_linear');
+
+  R.mesh.box = geoBox();
+  R.mesh.sphere = geoSphere(20, 14);
+  /* membres : chaque segment a sa propre capsule à l'échelle réelle */
+  R.mesh.armU = geoCapsuleAbs(0.056, 0.285, 12, 4);
+  R.mesh.armF = geoCapsuleAbs(0.048, 0.255, 12, 4);
+  R.mesh.thigh = geoCapsuleAbs(0.082, 0.445, 14, 5);
+  R.mesh.shin = geoCapsuleAbs(0.064, 0.425, 12, 4);
+  R.mesh.cyl = geoCylinder(7);
+  R.mesh.plane = geoPlane(1);
+  R.fsTri = makeFsTri();
+
+  R.prog.sky = makeProgram(VS_SKY, FS_SKY, 'sky');
+  R.prog.inst = makeProgram(VS_INST, FS_INST, 'inst');
+  R.prog.ground = makeProgram(VS_GROUND, FS_GROUND, 'ground');
+  R.prog.char = makeProgram(VS_CHAR, FS_CHAR, 'char');
+  R.prog.web = makeProgram(VS_WEB, FS_WEB, 'web');
+  R.prog.depthInst = makeProgram(VS_DEPTH_INST, FS_DEPTH, 'depthInst');
+  R.prog.depthModel = makeProgram(VS_DEPTH_MODEL, FS_DEPTH, 'depthModel');
+  R.prog.bright = makeProgram(VS_POST, FS_BRIGHT, 'bright');
+  R.prog.blur = makeProgram(VS_POST, FS_BLUR, 'blur');
+  R.prog.comp = makeProgram(VS_POST, FS_COMPOSITE, 'composite');
+
+  buildRig(R.mesh);
+
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+  gl.enable(gl.DEPTH_TEST);
+  gl.clearColor(0.02, 0.03, 0.05, 1);
+}
+
+function uploadCity() {
+  const mk = (data) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    return b;
+  };
+  if (R.bufBuild) gl.deleteBuffer(R.bufBuild);
+  if (R.bufProp) gl.deleteBuffer(R.bufProp);
+  if (R.bufCar) gl.deleteBuffer(R.bufCar);
+  if (R.bufShadow) gl.deleteBuffer(R.bufShadow);
+
+  R.bufBuild = mk(CITY.instB);
+  R.bufProp = mk(CITY.instP);
+  R.bufCar = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, R.bufCar);
+  gl.bufferData(gl.ARRAY_BUFFER, CITY.instC.byteLength, gl.DYNAMIC_DRAW);
+
+  const maxShadow = 900;
+  R.shadowData = new Float32Array(maxShadow * 13);
+  R.bufShadow = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, R.bufShadow);
+  gl.bufferData(gl.ARRAY_BUFFER, R.shadowData.byteLength, gl.DYNAMIC_DRAW);
+
+  R.vaoBuild = makeInstVAO(R.mesh.box, R.bufBuild);
+  R.vaoProp = makeInstVAO(R.mesh.box, R.bufProp);
+  R.vaoCar = makeInstVAO(R.mesh.box, R.bufCar);
+  R.vaoShadow = makeInstVAO(R.mesh.box, R.bufShadow);
+  R.shadowAnchor[0] = 1e9;
+}
+
+/* sélectionne les volumes proches pour la carte d'ombres */
+function refreshShadowSet(cx, cz) {
+  const radius = 165;
+  const data = R.shadowData;
+  let n = 0;
+  const max = data.length / 13;
+  const put = (src, i) => {
+    if (n >= max) return;
+    const o = i * 13, d = n * 13;
+    for (let k = 0; k < 13; k++) data[d + k] = src[o + k];
+    n++;
+  };
+  const scan = (src, count) => {
+    for (let i = 0; i < count && n < max; i++) {
+      const o = i * 13;
+      const x = src[o], z = src[o + 2], sx = src[o + 3], sz = src[o + 5];
+      if (Math.abs(x - cx) < radius + sx && Math.abs(z - cz) < radius + sz) put(src, i);
+    }
+  };
+  scan(CITY.instB, CITY.instBn);
+  scan(CITY.instP, CITY.instPn);
+  R.shadowCount = n;
+  gl.bindBuffer(gl.ARRAY_BUFFER, R.bufShadow);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, n * 13);
+  R.shadowAnchor[0] = cx; R.shadowAnchor[1] = cz;
+}
+
+/* Ajuste la résolution interne pour tenir un rythme fluide.
+   Le rendu est mis à l'échelle, jamais la simulation. */
+function tunePerf(dt) {
+  R.perfCool -= dt;
+  R.perfAcc += dt; R.perfN++;
+  if (R.perfAcc < 1.1) return;
+  const fps = R.perfN / R.perfAcc;
+  R.perfAcc = 0; R.perfN = 0;
+  if (R.perfCool > 0) return;
+  let sc = R.dynScale;
+  if (fps < 42) sc = Math.max(0.55, sc - 0.12);
+  else if (fps > 57 && sc < 1.0) sc = Math.min(1.0, sc + 0.06);
+  if (Math.abs(sc - R.dynScale) > 0.001) {
+    R.dynScale = sc;
+    R.perfCool = 2.2;
+    resize();
+  }
+}
+
+function resize() {
+  const scale = [0.72, 0.9, 1.0][R.quality] * R.dynScale;
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.6) * scale;
+  const w = Math.max(320, Math.floor(canvas.clientWidth * dpr));
+  const h = Math.max(240, Math.floor(canvas.clientHeight * dpr));
+  if (w === R.w && h === R.h) return;
+  R.w = w; R.h = h; R.dpr = dpr;
+  canvas.width = w; canvas.height = h;
+
+  if (R.hdr) { gl.deleteFramebuffer(R.hdr.fb); gl.deleteTexture(R.hdr.tex); gl.deleteRenderbuffer(R.hdr.depth); }
+  if (R.bloomA) { gl.deleteFramebuffer(R.bloomA.fb); gl.deleteTexture(R.bloomA.tex); }
+  if (R.bloomB) { gl.deleteFramebuffer(R.bloomB.fb); gl.deleteTexture(R.bloomB.tex); }
+  R.hdr = makeColorTarget(w, h, GLX.floatColor, true);
+  const bw = Math.max(1, w >> 2), bh = Math.max(1, h >> 2);
+  R.bloomA = makeColorTarget(bw, bh, GLX.floatColor, false);
+  R.bloomB = makeColorTarget(bw, bh, GLX.floatColor, false);
+}
+
+function setupShadow() {
+  const size = [1024, 2048, 2048][R.quality];
+  if (R.shadow && R.shadow.size === size) return;
+  if (R.shadow) { gl.deleteFramebuffer(R.shadow.fb); gl.deleteTexture(R.shadow.tex); }
+  R.shadow = makeShadowTarget(size);
+}
+
+/* uniformes communs à tous les shaders d'éclairage */
+function setCommon(pr, vp) {
+  const u = pr.u;
+  gl.uniformMatrix4fv(u.uVP, false, vp);
+  gl.uniform3fv(u.uSunDir, ENV.sunDir);
+  gl.uniform3fv(u.uSunColor, ENV.sunColor);
+  gl.uniform3fv(u.uSkyZenith, ENV.skyZenith);
+  gl.uniform3fv(u.uSkyHorizon, ENV.skyHorizon);
+  gl.uniform3fv(u.uSkyGround, ENV.skyGround);
+  gl.uniform3fv(u.uCamPos, cam.pos);
+  gl.uniform1f(u.uFogDensity, ENV.fog);
+  gl.uniform1f(u.uTime, R.time);
+  gl.uniform1f(u.uNight, ENV.night);
+  gl.uniformMatrix4fv(u.uLightVP, false, R.lightVP);
+  gl.uniform1f(u.uShadowTexel, 1 / R.shadow.size);
+  gl.uniform1f(u.uShadowOn, R.quality > 0 ? 1 : 0);
+  gl.uniform1i(u.uShadowMap, 4);
+}
+
+const _wm = m4(), _wq = qNew(), _wp = [0, 0, 0], _up = [0, 1, 0];
+function drawWebLine(vp, depthOnly) {
+  if (!player.web.on) return;
+  const armBone = player.web.side > 0 ? 'handL' : 'handR';
+  boneWorldPos(armBone, _wp);
+  const ax = player.web.ax, ay = player.web.ay, az = player.web.az;
+  const segs = 9;
+  const dx = ax - _wp[0], dy = ay - _wp[1], dz = az - _wp[2];
+  const len = Math.hypot(dx, dy, dz);
+  const slack = clamp((player.web.len - len) * 0.35, 0, 3.5) + 0.25;
+  const pr = R.prog.web;
+  gl.useProgram(pr.prog);
+  setCommon(pr, vp);
+  gl.uniform1f(pr.u.uAlpha, 0.96);
+  gl.activeTexture(gl.TEXTURE4);
+  gl.bindTexture(gl.TEXTURE_2D, R.shadow.tex);
+  gl.bindVertexArray(R.mesh.cyl.vao);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  let px = _wp[0], py = _wp[1], pz = _wp[2];
+  for (let i = 1; i <= segs; i++) {
+    const t = i / segs;
+    const sag = Math.sin(t * Math.PI) * slack;
+    const qx = _wp[0] + dx * t;
+    const qy = _wp[1] + dy * t - sag;
+    const qz = _wp[2] + dz * t;
+    const sx = qx - px, sy = qy - py, sz = qz - pz;
+    const sl = Math.hypot(sx, sy, sz) || 1e-4;
+    _dirTmp[0] = sx / sl; _dirTmp[1] = sy / sl; _dirTmp[2] = sz / sl;
+    qFromUnitVectors(_wq, _up, _dirTmp);
+    m4Compose(_wm, [px, py, pz], _wq, [0.040, sl, 0.040]);
+    gl.uniformMatrix4fv(pr.u.uModel, false, _wm);
+    gl.drawElements(gl.TRIANGLES, R.mesh.cyl.count, gl.UNSIGNED_SHORT, 0);
+    px = qx; py = qy; pz = qz;
+  }
+  gl.disable(gl.BLEND);
+}
+
+function drawCharacter(vp) {
+  const pr = R.prog.char;
+  gl.useProgram(pr.prog);
+  setCommon(pr, vp);
+  gl.activeTexture(gl.TEXTURE4);
+  gl.bindTexture(gl.TEXTURE_2D, R.shadow.tex);
+  let lastMesh = null;
+  for (let i = 0; i < RIG.parts.length; i++) {
+    const p = RIG.parts[i];
+    if (p.mesh !== lastMesh) { gl.bindVertexArray(p.mesh.vao); lastMesh = p.mesh; }
+    gl.uniformMatrix4fv(pr.u.uModel, false, p.world);
+    gl.uniformMatrix3fv(pr.u.uNormalMat, false, p.nrm);
+    gl.uniform3fv(pr.u.uBaseColor, p.color);
+    gl.uniform1i(pr.u.uMode, p.mode);
+    gl.uniform3fv(pr.u.uPatScale, p.patScale);
+    gl.uniform1f(pr.u.uPatOfs, p.patOfs);
+    gl.drawElements(gl.TRIANGLES, p.mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+}
+
+function drawCharacterDepth() {
+  const pr = R.prog.depthModel;
+  gl.useProgram(pr.prog);
+  gl.uniformMatrix4fv(pr.u.uLightVP, false, R.lightVP);
+  let lastMesh = null;
+  for (let i = 0; i < RIG.parts.length; i++) {
+    const p = RIG.parts[i];
+    if (p.mode === 2 || p.mode === 3) continue;
+    if (p.mesh !== lastMesh) { gl.bindVertexArray(p.mesh.vao); lastMesh = p.mesh; }
+    gl.uniformMatrix4fv(pr.u.uModel, false, p.world);
+    gl.drawElements(gl.TRIANGLES, p.mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+}
+
+function computeLightMatrix() {
+  const R2 = 150;
+  const cx = player.pos[0] + player.vel[0] * 0.6;
+  const cz = player.pos[2] + player.vel[2] * 0.6;
+  const cy = player.pos[1];
+  const texel = (R2 * 2) / R.shadow.size;
+  const sx = Math.round(cx / texel) * texel;
+  const sz = Math.round(cz / texel) * texel;
+  const d = 420;
+  const eye = [sx + ENV.sunDir[0] * d, cy + ENV.sunDir[1] * d, sz + ENV.sunDir[2] * d];
+  m4LookAt(R.lightView, eye, [sx, cy, sz], [0, 1, 0]);
+  m4Ortho(R.lightProj, -R2, R2, -R2, R2, 1, d * 2.2);
+  m4Mul(R.lightVP, R.lightProj, R.lightView);
+}
+
+function renderFrame(dt) {
+  R.frame++;
+  const aspect = R.w / R.h;
+  m4Perspective(cam.proj, cam.fov * Math.PI / 180, aspect, 0.12, 4200);
+  /* roulis : on fait tourner le vecteur "haut" autour de l'axe de visée */
+  let fx = cam.tgt[0] - cam.pos[0], fy = cam.tgt[1] - cam.pos[1], fz = cam.tgt[2] - cam.pos[2];
+  const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+  let rx = -fz, rz = fx;
+  const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+  const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+  const cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);
+  m4LookAt(cam.view, cam.pos, cam.tgt,
+           [ux * cr + rx * sr, uy * cr, uz * cr + rz * sr]);
+  m4Mul(cam.vp, cam.proj, cam.view);
+  m4Invert(cam.invVP, cam.vp);
+
+  /* ---- passe d'ombres ---- */
+  computeLightMatrix();
+  if (R.quality > 0) {
+    if (Math.abs(player.pos[0] - R.shadowAnchor[0]) > 40 ||
+        Math.abs(player.pos[2] - R.shadowAnchor[1]) > 40 || R.frame % 240 === 1) {
+      refreshShadowSet(player.pos[0], player.pos[2]);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, R.shadow.fb);
+    gl.viewport(0, 0, R.shadow.size, R.shadow.size);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.colorMask(false, false, false, false);
+    gl.cullFace(gl.FRONT);
+    const dp = R.prog.depthInst;
+    gl.useProgram(dp.prog);
+    gl.uniformMatrix4fv(dp.u.uLightVP, false, R.lightVP);
+    gl.bindVertexArray(R.vaoShadow);
+    if (R.shadowCount > 0)
+      gl.drawElementsInstanced(gl.TRIANGLES, R.mesh.box.count, gl.UNSIGNED_SHORT, 0, R.shadowCount);
+    gl.cullFace(gl.BACK);
+    drawCharacterDepth();
+    gl.colorMask(true, true, true, true);
+  }
+
+  /* ---- passe principale (HDR) ---- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, R.hdr.fb);
+  gl.viewport(0, 0, R.w, R.h);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  /* ciel */
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  const sp = R.prog.sky;
+  gl.useProgram(sp.prog);
+  setCommon(sp, cam.vp);
+  gl.uniformMatrix4fv(sp.u.uInvVP, false, cam.invVP);
+  gl.bindVertexArray(R.fsTri.vao);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
+
+  gl.activeTexture(gl.TEXTURE4);
+  gl.bindTexture(gl.TEXTURE_2D, R.shadow.tex);
+
+  /* sol */
+  const gp = R.prog.ground;
+  gl.useProgram(gp.prog);
+  setCommon(gp, cam.vp);
+  gl.uniform1f(gp.u.uScale, 9000);
+  gl.uniform1f(gp.u.uBlock, CITY.block);
+  gl.uniform1f(gp.u.uRoad, CITY.road);
+  gl.bindVertexArray(R.mesh.plane.vao);
+  gl.drawElements(gl.TRIANGLES, R.mesh.plane.count, gl.UNSIGNED_SHORT, 0);
+
+  /* immeubles, accessoires, véhicules */
+  const ip = R.prog.inst;
+  gl.useProgram(ip.prog);
+  setCommon(ip, cam.vp);
+  gl.bindVertexArray(R.vaoBuild);
+  gl.drawElementsInstanced(gl.TRIANGLES, R.mesh.box.count, gl.UNSIGNED_SHORT, 0, CITY.instBn);
+  gl.bindVertexArray(R.vaoProp);
+  gl.drawElementsInstanced(gl.TRIANGLES, R.mesh.box.count, gl.UNSIGNED_SHORT, 0, CITY.instPn);
+  gl.bindBuffer(gl.ARRAY_BUFFER, R.bufCar);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, CITY.instC);
+  gl.bindVertexArray(R.vaoCar);
+  gl.drawElementsInstanced(gl.TRIANGLES, R.mesh.box.count, gl.UNSIGNED_SHORT, 0, CITY.instCn);
+
+  /* personnage + toile */
+  drawCharacter(cam.vp);
+  drawWebLine(cam.vp, false);
+
+  /* ---- post-traitement ---- */
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.bindVertexArray(R.fsTri.vao);
+
+  const bp = R.prog.bright;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, R.bloomA.fb);
+  gl.viewport(0, 0, R.bloomA.w, R.bloomA.h);
+  gl.useProgram(bp.prog);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, R.hdr.tex);
+  gl.uniform1i(bp.u.uTex, 0);
+  gl.uniform1f(bp.u.uThreshold, 0.92);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  const bl = R.prog.blur;
+  gl.useProgram(bl.prog);
+  gl.uniform1i(bl.u.uTex, 0);
+  const passes = R.quality > 0 ? 2 : 1;
+  for (let i = 0; i < passes; i++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, R.bloomB.fb);
+    gl.bindTexture(gl.TEXTURE_2D, R.bloomA.tex);
+    gl.uniform2f(bl.u.uDir, 1.15 / R.bloomA.w, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, R.bloomA.fb);
+    gl.bindTexture(gl.TEXTURE_2D, R.bloomB.tex);
+    gl.uniform2f(bl.u.uDir, 0, 1.15 / R.bloomA.h);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, R.w, R.h);
+  const cp = R.prog.comp;
+  gl.useProgram(cp.prog);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, R.hdr.tex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, R.bloomA.tex);
+  gl.uniform1i(cp.u.uScene, 0);
+  gl.uniform1i(cp.u.uBloom, 1);
+  gl.uniform1f(cp.u.uBloomInt, ENV.bloom);
+  const spd = speedOf(player.vel);
+  gl.uniform1f(cp.u.uSpeedBlur, clamp((spd - 22) / 55, 0, 1));
+  gl.uniform1f(cp.u.uExposure, ENV.exposure);
+  gl.uniform1f(cp.u.uVignette, 0.42);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
+  gl.bindVertexArray(null);
+}
+
+/* ------------------------------------------------------------------ *
+ * 8. INTERFACE, ENTRÉES, BOUCLE PRINCIPALE
+ * ------------------------------------------------------------------ */
+const STATE = { running: false, paused: false, booted: false };
+
+/* Le verrouillage du pointeur peut être refusé (iframe, navigateur, geste manquant) :
+   on ne veut jamais qu'une promesse rejetée remonte en erreur. */
+function lockPointer() {
+  try {
+    const r = canvas.requestPointerLock();
+    if (r && typeof r.catch === 'function') r.catch(() => {});
+  } catch (e) { /* ignoré : le jeu reste jouable, la souris n'est simplement pas capturée */ }
+}
+R.time = 0;
+
+const elHud = document.getElementById('hud');
+const elMenu = document.getElementById('menu');
+const elPause = document.getElementById('pause');
+const elSpd = document.getElementById('spd');
+const elAlt = document.getElementById('alt');
+const elScore = document.getElementById('score');
+const elFill = document.getElementById('speedFill');
+const elMode = document.getElementById('modeName');
+const elClock = document.getElementById('clockRow');
+const elCombo = document.getElementById('comboTag');
+const elCross = document.getElementById('cross');
+const elVig = document.getElementById('speedVig');
+
+const MODE_LABEL = {
+  ground: 'AU SOL', air: 'EN CHUTE LIBRE', swing: 'BALANCEMENT',
+  wall: 'ACCROCHÉ AU MUR', zip: 'TRACTION'
+};
+
+let hudTick = 0, crossLock = false;
+function updateHUD(dt) {
+  hudTick += dt;
+  if (hudTick < 0.05) return;
+  hudTick = 0;
+  const sp = speedOf(player.vel) * 3.6;
+  elSpd.textContent = sp.toFixed(0);
+  elAlt.textContent = player.pos[1].toFixed(0);
+  elScore.textContent = player.score | 0;
+  elFill.style.width = clamp(sp / 290 * 100, 0, 100) + '%';
+  const lbl = (player.mode === 'air' && player.vel[1] > 1) ? 'EN VOL' : MODE_LABEL[player.mode];
+  if (elMode.textContent !== lbl) elMode.textContent = lbl;
+  elCombo.textContent = player.combo > 1.01 ? ('COMBO x' + player.combo.toFixed(2)) : '';
+  elVig.style.opacity = clamp((sp - 90) / 190, 0, 0.9);
+
+  /* réticule : indique si une prise est disponible */
+  const p = player.pos;
+  let dx = Math.sin(cam.yaw), dz = Math.cos(cam.yaw);
+  const ok = player.web.on ||
+    findAnchor(p[0], p[1] + 1.35, p[2], dx, dz, false);
+  if (ok !== crossLock) {
+    crossLock = ok;
+    elCross.classList.toggle('lock', ok);
+  }
+}
+
+function spawnPlayer() {
+  let best = null, bestScore = -1e9;
+  for (let i = 0; i < CITY.buildings.length; i++) {
+    const b = CITY.buildings[i];
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
+    const d = Math.hypot(cx, cz);
+    if (d > 420) continue;
+    const s = -Math.abs(b.top - 135) - d * 0.12;
+    if (s > bestScore) { bestScore = s; best = b; }
+  }
+  const x = best ? (best.x0 + best.x1) / 2 : 0;
+  const z = best ? (best.z0 + best.z1) / 2 : 0;
+  const y = best ? best.top : 0;
+  player.pos[0] = x; player.pos[1] = y + 0.2; player.pos[2] = z;
+  player.vel[0] = 0; player.vel[1] = 0; player.vel[2] = 0;
+  player.mode = 'ground'; player.web.on = false; player.zip.on = false;
+  player.score = 0; player.combo = 1; player.dist = 0; player.topSpeed = 0; player.swings = 0;
+  player.yaw = 0.6; cam.yaw = 0.6; cam.pitch = -0.10;
+  cam.tgt[0] = x; cam.tgt[1] = y + 1.4; cam.tgt[2] = z;
+  cam.pos[0] = x - Math.sin(cam.yaw) * 8;
+  cam.pos[1] = y + 3.2;
+  cam.pos[2] = z - Math.cos(cam.yaw) * 8;
+  updateRigMatrices(player.pos, rootQuatYPR(rootQ, player.yaw, 0, 0));
+}
+
+/* ---------------- entrées ---------------- */
+window.addEventListener('keydown', (e) => {
+  if (e.repeat && e.code === 'Space') { e.preventDefault(); return; }
+  if (!e.repeat) INPUT.tap[e.code] = true;
+  INPUT.keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].indexOf(e.code) >= 0) e.preventDefault();
+  if (e.code === 'Escape' && STATE.running) setPaused(true);
+  if (e.code === 'KeyR' && STATE.running) { spawnPlayer(); }
+  if (e.code === 'KeyF') toggleTime();
+});
+window.addEventListener('keyup', (e) => { INPUT.keys[e.code] = false; });
+window.addEventListener('blur', () => {
+  INPUT.keys = Object.create(null); INPUT.tap = Object.create(null);
+  INPUT.m1 = false; INPUT.m2 = false;
+});
+
+canvas.addEventListener('mousedown', (e) => {
+  if (!STATE.running) return;
+  if (!INPUT.locked) { lockPointer(); return; }
+  if (e.button === 0) INPUT.m1 = true;
+  if (e.button === 2) INPUT.m2 = true;
+});
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 0) INPUT.m1 = false;
+  if (e.button === 2) INPUT.m2 = false;
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('mousemove', (e) => {
+  if (!INPUT.locked) return;
+  INPUT.mdx += e.movementX || 0;
+  INPUT.mdy += e.movementY || 0;
+});
+canvas.addEventListener('wheel', (e) => { INPUT.wheel += e.deltaY; e.preventDefault(); }, { passive: false });
+document.addEventListener('pointerlockchange', () => {
+  INPUT.locked = (document.pointerLockElement === canvas);
+  if (!INPUT.locked && STATE.running) setPaused(true);
+});
+window.addEventListener('resize', () => resize());
+
+function setPaused(v) {
+  STATE.paused = v;
+  elPause.classList.toggle('hidden', !v);
+  if (v) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    document.getElementById('pDist').textContent = (player.dist | 0);
+    document.getElementById('pTop').textContent = (player.topSpeed * 3.6) | 0;
+    document.getElementById('pSwings').textContent = player.swings;
+    document.getElementById('pScore').textContent = player.score | 0;
+    if (SFX.ready) SFX.windGain.gain.value = 0;
+  }
+}
+elPause.addEventListener('click', () => {
+  if (!STATE.running) return;
+  setPaused(false);
+  lockPointer();
+});
+
+function toggleTime() {
+  applyTimePreset((R.timeOfDay + 1) % 3);
+  elClock.textContent = 'NEW YORK · ' + ENV.label;
+  document.querySelectorAll('#tseg button').forEach((b) => {
+    b.classList.toggle('sel', (+b.dataset.t) === R.timeOfDay);
+  });
+}
+
+/* menus */
+document.querySelectorAll('#qseg button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#qseg button').forEach((x) => x.classList.remove('sel'));
+    b.classList.add('sel');
+    R.quality = +b.dataset.q;
+  });
+});
+document.querySelectorAll('#tseg button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#tseg button').forEach((x) => x.classList.remove('sel'));
+    b.classList.add('sel');
+    applyTimePreset(+b.dataset.t);
+    elClock.textContent = 'NEW YORK · ' + ENV.label;
+  });
+});
+
+document.getElementById('play').addEventListener('click', () => {
+  try {
+    SFX.init();
+    startGame();
+  } catch (err) {
+    fatal('Erreur au démarrage : ' + (err && err.message ? err.message : err));
+    console.error(err);
+  }
+});
+
+function startGame() {
+  if (!STATE.booted) {
+    initRenderer();
+    STATE.booted = true;
+  }
+  setupShadow();
+  resize();
+  buildCity(R.quality);
+  uploadCity();
+  spawnPlayer();
+  elMenu.classList.add('hidden');
+  elHud.classList.add('on');
+  elClock.textContent = 'NEW YORK · ' + ENV.label;
+  STATE.running = true;
+  STATE.paused = false;
+  lockPointer();
+}
+
+/* ---------------- boucle ---------------- */
+let lastT = performance.now();
+let fpsAcc = 0, fpsN = 0, fpsVal = 60;
+function loop(now) {
+  requestAnimationFrame(loop);
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  if (!(dt > 0)) dt = 0.016;
+  dt = Math.min(dt, 0.06);
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc > 0.5) { fpsVal = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+
+  if (!STATE.running) return;
+  resize();
+  setupShadow();
+
+  if (!STATE.paused) {
+    tunePerf(dt);
+    R.time += dt;
+    updateCars(dt);
+    updatePlayer(dt, R.time);
+    updateCamera(dt, R.time);
+    updateHUD(dt);
+  } else {
+    INPUT.mdx = 0; INPUT.mdy = 0;
+  }
+  try {
+    renderFrame(dt);
+  } catch (err) {
+    STATE.running = false;
+    console.error(err);
+    fatal('Erreur de rendu : ' + (err && err.message ? err.message : err));
+    elMenu.classList.remove('hidden');
+  }
+}
+
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  STATE.running = false;
+  elMenu.classList.remove('hidden');
+  fatal('Le contexte WebGL a été perdu (souvent après une mise en veille). Recharge la page pour continuer.');
+});
+
+window.addEventListener('error', (e) => {
+  if (!STATE.running) fatal('Erreur : ' + e.message);
+});
+
+applyTimePreset(1);
+
+/* point d'entrée de diagnostic : état interne + dernière erreur GL */
+window.SPIDER = {
+  gl: gl, R: R, CITY: CITY, player: player, cam: cam, STATE: STATE, ENV: ENV, INPUT: INPUT,
+  CONTACT: CONTACT, PHYS: PHYS, RIG: RIG, ANCHOR: ANCHOR, RAY: RAY,
+  nearby: (x, z, r) => nearbyBuildings(x, z, r).map((i) => CITY.buildings[i]),
+  glError: () => (gl ? gl.getError() : -1),
+  fps: () => fpsVal,
+  start: () => { SFX.init(); startGame(); }
+};
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
