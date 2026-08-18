@@ -1876,6 +1876,7 @@ const INPUT = {
   mdx: 0, mdy: 0, wheel: 0,
   m1: false, m2: false,
   locked: false,
+  fallback: false,               /* capture de souris refusée : mode secours */
   lastMouseMove: 0
 };
 const K = (c) => INPUT.keys[c] === true;
@@ -3076,8 +3077,19 @@ const STATE = { running: false, paused: false, booted: false };
 function lockPointer() {
   try {
     const r = canvas.requestPointerLock();
-    if (r && typeof r.catch === 'function') r.catch(() => {});
-  } catch (e) { /* ignoré : le jeu reste jouable, la souris n'est simplement pas capturée */ }
+    if (r && typeof r.catch === 'function') r.catch(() => { enableFallbackLook(); });
+  } catch (e) { enableFallbackLook(); }
+  /* si au bout d'un instant rien n'est verrouillé, on bascule en secours */
+  setTimeout(() => { if (!INPUT.locked && STATE.running) enableFallbackLook(); }, 400);
+}
+/* Certains contextes (aperçu intégré, iframe, réglages du navigateur) refusent
+   la capture du pointeur. Le jeu reste alors entièrement jouable : la caméra
+   suit les mouvements de la souris au-dessus de la fenêtre. */
+function enableFallbackLook() {
+  if (INPUT.fallback) return;
+  INPUT.fallback = true;
+  document.getElementById('keys').insertAdjacentHTML('beforeend',
+    '<div class="k" style="color:#ffd36e">SOURIS NON CAPTURÉE — LA VUE SUIT QUAND MÊME</div>');
 }
 R.time = 0;
 
@@ -3168,7 +3180,7 @@ window.addEventListener('blur', () => {
 
 canvas.addEventListener('mousedown', (e) => {
   if (!STATE.running) return;
-  if (!INPUT.locked) { lockPointer(); return; }
+  if (!INPUT.locked && !INPUT.fallback) { lockPointer(); return; }
   if (e.button === 0) INPUT.m1 = true;
   if (e.button === 2) INPUT.m2 = true;
 });
@@ -3178,15 +3190,24 @@ window.addEventListener('mouseup', (e) => {
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('mousemove', (e) => {
-  if (!INPUT.locked) return;
-  INPUT.mdx += e.movementX || 0;
-  INPUT.mdy += e.movementY || 0;
+  if (INPUT.locked) {
+    INPUT.mdx += e.movementX || 0;
+    INPUT.mdy += e.movementY || 0;
+    return;
+  }
+  if (!INPUT.fallback || !STATE.running || STATE.paused) return;
+  INPUT.mdx += (e.movementX || 0) * 0.6;
+  INPUT.mdy += (e.movementY || 0) * 0.6;
 });
 canvas.addEventListener('wheel', (e) => { INPUT.wheel += e.deltaY; e.preventDefault(); }, { passive: false });
 document.addEventListener('pointerlockchange', () => {
+  const was = INPUT.locked;
   INPUT.locked = (document.pointerLockElement === canvas);
-  if (!INPUT.locked && STATE.running) setPaused(true);
+  if (INPUT.locked) INPUT.fallback = false;
+  /* on ne met en pause que si la capture était réellement active */
+  if (was && !INPUT.locked && STATE.running) setPaused(true);
 });
+document.addEventListener('pointerlockerror', () => { enableFallbackLook(); });
 window.addEventListener('resize', () => resize());
 
 function setPaused(v) {
