@@ -11,6 +11,8 @@ signal craft_started(recipe: Resource)
 signal craft_finished(output: StringName, amount: int)
 
 var busy: bool = false
+## Faux tant que le circuit n'a pas ete ressoude a l'outil de reparation.
+var powered: bool = true
 var _progress: float = 0.0
 var _recipe: Resource = null
 var _player: Node = null
@@ -20,6 +22,8 @@ var _holo_mat: ShaderMaterial
 var _light: OmniLight3D
 var _loop_player: AudioStreamPlayer3D
 var _screen_mat: StandardMaterial3D
+var _sparks: GPUParticles3D
+var _flicker: float = 0.0
 
 func _ready() -> void:
 	super()
@@ -74,7 +78,67 @@ func _build() -> void:
 	var col := MeshBuilder.box_collider(Vector3(0.8, 1.6, 0.45), Vector3(0, 0.9, 0))
 	add_child(col)
 
+	_sparks = _build_sparks()
+	add_child(_sparks)
+
+func _build_sparks() -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.name = "Sparks"
+	p.amount = 24
+	p.lifetime = 0.7
+	p.emitting = false
+	p.position = Vector3(0.0, 1.42, -0.22)
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3(0, -0.4, -1)
+	mat.spread = 42.0
+	mat.initial_velocity_min = 1.2
+	mat.initial_velocity_max = 3.4
+	mat.gravity = Vector3(0, -6.0, 0)
+	mat.damping_min = 2.0
+	mat.damping_max = 5.0
+	mat.scale_min = 0.3
+	mat.scale_max = 0.9
+	p.process_material = mat
+	var q := QuadMesh.new()
+	q.size = Vector2(0.012, 0.05)
+	var qm := StandardMaterial3D.new()
+	qm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	qm.emission_enabled = true
+	qm.emission = Color(1.0, 0.75, 0.35)
+	qm.emission_energy_multiplier = 6.0
+	qm.albedo_color = Color(1.0, 0.8, 0.4)
+	qm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	q.material = qm
+	p.draw_pass_1 = q
+	return p
+
+## Remet le fabricateur en service. Renvoie faux s'il fonctionnait deja.
+func repair() -> bool:
+	if powered:
+		return false
+	powered = true
+	_sparks.emitting = false
+	_screen_mat.emission = Color(0.15, 0.75, 0.95)
+	_screen_mat.emission_energy_multiplier = 1.4
+	_light.light_color = Color(0.3, 0.9, 1.0)
+	SoundBank.play_at("craft_done", self, -6.0, 0.7)
+	GameState.notify_success("Fabricateur remis en service")
+	return true
+
+func set_powered(value: bool) -> void:
+	powered = value
+	if not value:
+		_sparks.emitting = true
+		_screen_mat.emission = Color(0.6, 0.1, 0.05)
+		_screen_mat.emission_energy_multiplier = 0.4
+		_light.light_color = Color(1.0, 0.3, 0.1)
+
 func interact(player: Node) -> void:
+	if not powered:
+		GameState.notify_warning(
+			"Circuit rompu — utilisez l'outil de reparation (clic gauche)")
+		SoundBank.play("ui_deny", -10.0)
+		return
 	if busy:
 		GameState.notify_info("Fabrication en cours")
 		return
@@ -141,6 +205,13 @@ func _holo_mesh_for(id: StringName) -> Mesh:
 	return g
 
 func _process(delta: float) -> void:
+	if not powered:
+		# court-circuit : la dalle clignote au rythme des etincelles
+		_flicker = wrapf(_flicker + delta * 11.0, 0.0, TAU)
+		var f: float = 0.25 + 0.75 * maxf(sin(_flicker) * sin(_flicker * 2.7), 0.0)
+		_screen_mat.emission_energy_multiplier = f * 1.2
+		_light.light_energy = f * 2.0
+		return
 	if not busy:
 		if _light.light_energy > 0.01:
 			_light.light_energy = lerpf(_light.light_energy, 0.0, delta * 4.0)
@@ -174,4 +245,6 @@ func _finish() -> void:
 	_recipe = null
 
 func get_prompt(_player: Node) -> String:
+	if not powered:
+		return "Fabricateur hors service — reparation requise"
 	return "Fabrication en cours..." if busy else prompt

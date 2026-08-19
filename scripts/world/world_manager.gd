@@ -324,8 +324,7 @@ func _update_shaders() -> void:
 		if not camera.is_position_behind(world_sun):
 			var sp := camera.unproject_position(world_sun)
 			var vp := camera.get_viewport().get_visible_rect().size
-			sun_uv = sp / maxf(vp.x, 1.0) * Vector2(1.0, vp.x / maxf(vp.y, 1.0))
-			sun_uv = Vector2(sp.x / vp.x, sp.y / vp.y)
+			sun_uv = Vector2(sp.x / maxf(vp.x, 1.0), sp.y / maxf(vp.y, 1.0))
 			visible_sun = clampf(sun_direction.y * 3.0, 0.0, 1.0)
 
 	var depth_t2: float = clampf(camera_depth / 110.0, 0.0, 1.0)
@@ -338,6 +337,10 @@ func _update_shaders() -> void:
 		lerpf(water_visibility, water_visibility * 0.55, depth_t2))
 	post_material.set_shader_parameter("sun_screen_pos", sun_uv)
 	post_material.set_shader_parameter("sun_visible", visible_sun)
+	# Les caustiques existent des que le soleil est haut, meme s'il est
+	# derriere le joueur : elles ne suivent pas la visibilite a l'ecran.
+	post_material.set_shader_parameter("sun_above",
+		clampf(sun_direction.y * 4.0, 0.0, 1.0))
 	post_material.set_shader_parameter("godray_strength",
 		float(Settings.get_p(&"godrays", 0.85)) * (1.0 - depth_t2 * 0.8))
 	post_material.set_shader_parameter("caustics_strength",

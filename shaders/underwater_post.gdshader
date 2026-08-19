@@ -37,6 +37,9 @@ uniform float caustics_scale = 0.55;
 uniform float caustics_speed = 0.42;
 uniform float caustics_depth_fade = 45.0;
 uniform float caustics_dispersion : hint_range(0.0, 0.1) = 0.022;
+// Hauteur du soleil (0 = sous l'horizon, 1 = haut dans le ciel). Distincte de
+// `sun_visible`, qui indique seulement s'il est dans le champ de la camera.
+uniform float sun_above : hint_range(0.0, 1.0) = 1.0;
 
 group_uniforms GodRays;
 uniform float godray_strength : hint_range(0.0, 3.0) = 0.85;
@@ -186,7 +189,7 @@ void fragment() {
 				float cg = caustics(world_pos, t, caustics_scale);
 				float cb = caustics(world_pos, t,
 					caustics_scale * (1.0 + caustics_dispersion));
-				vec3 caus = vec3(cr, cg, cb) * fade * caustics_strength * sun_visible;
+				vec3 caus = vec3(cr, cg, cb) * fade * caustics_strength * sun_above;
 				// elles n'apparaissent que sur les surfaces tournees vers le haut
 				vec3 dx = dFdx(world_pos);
 				vec3 dy = dFdy(world_pos);

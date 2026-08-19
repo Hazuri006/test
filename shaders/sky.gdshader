@@ -16,7 +16,9 @@ uniform vec3 rayleigh_beta = vec3(5.802e-6, 13.558e-6, 33.1e-6); // m^-1, air se
 uniform float mie_strength : hint_range(0.0, 5.0) = 1.0;
 uniform float mie_beta = 21e-6;
 uniform float mie_g : hint_range(-0.99, 0.99) = 0.76;
-uniform float exposure : hint_range(0.1, 60.0) = 22.0;
+// Reglage fin de la luminance du ciel. L'echelle physique est deja portee par
+// `sun_intensity` : cette valeur doit rester proche de 1.
+uniform float exposure : hint_range(0.05, 4.0) = 1.0;
 uniform float sun_intensity : hint_range(0.0, 40.0) = 22.0;
 uniform float ozone_strength : hint_range(0.0, 4.0) = 1.0;
 
@@ -283,7 +285,8 @@ vec3 stars(vec3 dir, float t) {
 
 void sky() {
 	vec3 dir = EYEDIR;
-	vec3 sun_dir = normalize(LIGHT0_ENABLED ? -LIGHT0_DIRECTION : vec3(0.0, 1.0, 0.0));
+	// Convention Godot : LIGHT0_DIRECTION pointe du fragment VERS le soleil.
+	vec3 sun_dir = normalize(LIGHT0_ENABLED ? LIGHT0_DIRECTION : vec3(0.0, 1.0, 0.0));
 	vec3 sun_col = LIGHT0_ENABLED ? LIGHT0_COLOR : vec3(1.0);
 
 	// observateur a 100 m au-dessus du niveau de la mer

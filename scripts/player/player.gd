@@ -499,6 +499,8 @@ func _use_tool() -> void:
 			_swing_knife()
 		&"scanner":
 			_scan()
+		&"repair_tool":
+			_repair()
 		&"beacon":
 			_place_beacon()
 
@@ -528,9 +530,62 @@ func _scan() -> void:
 	else:
 		GameState.notify_info("Deja analyse")
 
+func _repair() -> void:
+	if _current_target == null or not is_instance_valid(_current_target):
+		GameState.notify_info("Rien a reparer ici")
+		return
+	if not _current_target.has_method("repair"):
+		GameState.notify_info("Cet element n'est pas reparable")
+		return
+	if _current_target.call("repair"):
+		SoundBank.play("craft_done", -8.0, 1.2)
+	else:
+		GameState.notify_info("Deja en bon etat")
+
 func _place_beacon() -> void:
 	if not inventory.remove(&"beacon", 1):
 		return
+	var marker := Node3D.new()
+	marker.name = "Beacon"
+	get_parent().add_child(marker)
+	marker.global_position = global_position + Vector3(0, 0.5, 0)
+
+	var pole := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.04
+	cyl.bottom_radius = 0.06
+	cyl.height = 0.9
+	pole.mesh = cyl
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.85, 0.5, 0.12)
+	pm.metallic = 0.7
+	pm.roughness = 0.35
+	pole.material_override = pm
+	marker.add_child(pole)
+
+	var bulb := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.11
+	sph.height = 0.22
+	bulb.mesh = sph
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(1.0, 0.7, 0.25)
+	bm.emission_enabled = true
+	bm.emission = Color(1.0, 0.65, 0.2)
+	bm.emission_energy_multiplier = 8.0
+	# visible a travers la brume : la balise doit rester reperable de loin
+	bm.no_depth_test = false
+	bulb.material_override = bm
+	bulb.position = Vector3(0, 0.58, 0)
+	marker.add_child(bulb)
+
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.6, 0.2)
+	light.light_energy = 3.0
+	light.omni_range = 26.0
+	light.position = Vector3(0, 0.58, 0)
+	marker.add_child(light)
+
 	GameState.notify_success("Balise deployee")
 	SoundBank.play("ui_confirm", -10.0)
 

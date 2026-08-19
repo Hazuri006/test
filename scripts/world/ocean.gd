@@ -18,12 +18,12 @@ const OceanShader := preload("res://shaders/ocean.gdshader")
 ## Doit rester STRICTEMENT identique au tableau WAVES du shader.
 ## x = angle relatif au vent (rad), y = longueur d'onde (m), z = cambrure
 const WAVES: Array[Vector3] = [
-	Vector3( 0.00, 74.0, 0.34),
-	Vector3( 0.51, 41.0, 0.26),
-	Vector3(-0.68, 23.0, 0.22),
-	Vector3( 1.24, 12.5, 0.17),
-	Vector3(-1.51,  6.7, 0.13),
-	Vector3( 2.42,  3.3, 0.10),
+	Vector3( 0.00, 74.0, 0.075),
+	Vector3( 0.51, 41.0, 0.082),
+	Vector3(-0.68, 23.0, 0.090),
+	Vector3( 1.24, 12.5, 0.082),
+	Vector3(-1.51,  6.7, 0.070),
+	Vector3( 2.42,  3.3, 0.058),
 ]
 const GRAVITY := 9.81
 
@@ -79,6 +79,11 @@ func _build_meshes() -> void:
 
 	_far = MeshInstance3D.new()
 	_far.name = "FarSurface"
+	# L'anneau demarre en deca du bord de la grille carree (rayon inscrit
+	# 0.5, rayon circonscrit 0.707) : les deux maillages se recouvrent donc
+	# partout, ce qui interdit toute fissure sur le pourtour. Le recouvrement
+	# est sans consequence visuelle puisque les deux surfaces partagent le
+	# meme materiau et la meme houle : elles se colorent a l'identique.
 	_far.mesh = _build_ring(near_size * 0.485, far_radius, 160, rings)
 	_far.material_override = material
 	_far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

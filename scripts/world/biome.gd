@@ -37,15 +37,24 @@ static var _ridge: FastNoiseLite = null
 static var _warp: FastNoiseLite = null
 static var _detail: FastNoiseLite = null
 static var _patch: FastNoiseLite = null
+## Drapeau pose en dernier : tant qu'il est faux, l'initialisation n'est pas
+## terminee. Les generateurs FastNoiseLite sont en lecture seule une fois
+## construits, donc parfaitement partageables entre threads ensuite.
+static var _initialized: bool = false
+
+## A appeler une fois sur le fil principal avant tout travail parallele.
+static func warm_up() -> void:
+	_ensure()
 
 static func _ensure() -> void:
-	if _dunes != null:
+	if _initialized:
 		return
-	_dunes = FastNoiseLite.new()
-	_dunes.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_dunes.seed = 1337
-	_dunes.frequency = 0.0042
-	_dunes.fractal_octaves = 4
+	var dunes := FastNoiseLite.new()
+	dunes.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	dunes.seed = 1337
+	dunes.frequency = 0.0042
+	dunes.fractal_octaves = 4
+	_dunes = dunes
 
 	_ridge = FastNoiseLite.new()
 	_ridge.noise_type = FastNoiseLite.TYPE_SIMPLEX
@@ -72,6 +81,8 @@ static func _ensure() -> void:
 	_patch.seed = 5150
 	_patch.frequency = 0.004
 	_patch.cellular_return_type = FastNoiseLite.RETURN_CELL_VALUE
+
+	_initialized = true
 
 ## Profondeur de reference a la distance `r` du centre du cratere.
 static func crater_depth(r: float) -> float:

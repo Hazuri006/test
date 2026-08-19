@@ -28,9 +28,9 @@ func _ready() -> void:
 	_build_player()
 	_build_ui()
 	_wire()
-	_give_starting_kit()
 	GameState.world = self
-	GameState.notify_info("Capsule de survie 5 — systemes en ligne")
+	GameState.notify_danger("Impact — alimentation du fabricateur rompue")
+	GameState.notify_info("Ouvrez le casier (E) : l'outil de reparation s'y trouve")
 	GameState.notify_info("E : interagir   Tab : inventaire   F : lampe   V : vue")
 
 func _build_world() -> void:
@@ -102,12 +102,6 @@ func _wire() -> void:
 		player.global_position = spawn
 		player.set_respawn_point(spawn)
 		GameState.notify_success("Terrain synchronise"))
-
-func _give_starting_kit() -> void:
-	## Le naufrage laisse le strict minimum : de quoi tenir la premiere plongee.
-	player.inventory.add(&"water", 2)
-	player.inventory.add(&"nutrient_block", 2)
-	player.inventory.add(&"first_aid", 1)
 
 func _process(delta: float) -> void:
 	if player == null:

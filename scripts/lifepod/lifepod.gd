@@ -165,6 +165,8 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 	fabricator.position = Vector3(0, 0.0, -1.72)
 	fabricator.rotation.y = 0.0
 	hull.add_child(fabricator)
+	# l'impact a rompu son alimentation : il faudra la ressouder
+	fabricator.set_powered(false)
 
 	# --- casier --------------------------------------------------------------
 	locker = StorageLocker.new()
@@ -172,6 +174,9 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 	locker.position = Vector3(-1.55, 0.0, 0.75)
 	locker.rotation.y = deg_to_rad(-115.0)
 	hull.add_child(locker)
+	# Le naufrage a laisse de quoi tenir la premiere plongee, et surtout
+	# l'outil qui permettra de remettre le fabricateur en route.
+	locker.fill({&"repair_tool": 1, &"water": 2, &"nutrient_block": 2})
 
 	# --- distributeur medical ------------------------------------------------
 	medkit = Interactable.new()

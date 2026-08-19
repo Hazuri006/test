@@ -29,7 +29,7 @@ uniform vec3 shallow_color : source_color = vec3(0.16, 0.62, 0.62);
 uniform vec3 deep_color : source_color = vec3(0.006, 0.055, 0.13);
 // coefficients d'extinction (m^-1) par canal : le rouge meurt en ~4 m
 uniform vec3 extinction = vec3(0.45, 0.14, 0.085);
-uniform float scatter_strength : hint_range(0.0, 4.0) = 1.35;
+uniform float scatter_strength : hint_range(0.0, 4.0) = 1.1;
 uniform vec3 scatter_color : source_color = vec3(0.09, 0.42, 0.42);
 
 // ---------------------------------------------------------------- micro-relief
@@ -71,12 +71,12 @@ varying float v_crest;
 const int WAVE_COUNT = 6;
 // x = angle relatif (rad), y = longueur d'onde (m), z = cambrure relative
 const vec3 WAVES[6] = vec3[6](
-	vec3( 0.00, 74.0, 0.34),
-	vec3( 0.51, 41.0, 0.26),
-	vec3(-0.68, 23.0, 0.22),
-	vec3( 1.24, 12.5, 0.17),
-	vec3(-1.51,  6.7, 0.13),
-	vec3( 2.42,  3.3, 0.10)
+	vec3( 0.00, 74.0, 0.075),
+	vec3( 0.51, 41.0, 0.082),
+	vec3(-0.68, 23.0, 0.090),
+	vec3( 1.24, 12.5, 0.082),
+	vec3(-1.51,  6.7, 0.070),
+	vec3( 2.42,  3.3, 0.058)
 );
 
 const float GRAVITY = 9.81;
@@ -210,12 +210,16 @@ void fragment() {
 		exp(-refr_thickness * 0.14));
 	vec3 refracted = behind * transmit + water_tint * (1.0 - transmit);
 
-	// ---- diffusion sous-surfacique : les cretes s'allument a contre-jour ----
-	float sss = clamp(v_crest * 0.5 + 0.5, 0.0, 1.0);
+	// ---- diffusion sous-surfacique --------------------------------------
+	// Trois conditions doivent etre reunies pour qu'une vague s'allume :
+	// se trouver sur une crete (peu d'eau a traverser), etre regardee a
+	// contre-jour, et etre vue en rasant (long trajet dans la crete).
+	float crest_mask = smoothstep(0.15, 0.95, v_crest);
 	float back_light = pow(clamp(dot(view_dir, -normalize(sun_direction)) * 0.5 + 0.5,
-		0.0, 1.0), 3.0);
+		0.0, 1.0), 4.0);
+	float grazing = pow(1.0 - clamp(dot(N, view_dir), 0.0, 1.0), 2.0);
 	vec3 sss_col = scatter_color * sun_color * sun_energy
-		* sss * back_light * scatter_strength;
+		* crest_mask * back_light * grazing * scatter_strength;
 
 	// ---- ecume --------------------------------------------------------------
 	float shore_foam = 1.0 - smoothstep(0.0, foam_shore_depth, refr_thickness);

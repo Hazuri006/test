@@ -18,13 +18,15 @@ const TerrainShader := preload("res://shaders/terrain.gdshader")
 @export var collision_res: int = 20
 @export var max_commits_per_frame: int = 2
 
-## [distance max, resolution du maillage]
+## [distance max, resolution du maillage]. Toutes les resolutions sont des
+## multiples de BORDER_STEPS, condition necessaire au raccordement des bords.
 const LODS: Array[Vector2] = [
 	Vector2(110.0, 48.0),
-	Vector2(210.0, 24.0),
-	Vector2(380.0, 12.0),
-	Vector2(9999.0, 6.0),
+	Vector2(215.0, 24.0),
+	Vector2(9999.0, 12.0),
 ]
+## Nombre de segments du pourtour, identique pour tous les niveaux de detail.
+const BORDER_STEPS := 12
 
 var view_distance: float = 520.0
 var collision_distance: float = 130.0
@@ -40,6 +42,9 @@ var _last_center := Vector2i(99999, 99999)
 
 func _ready() -> void:
 	view_distance = float(Settings.get_p(&"terrain_view_distance", 520.0))
+	# Les bruits doivent exister avant que les threads de generation ne les
+	# interrogent : on les construit ici, sur le fil principal.
+	Biome.warm_up()
 	_build_material()
 
 func set_camera(cam: Camera3D) -> void:
@@ -142,7 +147,9 @@ func _generate(coord: Vector2i, res: int, need_collision: bool) -> void:
 		for x in n:
 			var wx := origin.x + x * step
 			var wz := origin.z + z * step
-			var h := Biome.height(wx, wz)
+			var on_border: bool = x == 0 or x == res or z == 0 or z == res
+			var h: float = _border_height(origin, x, z, res) if on_border \
+				else Biome.height(wx, wz)
 			verts[i] = Vector3(x * step, h, z * step)
 			var nrm := Biome.normal(wx, wz, maxf(step * 0.5, 0.4))
 			normals[i] = nrm
@@ -195,6 +202,30 @@ func _generate(coord: Vector2i, res: int, need_collision: bool) -> void:
 			Vector3(chunk_size, maxf(max_y - min_y, 1.0) + 2.0, chunk_size)),
 	}
 	_mutex.unlock()
+
+## Hauteur imposee sur le pourtour d'un chunk.
+##
+## Elle est interpolee lineairement entre des points d'ancrage espaces de
+## `chunk_size / BORDER_STEPS`, ancres sur la grille des chunks. Comme deux
+## chunks voisins partagent la meme arete, les memes ancrages et la meme
+## interpolation, ils produisent exactement la meme courbe : les sommets
+## coincident au millimetre pres quel que soit leur niveau de detail, et il ne
+## peut plus subsister la moindre fente entre eux.
+func _border_height(origin: Vector3, x: int, z: int, res: int) -> float:
+	var cs := chunk_size / float(BORDER_STEPS)
+	if z == 0 or z == res:
+		var wz: float = origin.z + (0.0 if z == 0 else chunk_size)
+		var lx := float(x) / float(res) * chunk_size
+		var k := floorf(lx / cs)
+		var t: float = clampf(lx / cs - k, 0.0, 1.0)
+		var x0 := origin.x + k * cs
+		return lerpf(Biome.height(x0, wz), Biome.height(x0 + cs, wz), t)
+	var wx: float = origin.x + (0.0 if x == 0 else chunk_size)
+	var lz := float(z) / float(res) * chunk_size
+	var k2 := floorf(lz / cs)
+	var t2: float = clampf(lz / cs - k2, 0.0, 1.0)
+	var z0 := origin.z + k2 * cs
+	return lerpf(Biome.height(wx, z0), Biome.height(wx, z0 + cs), t2)
 
 func _local_point(origin: Vector3, x: int, z: int, step: float) -> Vector3:
 	var wx := origin.x + x * step

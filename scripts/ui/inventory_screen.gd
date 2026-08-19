@@ -15,6 +15,9 @@ var _detail_icon: IconPainter
 var _actions: HBoxContainer
 var _equipment_box: VBoxContainer
 var _selected: int = -1
+var _container: Node = null          # casier ouvert, ou null
+var _container_panel: VBoxContainer
+var _container_grid: GridContainer
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -59,6 +62,22 @@ func _build() -> void:
 	_grid.add_theme_constant_override("h_separation", 8)
 	_grid.add_theme_constant_override("v_separation", 8)
 	panel.add_child(_grid)
+
+	# --- casier (affiche seulement quand on en ouvre un) --------------------
+	_container_panel = VBoxContainer.new()
+	_container_panel.visible = false
+	_container_panel.add_theme_constant_override("separation", 8)
+	left.add_child(_container_panel)
+	_container_panel.add_child(UITheme.label(
+		"CASIER — clic pour transferer", 17, UITheme.ORANGE))
+	var cpanel := PanelContainer.new()
+	cpanel.add_theme_stylebox_override("panel", UITheme.panel())
+	_container_panel.add_child(cpanel)
+	_container_grid = GridContainer.new()
+	_container_grid.columns = COLUMNS
+	_container_grid.add_theme_constant_override("h_separation", 8)
+	_container_grid.add_theme_constant_override("v_separation", 8)
+	cpanel.add_child(_container_grid)
 
 	# --- colonne de droite : detail et equipement ---------------------------
 	var right := VBoxContainer.new()
@@ -111,8 +130,76 @@ func _refresh() -> void:
 		child.queue_free()
 	for i in player.inventory.slots.size():
 		_grid.add_child(_make_slot(i))
+	_refresh_container()
 	_refresh_detail()
 	_refresh_equipment()
+
+func _refresh_container() -> void:
+	_container_panel.visible = _container != null
+	for child in _container_grid.get_children():
+		child.queue_free()
+	if _container == null:
+		return
+	for i in _container.slots.size():
+		_container_grid.add_child(_make_container_slot(i))
+
+func _make_container_slot(index: int) -> Control:
+	var slot: Dictionary = _container.slots[index]
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_stylebox_override("normal",
+		UITheme.panel(Color(0.08, 0.07, 0.04, 0.9), Color(1.0, 0.62, 0.18, 0.35)))
+	btn.add_theme_stylebox_override("hover",
+		UITheme.panel(Color(0.18, 0.13, 0.05, 0.95), UITheme.ORANGE))
+	btn.pressed.connect(func(): _take_from_container(index))
+	if not slot.is_empty():
+		var icon := IconPainter.new()
+		icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 6
+		icon.offset_top = 6
+		icon.offset_right = -6
+		icon.offset_bottom = -14
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.set_item(slot["id"])
+		btn.add_child(icon)
+		if slot["amount"] > 1:
+			var count := UITheme.label("x%d" % slot["amount"], 12, UITheme.TEXT)
+			count.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+			count.offset_left = -30
+			count.offset_top = -20
+			count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			btn.add_child(count)
+	return btn
+
+func _take_from_container(index: int) -> void:
+	var slot: Dictionary = _container.slots[index]
+	if slot.is_empty():
+		return
+	var added: int = player.inventory.add(slot["id"], slot["amount"])
+	if added <= 0:
+		GameState.notify_warning("Inventaire plein")
+		SoundBank.play("ui_deny", -12.0)
+		return
+	if added < slot["amount"]:
+		slot["amount"] -= added
+	else:
+		_container.take(index)
+	SoundBank.play("pickup", -14.0)
+	_refresh()
+
+func _store_in_container(index: int) -> void:
+	var slot: Dictionary = player.inventory.slots[index]
+	if slot.is_empty() or _container == null:
+		return
+	var moved: int = _container.add(slot["id"], slot["amount"])
+	if moved <= 0:
+		GameState.notify_warning("Casier plein")
+		SoundBank.play("ui_deny", -12.0)
+		return
+	player.inventory.remove(slot["id"], moved)
+	SoundBank.play("ui_click", -14.0)
+	_refresh()
 
 func _make_slot(index: int) -> Control:
 	var slot: Dictionary = player.inventory.slots[index]
@@ -192,6 +279,10 @@ func _refresh_detail() -> void:
 				GameState.notify_success("Sante restauree")
 				SoundBank.play("ui_confirm", -12.0))
 		_actions.add_child(b3)
+	if _container != null:
+		var store := UITheme.button("Ranger")
+		store.pressed.connect(func(): _store_in_container(_selected))
+		_actions.add_child(store)
 	var drop := UITheme.button("Jeter")
 	drop.pressed.connect(func():
 		player.inventory.remove(id, 1)
@@ -227,8 +318,17 @@ func _refresh_equipment() -> void:
 	_equipment_box.add_child(UITheme.label(stats_text, 13, UITheme.TEXT_DIM))
 
 func open() -> void:
+	_container = null
+	visible = true
+	_refresh()
+
+## Ouvre l'inventaire adosse a un casier : les deux grilles sont affichees et
+## un clic suffit a transferer d'un cote a l'autre.
+func open_with_container(container: Node) -> void:
+	_container = container
 	visible = true
 	_refresh()
 
 func close() -> void:
 	visible = false
+	_container = null

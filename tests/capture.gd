@@ -21,9 +21,20 @@ func _ready() -> void:
 
 func _run() -> void:
 	_player = _main.get("player")
+	# Le controleur du joueur repositionne sa camera a chaque image : on le
+	# gele, sinon la camera revient se coller sur lui pendant la pose.
+	if _player != null:
+		_player.set_physics_process(false)
+		_player.set_process(false)
+	var wm: Node = _main.get("world_manager")
+	if wm != null:
+		wm.set("time_scale_enabled", false)
+	GameState.time_of_day = 0.36          # matinee : soleil bas mais franc
 	await _wait(150)                      # chargement du terrain et des textures
 
-	var pod: Node3D = _main.get("lifepod")
+	var pod_root: Node3D = _main.get("lifepod")
+	# c'est la coque qui flotte, pas le noeud racine de la capsule
+	var pod: Node3D = pod_root.get("hull")
 
 	# 1. Depuis la capsule, vers l'horizon : ciel, houle, ecume
 	await _shot("01_surface", pod.global_position + Vector3(0.0, 6.0, -14.0),
@@ -51,9 +62,14 @@ func _run() -> void:
 	if _player != null:
 		_player.global_position = Vector3(24.0, -8.0, 18.0)
 		_player.set("pitch", -0.35)
-		_player.velocity = Vector3(0, 0, -3.0)
-		await _wait(30)
-	await _shot("07_nageur", Vector3(26.5, -7.4, 21.0), Vector3(-0.1, 3.6, 0.0), 30)
+		_player.velocity = Vector3(0.0, 0.0, -3.0)
+		_player.call("set_third_person", true)
+		# on relance juste l'animation du corps, pas le deplacement
+		var anim: Node = _player.get("animator")
+		if anim != null:
+			for i in 40:
+				anim.call("update", 0.05, 1, 0.8, 0.0, -0.35, 0.1, false, false)
+	await _shot("07_nageur", Vector3(26.6, -7.2, 20.6), Vector3(-0.12, 3.55, 0.0), 30)
 
 	print("Captures enregistrees dans %s" % OUT_DIR)
 	get_tree().quit()
@@ -67,6 +83,10 @@ func _shot(name_str: String, pos: Vector3, rot: Vector3, frames: int) -> void:
 	cam.global_position = pos
 	cam.global_rotation = rot
 	await _wait(frames)
+	# la houle a bouge pendant l'attente : on se replace exactement
+	cam.global_position = pos
+	cam.global_rotation = rot
+	await _wait(2)
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	img.save_png("%s/%s.png" % [OUT_DIR, name_str])

@@ -53,9 +53,13 @@ func setup(p_home: Vector3, size: int, tint: Color, length: float) -> void:
 	multimesh_instance.multimesh = mm
 	multimesh_instance.material_override = material
 	multimesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Les transformations d'instance sont exprimees en coordonnees monde et le
+	# noeud reste a l'origine : la boite doit donc entourer `home`, sans quoi
+	# le banc disparait des qu'il s'eloigne du centre du monde.
+	var extent := bounds_radius * 2.5
 	multimesh_instance.custom_aabb = AABB(
-		Vector3(-bounds_radius * 2.0, -bounds_radius * 2.0, -bounds_radius * 2.0),
-		Vector3(bounds_radius * 4.0, bounds_radius * 4.0, bounds_radius * 4.0))
+		home - Vector3(extent, extent, extent),
+		Vector3(extent * 2.0, extent * 2.0, extent * 2.0))
 	add_child(multimesh_instance)
 
 	positions.resize(school_size)

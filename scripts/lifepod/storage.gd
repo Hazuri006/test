@@ -30,7 +30,19 @@ func _build() -> void:
 	add_child(MeshBuilder.box_collider(Vector3(0.66, 0.76, 0.4), Vector3(0, 0.38, 0)))
 
 func interact(_player: Node) -> void:
+	SoundBank.play("ui_click", -12.0)
 	GameState.request_storage.emit(self)
+
+## Remplit le casier au demarrage.
+func fill(contents: Dictionary) -> void:
+	for id in contents:
+		add(id, contents[id])
+
+func is_empty() -> bool:
+	for s in slots:
+		if not s.is_empty():
+			return false
+	return true
 
 func add(id: StringName, amount: int) -> int:
 	var item: Resource = ItemDB.get_item(id)

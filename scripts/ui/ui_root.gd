@@ -98,9 +98,13 @@ func _on_request_fabricator(fab: Node) -> void:
 	fabricator_screen.open(fab)
 	_open(fabricator_screen, false)
 
-func _on_request_storage(_container: Node) -> void:
-	GameState.notify_info("Casier : deposez vos objets depuis l'inventaire")
-	_open(inventory_screen, false)
+func _on_request_storage(container: Node) -> void:
+	if _open_screen != null and _open_screen != inventory_screen:
+		_hide_screen(_open_screen)
+	_open_screen = inventory_screen
+	inventory_screen.open_with_container(container)
+	hud.visible = false
+	GameState.release_mouse()
 
 func _open(screen: Control, pause: bool) -> void:
 	if _open_screen != null and _open_screen != screen:
