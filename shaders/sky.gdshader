@@ -29,7 +29,7 @@ uniform float cloud_density : hint_range(0.0, 4.0) = 1.15;
 uniform float cloud_bottom = 1400.0;
 uniform float cloud_top = 4200.0;
 uniform float cloud_speed : hint_range(0.0, 40.0) = 5.0;
-uniform int cloud_steps : hint_range(8, 96) = 40;
+uniform int cloud_steps : hint_range(8, 96) = 28;
 uniform int cloud_light_steps : hint_range(1, 12) = 5;
 uniform vec3 cloud_albedo : source_color = vec3(1.0, 0.99, 0.97);
 uniform float cirrus_amount : hint_range(0.0, 1.0) = 0.35;
@@ -45,8 +45,10 @@ const float R_PLANET = 6371000.0;
 const float R_ATMOS  = 6471000.0;
 const float H_RAYLEIGH = 8000.0;
 const float H_MIE = 1200.0;
-const int PRIMARY_STEPS = 16;
-const int LIGHT_STEPS = 6;
+// L'integrale de diffusion converge tres vite : au-dela d'une douzaine de pas
+// la difference n'est plus perceptible, alors que le cout, lui, est lineaire.
+const int PRIMARY_STEPS = 12;
+const int LIGHT_STEPS = 4;
 
 // --------------------------------------------------------------- bruit 3D ----
 float hash13(vec3 p) {

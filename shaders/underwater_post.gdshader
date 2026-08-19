@@ -93,12 +93,13 @@ float worley_caustic(vec2 p, float t) {
 	return pow(1.0 - clamp(d, 0.0, 1.0), 5.0);
 }
 
+// Deux octaves suffisent : la fonction est evaluee trois fois (une par
+// longueur d'onde) et chaque octave coute deja neuf cellules de Voronoi.
 float caustics(vec3 wpos, float t, float scale) {
 	vec2 p = wpos.xz * scale;
 	float c = worley_caustic(p, t * caustics_speed);
-	c += 0.55 * worley_caustic(p * 2.13 + 17.0, t * caustics_speed * 1.4);
-	c += 0.28 * worley_caustic(p * 4.31 - 9.0, t * caustics_speed * 0.7);
-	return c * 0.55;
+	c += 0.5 * worley_caustic(p * 2.13 + 17.0, t * caustics_speed * 1.4);
+	return c * 0.72;
 }
 
 void fragment() {

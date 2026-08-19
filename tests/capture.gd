@@ -69,7 +69,13 @@ func _run() -> void:
 		if anim != null:
 			for i in 40:
 				anim.call("update", 0.05, 1, 0.8, 0.0, -0.35, 0.1, false, false)
-	await _shot("07_nageur", Vector3(26.6, -7.2, 20.6), Vector3(-0.12, 3.55, 0.0), 30)
+	# la camera se place devant le nageur et regarde vers lui
+	var swim_pos := Vector3(24.0, -8.0, 18.0)
+	var cam_pos := swim_pos + Vector3(2.4, 0.9, 2.4)
+	var to_player := (swim_pos + Vector3(0, 1.1, 0)) - cam_pos
+	await _shot("07_nageur", cam_pos,
+		Vector3(asin(clampf(to_player.normalized().y, -1.0, 1.0)),
+			atan2(-to_player.x, -to_player.z), 0.0), 30)
 
 	print("Captures enregistrees dans %s" % OUT_DIR)
 	get_tree().quit()

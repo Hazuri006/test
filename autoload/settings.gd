@@ -29,7 +29,7 @@ const PROFILES := {
 		"shadow_size": 2048,
 		"sky_process": 2,        # Sky.PROCESS_MODE_INCREMENTAL
 		"sky_radiance": 2,       # RADIANCE_SIZE_128
-		"cloud_steps": 18,
+		"cloud_steps": 14,
 		"cloud_light_steps": 3,
 		"clouds": true,
 		"ssao": false,
@@ -52,8 +52,8 @@ const PROFILES := {
 		"shadow_size": 4096,
 		"sky_process": 2,
 		"sky_radiance": 3,        # RADIANCE_SIZE_256
-		"cloud_steps": 36,
-		"cloud_light_steps": 5,
+		"cloud_steps": 28,
+		"cloud_light_steps": 4,
 		"clouds": true,
 		"ssao": true,
 		"ssil": false,
@@ -75,8 +75,8 @@ const PROFILES := {
 		"shadow_size": 8192,
 		"sky_process": 1,         # PROCESS_MODE_HIGH_QUALITY
 		"sky_radiance": 4,        # RADIANCE_SIZE_512
-		"cloud_steps": 64,
-		"cloud_light_steps": 7,
+		"cloud_steps": 52,
+		"cloud_light_steps": 6,
 		"clouds": true,
 		"ssao": true,
 		"ssil": true,

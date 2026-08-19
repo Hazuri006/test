@@ -38,12 +38,16 @@ uniform sampler2D detail_normal_b : hint_normal, repeat_enable, filter_linear_mi
 uniform sampler2D foam_noise : hint_default_white, repeat_enable, filter_linear_mipmap;
 uniform float detail_scale_a = 0.09;
 uniform float detail_scale_b = 0.31;
-uniform float detail_strength : hint_range(0.0, 2.0) = 0.75;
+uniform float detail_strength : hint_range(0.0, 2.0) = 0.55;
 
 // ---------------------------------------------------------------- ecume
 uniform vec3 foam_color : source_color = vec3(0.92, 0.96, 0.98);
 uniform float foam_shore_depth : hint_range(0.05, 6.0) = 1.6;
-uniform float foam_crest_bias : hint_range(0.0, 1.0) = 0.42;
+// Seuil de deferlement, compare directement au repliement local de la surface.
+// Le seuil est absolu : une mer calme ne moutonne pas, une mer forte se couvre
+// de moutons, sans qu'il y ait le moindre reglage a changer entre les deux.
+uniform float foam_crest_bias : hint_range(0.0, 1.0) = 0.30;
+uniform float foam_crest_width : hint_range(0.01, 0.5) = 0.14;
 
 // ---------------------------------------------------------------- refraction
 uniform float refraction_strength : hint_range(0.0, 0.2) = 0.045;
@@ -223,13 +227,13 @@ void fragment() {
 
 	// ---- ecume --------------------------------------------------------------
 	float shore_foam = 1.0 - smoothstep(0.0, foam_shore_depth, refr_thickness);
-	float crest_foam = smoothstep(foam_crest_bias, foam_crest_bias + 0.35,
-		v_foam_fold * 0.5 + 0.5);
+	float crest_foam = smoothstep(foam_crest_bias,
+		foam_crest_bias + foam_crest_width, v_foam_fold);
 	vec2 fuv = world_pos.xz * 0.12 + vec2(wave_time * 0.02, wave_time * -0.014);
 	float fn = texture(foam_noise, fuv).r * 0.6
 		+ texture(foam_noise, fuv * 2.7 - wave_time * 0.03).r * 0.4;
 	float foam = clamp(max(shore_foam * (0.55 + fn * 0.75),
-		crest_foam * smoothstep(0.35, 0.85, fn)) * detail_fade
+		crest_foam * smoothstep(0.40, 0.92, fn)) * detail_fade
 		+ shore_foam * 0.35, 0.0, 1.0);
 
 	// ---- scintillement solaire (GGX manuel, en plus du specular moteur) -----

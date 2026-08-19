@@ -73,6 +73,21 @@ func _run_checks() -> void:
 				chunks += 1
 		_check("chunks de terrain generes", chunks > 0, "%d chunks" % chunks)
 
+		# Le sol sous les pieds du joueur doit exister en priorite : c'est lui
+		# qui porte la collision et sans lui on tombe dans le vide.
+		if player != null:
+			var cs: float = terrain.chunk_size
+			var here := Vector2i(floori(player.global_position.x / cs),
+				floori(player.global_position.z / cs))
+			var found := false
+			for c in terrain.get_children():
+				if c is MeshInstance3D \
+						and c.name == "Chunk_%d_%d" % [here.x, here.y]:
+					found = true
+					break
+			_check("chunk sous le joueur genere en priorite", found,
+				"chunk %d,%d" % [here.x, here.y])
+
 	# --- gisements ------------------------------------------------------------
 	var field: Node = _main.get("resources")
 	if field != null:

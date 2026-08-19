@@ -16,7 +16,10 @@ const TerrainShader := preload("res://shaders/terrain.gdshader")
 
 @export var chunk_size: float = 64.0
 @export var collision_res: int = 20
-@export var max_commits_per_frame: int = 2
+@export var max_commits_per_frame: int = 3
+## Nombre de generations menees de front. Au-dela, la file d'attente sert de
+## tampon : c'est elle qui garantit que le sol sous le joueur arrive d'abord.
+@export var max_in_flight: int = 6
 
 ## [distance max, resolution du maillage]. Toutes les resolutions sont des
 ## multiples de BORDER_STEPS, condition necessaire au raccordement des bords.
@@ -34,6 +37,7 @@ var collision_distance: float = 130.0
 var material: ShaderMaterial
 var _chunks: Dictionary = {}          # Vector2i -> Dictionary(node, lod, body)
 var _pending: Dictionary = {}         # Vector2i -> task id
+var _queue: Array = []                # file triee du plus proche au plus loin
 var _results: Dictionary = {}         # Vector2i -> Dictionary
 var _mutex := Mutex.new()
 var _camera: Camera3D
@@ -75,6 +79,7 @@ func _process(_delta: float) -> void:
 	if center != _last_center:
 		_last_center = center
 		_refresh_wanted(center, cam)
+	_dispatch()
 	_collect_results()
 
 func _refresh_wanted(center: Vector2i, cam: Vector3) -> void:
@@ -96,16 +101,32 @@ func _refresh_wanted(center: Vector2i, cam: Vector3) -> void:
 			entry["node"].queue_free()
 			_chunks.erase(coord)
 
-	# demande la generation ou la mise a jour du niveau de detail
+	# File d'attente triee par distance. Sans ce tri, l'ordre de parcours de la
+	# grille ferait apparaitre les chunks de l'angle le plus eloigne en
+	# premier, et le sol sous les pieds du joueur en dernier.
+	_queue.clear()
 	for coord in wanted:
 		var lod: int = wanted[coord]
-		if _chunks.has(coord):
-			if _chunks[coord]["lod"] == lod:
-				_update_collision(coord, cam)
-				continue
+		if _chunks.has(coord) and _chunks[coord]["lod"] == lod:
+			continue
 		if _pending.has(coord):
 			continue
-		_request(coord, lod)
+		var c := _chunk_center(coord)
+		_queue.append({"coord": coord, "lod": lod,
+			"dist": Vector2(c.x - cam.x, c.z - cam.z).length_squared()})
+	_queue.sort_custom(func(a, b): return a["dist"] < b["dist"])
+
+## Lance les generations en respectant l'ordre de la file et le nombre
+## maximal de taches simultanees.
+func _dispatch() -> void:
+	while _pending.size() < max_in_flight and not _queue.is_empty():
+		var item: Dictionary = _queue.pop_front()
+		var coord: Vector2i = item["coord"]
+		if _pending.has(coord):
+			continue
+		if _chunks.has(coord) and _chunks[coord]["lod"] == item["lod"]:
+			continue
+		_request(coord, item["lod"])
 
 func _chunk_center(coord: Vector2i) -> Vector3:
 	return Vector3((coord.x + 0.5) * chunk_size, 0.0, (coord.y + 0.5) * chunk_size)
@@ -251,7 +272,8 @@ func _collect_results() -> void:
 		_commit(coord, info["lod"], data)
 		committed += 1
 
-	if not _initial_done and _pending.is_empty() and not _chunks.is_empty():
+	if not _initial_done and _pending.is_empty() and _queue.is_empty() \
+			and not _chunks.is_empty():
 		_initial_done = true
 		initial_load_finished.emit()
 
