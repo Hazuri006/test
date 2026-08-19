@@ -38,7 +38,7 @@ uniform sampler2D detail_normal_b : hint_normal, repeat_enable, filter_linear_mi
 uniform sampler2D foam_noise : hint_default_white, repeat_enable, filter_linear_mipmap;
 uniform float detail_scale_a = 0.09;
 uniform float detail_scale_b = 0.31;
-uniform float detail_strength : hint_range(0.0, 2.0) = 0.55;
+uniform float detail_strength : hint_range(0.0, 2.0) = 0.38;
 
 // ---------------------------------------------------------------- ecume
 uniform vec3 foam_color : source_color = vec3(0.92, 0.96, 0.98);
@@ -165,8 +165,10 @@ vec3 sample_detail_normals(vec3 wpos, float t, float fade) {
 	vec2 uv_b = wpos.xz * detail_scale_b - flow.yx * t * 0.075;
 	vec3 na = texture(detail_normal_a, uv_a).xyz * 2.0 - 1.0;
 	vec3 nb = texture(detail_normal_b, uv_b).xyz * 2.0 - 1.0;
-	// Melange "whiteout" : conserve mieux le detail que la moyenne
-	vec3 n = normalize(vec3(na.xy + nb.xy, na.z * nb.z));
+	// Melange "whiteout" : conserve mieux le detail que la moyenne. Le plancher
+	// sur la composante Z empeche des normales quasi horizontales, qui
+	// produiraient des eclats speculaires aberrants.
+	vec3 n = normalize(vec3(na.xy + nb.xy, max(na.z * nb.z, 0.45)));
 	n.xy *= detail_strength * fade;
 	return normalize(n);
 }
@@ -288,8 +290,13 @@ void fragment() {
 		color += sun_glint * (1.0 - foam * 0.7);
 
 		out_color = color;
-		out_rough = mix(roughness_base + sea_state * 0.02, 0.55, foam)
-			+ (1.0 - detail_fade) * 0.02;
+		// La rugosite croit avec la distance pour absorber la variance des
+		// normales sous-pixel. Sans cela, chaque pixel lointain couvre des
+		// dizaines de facettes de vague et l'horizon se met a grouiller de
+		// points blancs : c'est l'aliasing speculaire classique des oceans.
+		float micro_variance = smoothstep(30.0, 700.0, cam_dist) * 0.28;
+		out_rough = mix(roughness_base + sea_state * 0.02 + micro_variance,
+			0.55, foam);
 		out_alpha = mix(0.88, 1.0, clamp(refr_thickness * 0.6, 0.0, 1.0));
 		// legere occlusion pour ancrer l'ecume
 		out_ao = mix(1.0, 0.92, foam);

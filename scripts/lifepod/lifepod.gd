@@ -46,13 +46,16 @@ func _build() -> void:
 	hull.collision_mask = 0
 	add_child(hull)
 
-	var shell_mat := MeshBuilder.metal(Color(0.86, 0.82, 0.74), 0.42, 0.55)
+	# Coque et paroi interieure sont peintes, pas polies : un metal trop
+	# reflechissant transforme l'interieur en miroir et l'on croit voir la mer
+	# a travers les cloisons.
+	var shell_mat := MeshBuilder.metal(Color(0.86, 0.82, 0.74), 0.55, 0.15)
 	shell_mat.normal_enabled = true
 	shell_mat.normal_texture = ProcTextures.normal_map(512, 0.06, 4, 909, 0.5)
 	shell_mat.normal_scale = 0.5
 
-	var inner_mat := MeshBuilder.metal(Color(0.72, 0.74, 0.76), 0.55, 0.35)
-	var trim_mat := MeshBuilder.metal(Color(0.92, 0.48, 0.10), 0.35, 0.7)
+	var inner_mat := MeshBuilder.metal(Color(0.60, 0.63, 0.66), 0.72, 0.04)
+	var trim_mat := MeshBuilder.metal(Color(0.92, 0.48, 0.10), 0.45, 0.35)
 
 	var glass_mat := StandardMaterial3D.new()
 	glass_mat.albedo_color = Color(0.55, 0.75, 0.82, 0.22)

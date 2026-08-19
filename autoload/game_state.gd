@@ -83,6 +83,9 @@ func save_game() -> void:
 	}
 	if player.has_method("serialize"):
 		data["player"] = player.serialize()
+	# les gisements deja casses ne doivent pas reapparaitre au rechargement
+	if world != null and world.get("resources") != null:
+		data["harvested"] = world.resources.serialize()
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		notify_danger("Sauvegarde impossible")
@@ -107,6 +110,8 @@ func load_game() -> bool:
 	discovered.clear()
 	for k in data.get("discovered", []):
 		discovered[StringName(k)] = true
+	if world != null and world.get("resources") != null:
+		world.resources.deserialize(data.get("harvested", []))
 	if player != null:
 		var pos: Array = data.get("position", [])
 		if pos.size() == 3:

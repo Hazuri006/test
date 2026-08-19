@@ -51,9 +51,9 @@ func _build_material() -> void:
 	material = ShaderMaterial.new()
 	material.shader = OceanShader
 	material.set_shader_parameter("detail_normal_a",
-		ProcTextures.normal_map(512, 0.012, 5, 1471, 1.0))
+		ProcTextures.normal_map(512, 0.012, 5, 1471, 0.55))
 	material.set_shader_parameter("detail_normal_b",
-		ProcTextures.normal_map(512, 0.03, 4, 8823, 0.7))
+		ProcTextures.normal_map(512, 0.03, 4, 8823, 0.38))
 	material.set_shader_parameter("foam_noise",
 		ProcTextures.gray(512, 0.01, 5, 331))
 	material.set_shader_parameter("sea_state", sea_state)

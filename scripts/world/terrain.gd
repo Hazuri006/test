@@ -307,6 +307,10 @@ func _commit(coord: Vector2i, lod: int, data: Dictionary) -> void:
 	var faces: PackedVector3Array = data["faces"]
 	if faces.size() > 0:
 		var shape := ConcavePolygonShape3D.new()
+		# Un maillage de collision concave n'est franchissable que d'un cote
+		# par defaut. Le fond marin doit arreter le joueur quel que soit le
+		# sens d'approche, y compris s'il se retrouve sous la surface du sol.
+		shape.backface_collision = true
 		shape.set_faces(faces)
 		body = StaticBody3D.new()
 		body.name = "Collision"

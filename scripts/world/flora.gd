@@ -12,7 +12,7 @@ const KelpShader := preload("res://shaders/kelp.gdshader")
 const CELL := 32.0
 
 @export var view_distance: float = 170.0
-@export var per_cell: int = 26
+@export var per_cell: int = 38
 
 var camera: Camera3D
 var material: ShaderMaterial
@@ -41,7 +41,7 @@ func _build_material() -> void:
 func _build_kelp_mesh() -> ArrayMesh:
 	var segments := 14
 	var height := 1.0                     # mis a l'echelle par instance
-	var width := 0.16
+	var width := 0.26
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -52,7 +52,7 @@ func _build_kelp_mesh() -> ArrayMesh:
 		var y := t * height
 		# la lame s'affine et se vrille vers la pointe
 		var w: float = width * (1.0 - pow(t, 2.4) * 0.75)
-		var twist: float = t * 2.2
+		var twist: float = t * 1.6
 		var dir := Vector3(cos(twist), 0.0, sin(twist))
 		var nrm := Vector3(-sin(twist), 0.0, cos(twist))
 		verts.append(Vector3(0, y, 0) - dir * w)

@@ -126,8 +126,9 @@ sommet. Elle **flotte reellement** : quatre sondes echantillonnent la houle a
 chaque pas physique, un ressort amorti en deduit sa hauteur et son assiette.
 Le joueur qui marche a l'interieur est porte par elle.
 
-A l'interieur : le fabricateur, un casier, un distributeur de trousses de
-secours, une echelle jusqu'a l'ecoutille, l'eclairage et le feu de detresse.
+A l'interieur : le fabricateur (hors service au reveil), un casier ou l'on
+range et reprend ses objets, un distributeur de trousses de secours, une
+echelle jusqu'a l'ecoutille, l'eclairage et le feu de detresse.
 
 ### Le son
 
@@ -139,8 +140,13 @@ pour le ressac, sinus a frequence glissante pour les bulles et les bips.
 
 ## Boucle de jeu
 
-Vous vous reveillez dans la capsule. L'oxygene est limite (45 s au depart) :
-chaque plongee est un aller-retour. Sur le fond, les affleurements calcaires
+Vous vous reveillez dans la capsule, l'impact a rompu l'alimentation du
+fabricateur — il crache des etincelles et refuse de demarrer. L'outil de
+reparation est reste dans le casier : ouvrez-le (`E`), prenez l'outil, visez le
+fabricateur et faites un clic gauche. Le circuit se ressoude, la partie
+commence vraiment.
+
+L'oxygene est limite (45 s au depart) : chaque plongee est un aller-retour. Sur le fond, les affleurements calcaires
 donnent du **titane** et du **cuivre**, le quartz donne du **verre**, les
 lianes des forets d'algues donnent de la **fibre** et du **silicone**.
 
@@ -217,3 +223,5 @@ godot --path . --rendering-driver vulkan --resolution 960x540 res://tests/captur
   → artisanat → progression en profondeur.
 - Les gisements deja recoltes sont oublies au redemarrage si vous ne
   sauvegardez pas (`Echap` → *Sauvegarder*).
+- Le scanner enregistre les analyses mais n'ouvre pas encore de fiches
+  detaillees.

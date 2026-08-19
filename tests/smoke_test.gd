@@ -88,6 +88,23 @@ func _run_checks() -> void:
 			_check("chunk sous le joueur genere en priorite", found,
 				"chunk %d,%d" % [here.x, here.y])
 
+	# --- le fond doit reellement arreter le joueur ---------------------------
+	# Un maillage concave n'est solide que d'un cote par defaut : sans le
+	# reglage adequat, le fond marin est traverse sans rien heurter.
+	var space := get_viewport().world_3d.direct_space_state
+	var probe := Vector2(30.0, 26.0)
+	var expected := Biome.height(probe.x, probe.y)
+	var query := PhysicsRayQueryParameters3D.create(
+		Vector3(probe.x, expected + 12.0, probe.y),
+		Vector3(probe.x, expected - 25.0, probe.y))
+	query.collision_mask = 1
+	var hit: Dictionary = space.intersect_ray(query)
+	_check("le fond marin est solide", not hit.is_empty())
+	if not hit.is_empty():
+		_check("collision alignee sur le relief",
+			absf(hit["position"].y - expected) < 1.5,
+			"collision %.2f / relief %.2f" % [hit["position"].y, expected])
+
 	# --- gisements ------------------------------------------------------------
 	var field: Node = _main.get("resources")
 	if field != null:
