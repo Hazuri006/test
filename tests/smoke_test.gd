@@ -206,6 +206,8 @@ func _run_checks() -> void:
 				if c is MeshInstance3D and c.mesh != null \
 						and c.name in ["ShellLower", "InnerLower", "Floor"]:
 					meshes.append(["capsule/" + c.name, c.mesh])
+		meshes.append(["poisson", FishSchool._get_mesh()])
+		meshes.append(["gisement", ResourceNode._get_rock_mesh(0)])
 		for entry in meshes:
 			_check_winding(entry[0], entry[1])
 
