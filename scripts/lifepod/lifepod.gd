@@ -49,12 +49,12 @@ func _build() -> void:
 	# Coque et paroi interieure sont peintes, pas polies : un metal trop
 	# reflechissant transforme l'interieur en miroir et l'on croit voir la mer
 	# a travers les cloisons.
-	var shell_mat := MeshBuilder.metal(Color(0.86, 0.82, 0.74), 0.55, 0.15)
+	var shell_mat := MeshBuilder.metal(Color(0.70, 0.67, 0.60), 0.58, 0.15)
 	shell_mat.normal_enabled = true
 	shell_mat.normal_texture = ProcTextures.normal_map(512, 0.06, 4, 909, 0.5)
 	shell_mat.normal_scale = 0.5
 
-	var inner_mat := MeshBuilder.metal(Color(0.60, 0.63, 0.66), 0.72, 0.04)
+	var inner_mat := MeshBuilder.metal(Color(0.40, 0.43, 0.47), 0.78, 0.04)
 	var trim_mat := MeshBuilder.metal(Color(0.92, 0.48, 0.10), 0.45, 0.35)
 
 	var glass_mat := StandardMaterial3D.new()
@@ -278,8 +278,8 @@ func _build_lights() -> void:
 	main.name = "InteriorLight"
 	main.position = Vector3(0, 2.55, 0)
 	main.light_color = Color(1.0, 0.92, 0.8)
-	main.light_energy = 2.6
-	main.omni_range = 6.5
+	main.light_energy = 1.5
+	main.omni_range = 5.5
 	main.shadow_enabled = true
 	hull.add_child(main)
 
@@ -287,8 +287,8 @@ func _build_lights() -> void:
 	accent.name = "AccentLight"
 	accent.position = Vector3(0, 0.9, -1.4)
 	accent.light_color = Color(0.25, 0.75, 1.0)
-	accent.light_energy = 1.2
-	accent.omni_range = 4.0
+	accent.light_energy = 0.7
+	accent.omni_range = 3.2
 	hull.add_child(accent)
 
 	# bandeau lumineux au plafond
@@ -296,15 +296,15 @@ func _build_lights() -> void:
 	strip.inner_radius = 1.42
 	strip.outer_radius = 1.5
 	hull.add_child(MeshBuilder.mesh_node("LightStrip", strip,
-		MeshBuilder.emissive(Color(0.9, 0.95, 1.0), 2.2), Vector3(0, 2.9, 0)))
+		MeshBuilder.emissive(Color(0.9, 0.95, 1.0), 1.1), Vector3(0, 2.9, 0)))
 
 	# feu de detresse exterieur : visible de loin sous l'eau
 	var beacon := OmniLight3D.new()
 	beacon.name = "Beacon"
 	beacon.position = Vector3(0, 3.7, 0)
 	beacon.light_color = Color(1.0, 0.4, 0.1)
-	beacon.light_energy = 4.0
-	beacon.omni_range = 30.0
+	beacon.light_energy = 2.4
+	beacon.omni_range = 26.0
 	hull.add_child(beacon)
 
 # =============================================================================

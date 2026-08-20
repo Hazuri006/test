@@ -204,9 +204,17 @@ godot --headless --path . res://tests/smoke_test.tscn   # code de sortie 0 = OK
 ```
 
 Le test verifie la coherence de la houle CPU, le profil du relief, la
-generation des chunks et des gisements, l'integrite de toutes les recettes, le
-craft de bout en bout, le squelette et les poids de peau du joueur, la banque
-sonore et le chargement de tous les shaders.
+generation des chunks, la solidite du fond sous le joueur, la repartition des
+gisements, l'integrite de toutes les recettes, le craft de bout en bout, le
+squelette et les poids de peau du joueur, la banque sonore et le chargement de
+tous les shaders.
+
+Il controle aussi le **sens d'enroulement** de tous les maillages generes.
+Godot tient pour face avant celle dont la normale calculee par la regle de la
+main droite s'ecarte de l'observateur — l'inverse de la convention OpenGL. Un
+maillage enroule "naturellement" est donc integralement elimine par le culling
+et devient invisible, sans le moindre message d'erreur. L'invariant verifie est
+que la normale geometrique soit toujours opposee a la normale d'ombrage.
 
 Pour produire des images de controle :
 
