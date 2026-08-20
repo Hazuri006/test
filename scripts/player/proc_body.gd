@@ -254,7 +254,7 @@ func _add_limb(bone_name: String, r0: float, r1: float, axis: Vector3,
 			var i1 := base + ring * segments + s2
 			var i2 := base + (ring + 1) * segments + s
 			var i3 := base + (ring + 1) * segments + s2
-			indices.append_array([i0, i2, i1, i1, i2, i3])
+			indices.append_array([i0, i1, i2, i1, i3, i2])
 
 func _first_child(bone_name: String) -> int:
 	for def in BONE_DEFS:

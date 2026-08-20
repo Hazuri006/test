@@ -132,19 +132,37 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 		ladder.add_child(MeshBuilder.mesh_node("Rung%d" % i, rung, trim_mat,
 			Vector3(0, 0.25 + i * 0.30, 0.0)))
 
+	# zone basse : le long des barreaux
 	var climb := Area3D.new()
 	climb.name = "ClimbZone"
 	climb.collision_layer = 0
 	climb.collision_mask = 1 << 1
 	var climb_shape := CollisionShape3D.new()
 	var cbox := BoxShape3D.new()
-	cbox.size = Vector3(1.0, 3.8, 0.9)
+	cbox.size = Vector3(1.0, 2.8, 0.9)
 	climb_shape.shape = cbox
-	climb_shape.position = Vector3(0, 1.8, -0.25)
+	climb_shape.position = Vector3(0, 1.4, -0.25)
 	climb.add_child(climb_shape)
 	ladder.add_child(climb)
 	climb.body_entered.connect(_on_climb_entered)
 	climb.body_exited.connect(_on_climb_exited)
+
+	# zone haute : la colonne sous l'ecoutille. Elle chevauche la precedente,
+	# si bien qu'on passe de l'echelle a la sortie sans jamais decrocher.
+	var shaft := Area3D.new()
+	shaft.name = "HatchShaft"
+	shaft.collision_layer = 0
+	shaft.collision_mask = 1 << 1
+	var shaft_shape := CollisionShape3D.new()
+	var scyl2 := CylinderShape3D.new()
+	scyl2.radius = 1.15
+	scyl2.height = 2.8
+	shaft_shape.shape = scyl2
+	shaft_shape.position = Vector3(0, 2.5, 0)
+	shaft.add_child(shaft_shape)
+	hull.add_child(shaft)
+	shaft.body_entered.connect(_on_climb_entered)
+	shaft.body_exited.connect(_on_climb_exited)
 
 	# --- zone abritee : l'oxygene se recharge ici ---------------------------
 	var shelter := Area3D.new()
@@ -226,16 +244,15 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 		Vector3(-1.44, 1.42, -0.85)))
 
 func _build_collision() -> void:
-	# La collision reprend la geometrie reelle de la coque : l'ecoutille reste
-	# donc franchissable, sans avoir a la traiter comme un cas particulier.
+	# La collision reprend la geometrie reelle de la coque, hublot compris :
+	# l'ecoutille reste franchissable sans avoir a la traiter a part, et il
+	# n'existe aucune ouverture par laquelle sortir accidentellement.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for child in hull.get_children():
 		if not (child is MeshInstance3D):
 			continue
 		var mi := child as MeshInstance3D
-		if mi.name == "Window":
-			continue
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
 			continue

@@ -242,7 +242,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("use_tool"):
 		_use_tool()
 	elif event is InputEventKey and event.pressed and not event.echo \
-			and (event as InputEventKey).keycode == KEY_V:
+			and (event as InputEventKey).physical_keycode == KEY_V:
 		set_third_person(not third_person)
 	else:
 		for i in 5:

@@ -26,9 +26,9 @@ func _run() -> void:
 	if _player != null:
 		_player.set_physics_process(false)
 		_player.set_process(false)
-	var wm: Node = _main.get("world_manager")
+	var wm: WorldManager = _main.get("world_manager")
 	if wm != null:
-		wm.set("time_scale_enabled", false)
+		wm.time_scale_enabled = false
 	GameState.time_of_day = 0.36          # matinee : soleil bas mais franc
 	await _wait(150)                      # chargement du terrain et des textures
 
@@ -50,6 +50,31 @@ func _run() -> void:
 
 	# 4. Le fond marin : caustiques, sable, roche
 	await _shot("04_fond", Vector3(30.0, -9.5, 26.0), Vector3(-0.42, 0.9, 0.0), 40)
+
+	# 4b. Meme vue, ombres coupees : plan de controle pour distinguer une
+	#     acne d'ombrage d'un defaut de geometrie.
+	if wm != null and wm.get("sun") != null:
+		wm.sun.shadow_enabled = false
+		await _shot("04b_fond_sans_ombres", Vector3(30.0, -9.5, 26.0),
+			Vector3(-0.42, 0.9, 0.0), 12)
+		wm.sun.shadow_enabled = true
+
+	# 4c. Terrain repeint en blanc plat : si le sol proche apparait, la
+	#     geometrie et la visibilite sont saines et le probleme est dans
+	#     l'ombrage ; s'il reste sombre, c'est qu'il n'est pas dessine.
+	var terrain: Node = _main.get("terrain")
+	var flat := StandardMaterial3D.new()
+	flat.albedo_color = Color(1, 1, 1)
+	flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var saved: Array = []
+	for c in terrain.get_children():
+		if c is MeshInstance3D:
+			saved.append([c, c.material_override])
+			c.material_override = flat
+	await _shot("04c_fond_blanc", Vector3(30.0, -9.5, 26.0),
+		Vector3(-0.42, 0.9, 0.0), 12)
+	for entry in saved:
+		entry[0].material_override = entry[1]
 
 	# 5. La foret d'algues
 	await _shot("05_algues", Vector3(120.0, -18.0, 60.0), Vector3(-0.1, 2.2, 0.0), 40)

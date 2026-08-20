@@ -184,7 +184,7 @@ static func _get_mesh() -> ArrayMesh:
 			var i1 := i0 + 1
 			var i2 := i0 + stride
 			var i3 := i2 + 1
-			indices.append_array([i0, i2, i1, i1, i2, i3])
+			indices.append_array([i0, i1, i2, i1, i3, i2])
 
 	# nageoire caudale : deux triangles en V
 	var base := verts.size()

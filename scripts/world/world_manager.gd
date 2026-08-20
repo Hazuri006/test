@@ -68,13 +68,17 @@ func _setup_lights() -> void:
 	sun.name = "Sun"
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_max_distance = 320.0
+	# 190 m suffisent : au-dela, la brume sous-marine masque tout. Reduire la
+	# portee resserre les texels de la carte d'ombre et fait disparaitre les
+	# stries d'acne sur les grandes etendues plates du fond.
+	sun.directional_shadow_max_distance = 190.0
+	sun.directional_shadow_fade_start = 0.85
 	sun.directional_shadow_split_1 = 0.05
 	sun.directional_shadow_split_2 = 0.15
 	sun.directional_shadow_split_3 = 0.42
 	sun.directional_shadow_blend_splits = true
-	sun.shadow_bias = 0.035
-	sun.shadow_normal_bias = 1.4
+	sun.shadow_bias = 0.055
+	sun.shadow_normal_bias = 2.6
 	sun.light_angular_distance = 0.53      # diametre apparent reel du Soleil
 	sun.light_specular = 0.6
 	add_child(sun)

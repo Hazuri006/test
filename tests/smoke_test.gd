@@ -173,6 +173,42 @@ func _run_checks() -> void:
 					break
 			_check("le corps s'anime", moved)
 
+	# --- sens d'enroulement de TOUS les maillages generes ---------------------
+	# Godot tient pour face AVANT celle dont la normale calculee par la regle
+	# de la main droite s'ECARTE de l'observateur : c'est l'inverse de la
+	# convention OpenGL. Un maillage enroule "naturellement" est donc elimine
+	# par le culling et devient purement et simplement invisible. L'invariant
+	# a respecter est que cette normale geometrique soit toujours opposee a la
+	# normale d'ombrage fournie.
+	if _main != null:
+		var meshes: Array = []
+		var terrain_node: Node = _main.get("terrain")
+		if terrain_node != null:
+			for c in terrain_node.get_children():
+				if c is MeshInstance3D and c.mesh != null:
+					meshes.append(["terrain", c.mesh])
+					break
+		var ocean_node: Node = _main.get("ocean")
+		if ocean_node != null:
+			for c in ocean_node.get_children():
+				if c is MeshInstance3D and c.mesh != null:
+					meshes.append(["ocean/" + c.name, c.mesh])
+		var flora_node: Node = _main.get("flora")
+		if flora_node != null and flora_node.get("_kelp_mesh") != null:
+			meshes.append(["algue", flora_node.get("_kelp_mesh")])
+		if player != null and player.get("body") != null:
+			var bm: MeshInstance3D = player.get("body").get("body_mesh")
+			if bm != null and bm.mesh != null:
+				meshes.append(["corps du joueur", bm.mesh])
+		var pod: Node = _main.get("lifepod")
+		if pod != null and pod.get("hull") != null:
+			for c in (pod.get("hull") as Node).get_children():
+				if c is MeshInstance3D and c.mesh != null \
+						and c.name in ["ShellLower", "InnerLower", "Floor"]:
+					meshes.append(["capsule/" + c.name, c.mesh])
+		for entry in meshes:
+			_check_winding(entry[0], entry[1])
+
 	# --- sons synthetises -----------------------------------------------------
 	_check("banque sonore generee", SoundBank.streams.size() >= 10,
 		"%d sons" % SoundBank.streams.size())
@@ -185,6 +221,36 @@ func _run_checks() -> void:
 			"res://shaders/hologram.gdshader"]:
 		var sh: Shader = load(path)
 		_check("shader charge : %s" % path.get_file(), sh != null)
+
+## Verifie que l'enroulement d'un maillage s'accorde a ses normales.
+func _check_winding(label: String, mesh: Mesh) -> void:
+	if mesh.get_surface_count() == 0:
+		return
+	var arr: Array = mesh.surface_get_arrays(0)
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var ids: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+	if ns.is_empty() or ids.is_empty():
+		return
+	var wrong := 0
+	var tested := 0
+	for t in range(0, mini(ids.size(), 1800), 3):
+		var av: Vector3 = vs[ids[t]]
+		var bv: Vector3 = vs[ids[t + 1]]
+		var cv: Vector3 = vs[ids[t + 2]]
+		var geo: Vector3 = (bv - av).cross(cv - av)
+		if geo.length_squared() < 1e-10:
+			continue
+		var n: Vector3 = (ns[ids[t]] + ns[ids[t + 1]] + ns[ids[t + 2]])
+		if n.length_squared() < 1e-10:
+			continue
+		tested += 1
+		if geo.normalized().dot(n.normalized()) > 0.05:
+			wrong += 1
+	if tested == 0:
+		return
+	_check("enroulement correct : %s" % label,
+		wrong * 10 < tested, "%d / %d triangles a l'envers" % [wrong, tested])
 
 func _check(label: String, ok: bool, detail: String = "") -> void:
 	if ok:

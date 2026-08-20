@@ -32,6 +32,11 @@ uniform float cloud_speed : hint_range(0.0, 40.0) = 5.0;
 uniform int cloud_steps : hint_range(8, 96) = 28;
 uniform int cloud_light_steps : hint_range(1, 12) = 5;
 uniform vec3 cloud_albedo : source_color = vec3(1.0, 0.99, 0.97);
+// Les fonctions de phase sont normalisees a 1 sur la sphere, leurs valeurs
+// tournent donc autour de 0,05. Sans ce gain, la luminance des nuages reste
+// dix fois inferieure a celle du ciel et ils paraissent gris et eteints,
+// alors qu'un cumulus eclaire est bien plus lumineux que le ciel derriere lui.
+uniform float cloud_light_gain : hint_range(1.0, 80.0) = 24.0;
 uniform float cirrus_amount : hint_range(0.0, 1.0) = 0.35;
 
 group_uniforms Night;
@@ -204,7 +209,7 @@ float cloud_density_at(vec3 p, float t, int octaves) {
 	float erosion = fbm((p + wind * 2.0) * 0.0016, 3);
 
 	float d = base * profile;
-	d = smoothstep(1.0 - cloud_coverage, 1.0 - cloud_coverage + 0.32, d);
+	d = smoothstep(1.0 - cloud_coverage, 1.0 - cloud_coverage + 0.40, d);
 	d -= erosion * 0.22 * (1.0 - h);
 	return clamp(d, 0.0, 1.0) * cloud_density;
 }
@@ -225,7 +230,9 @@ vec4 march_clouds(vec3 ro, vec3 rd, vec3 sun_dir, vec3 sun_col, float t,
 	}
 
 	float dt = (t1 - t0) / float(steps);
-	float march_t = t0 + dt * hash13(vec3(rd * 811.0)) ;   // dither anti-banding
+	// Decalage partiel du premier pas : casse les bandes sans introduire
+	// autant de bruit qu'un decalage sur un pas entier.
+	float march_t = t0 + dt * (0.3 + 0.4 * hash13(vec3(rd * 811.0)));
 
 	float transmittance = 1.0;
 	vec3 scattered = vec3(0.0);
@@ -256,7 +263,7 @@ vec4 march_clouds(vec3 ro, vec3 rd, vec3 sun_dir, vec3 sun_col, float t,
 				+ 0.16 * exp(-ld * 0.00035);
 			float sigma = d * 0.055;
 			float step_transmit = exp(-sigma * dt);
-			vec3 lum = cloud_albedo * sun_col * ms * phase * 2.2;
+			vec3 lum = cloud_albedo * sun_col * ms * phase * cloud_light_gain;
 			// integration analytique sur le pas (scattering integral)
 			scattered += transmittance * (lum - lum * step_transmit);
 			transmittance *= step_transmit;

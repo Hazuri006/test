@@ -115,7 +115,7 @@ static func _build_grid(size: float, res: int) -> ArrayMesh:
 			var b := a + 1
 			var c := a + res + 1
 			var d := c + 1
-			indices.append_array([a, c, b, b, c, d])
+			indices.append_array([a, b, c, b, d, c])
 	return _commit(verts, normals, uvs, indices)
 
 ## Anneau a pas radial croissant : beaucoup de detail pres du bord interieur,

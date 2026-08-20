@@ -124,7 +124,9 @@ func _build() -> void:
 		12, UITheme.TEXT_DIM))
 
 func _refresh() -> void:
-	if player == null or not is_inside_tree():
+	# L'inventaire change en permanence pendant la plongee : inutile de
+	# reconstruire la grille tant que l'ecran n'est pas affiche.
+	if player == null or not is_inside_tree() or not visible:
 		return
 	for child in _grid.get_children():
 		child.queue_free()

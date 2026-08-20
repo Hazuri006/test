@@ -197,7 +197,7 @@ func _generate(coord: Vector2i, res: int, need_collision: bool) -> void:
 			var b := a + 1
 			var c := a + n
 			var d := c + 1
-			indices.append_array([a, c, b, b, c, d])
+			indices.append_array([a, b, c, b, d, c])
 
 	var faces := PackedVector3Array()
 	if need_collision:
@@ -211,8 +211,8 @@ func _generate(coord: Vector2i, res: int, need_collision: bool) -> void:
 				var p10 := _local_point(origin, x + 1, z, cstep)
 				var p01 := _local_point(origin, x, z + 1, cstep)
 				var p11 := _local_point(origin, x + 1, z + 1, cstep)
-				faces[fi] = p00; faces[fi + 1] = p01; faces[fi + 2] = p10
-				faces[fi + 3] = p10; faces[fi + 4] = p01; faces[fi + 5] = p11
+				faces[fi] = p00; faces[fi + 1] = p10; faces[fi + 2] = p01
+				faces[fi + 3] = p10; faces[fi + 4] = p11; faces[fi + 5] = p01
 				fi += 6
 
 	_mutex.lock()

@@ -7,6 +7,10 @@ class_name MeshBuilder
 
 ## Surface de revolution. `profile` : suite de points (rayon, hauteur),
 ## parcourus du bas vers le haut. `flip` inverse les normales (vue interieure).
+##
+## Attention au sens d'enroulement : Godot tient pour face AVANT celle dont la
+## normale calculee a la main droite s'ECARTE de la camera, soit l'inverse de
+## la convention OpenGL. Un triangle enroule "naturellement" est donc elimine.
 static func lathe(profile: PackedVector2Array, segments: int = 32,
 		flip: bool = false, uv_scale: Vector2 = Vector2.ONE) -> ArrayMesh:
 	var verts := PackedVector3Array()
@@ -40,9 +44,9 @@ static func lathe(profile: PackedVector2Array, segments: int = 32,
 			var i2 := i0 + stride
 			var i3 := i2 + 1
 			if flip:
-				indices.append_array([i0, i1, i2, i1, i3, i2])
-			else:
 				indices.append_array([i0, i2, i1, i1, i2, i3])
+			else:
+				indices.append_array([i0, i1, i2, i1, i3, i2])
 	return commit(verts, normals, uvs, indices)
 
 ## Disque perce (anneau plein), oriente vers le haut ou vers le bas.
