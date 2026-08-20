@@ -46,70 +46,153 @@ func _build() -> void:
 	hull.collision_mask = 0
 	add_child(hull)
 
-	# Coque et paroi interieure sont peintes, pas polies : un metal trop
-	# reflechissant transforme l'interieur en miroir et l'on croit voir la mer
-	# a travers les cloisons.
-	var shell_mat := MeshBuilder.metal(Color(0.70, 0.67, 0.60), 0.58, 0.15)
+	# --- palette ------------------------------------------------------------
+	# Coque beige mate, ceintures et coiffe brun sombre, bouee orange vif :
+	# c'est le contraste de la capsule 5, lisible de tres loin sous l'eau.
+	var shell_mat := MeshBuilder.metal(Color(0.60, 0.56, 0.48), 0.58, 0.18)
 	shell_mat.normal_enabled = true
-	shell_mat.normal_texture = ProcTextures.normal_map(512, 0.06, 4, 909, 0.5)
-	shell_mat.normal_scale = 0.5
+	shell_mat.normal_texture = ProcTextures.normal_map(512, 0.06, 4, 909, 0.4)
+	shell_mat.normal_scale = 0.35
 
-	var inner_mat := MeshBuilder.metal(Color(0.40, 0.43, 0.47), 0.78, 0.04)
+	var band_mat := MeshBuilder.metal(Color(0.26, 0.23, 0.20), 0.52, 0.35)
+	var cap_mat := MeshBuilder.metal(Color(0.21, 0.19, 0.17), 0.55, 0.30)
+	var float_mat := MeshBuilder.metal(Color(0.90, 0.31, 0.05), 0.62, 0.0)
 	var trim_mat := MeshBuilder.metal(Color(0.92, 0.48, 0.10), 0.45, 0.35)
+	var inner_mat := MeshBuilder.metal(Color(0.40, 0.43, 0.47), 0.78, 0.04)
 
 	var glass_mat := StandardMaterial3D.new()
-	glass_mat.albedo_color = Color(0.55, 0.75, 0.82, 0.22)
+	glass_mat.albedo_color = Color(0.42, 0.62, 0.70, 0.26)
 	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	glass_mat.roughness = 0.03
-	glass_mat.metallic = 0.2
+	glass_mat.roughness = 0.04
+	glass_mat.metallic = 0.25
 	glass_mat.refraction_enabled = true
-	glass_mat.refraction_scale = 0.03
+	glass_mat.refraction_scale = 0.035
 
-	# --- coque exterieure, du fond jusqu'au bandeau vitre --------------------
-	var lower := PackedVector2Array([
-		Vector2(0.02, -1.45), Vector2(0.85, -1.32), Vector2(1.55, -0.95),
-		Vector2(2.05, -0.30), Vector2(2.24, 0.45), Vector2(2.28, 1.10),
-		Vector2(2.28, 1.55),
+	# --- carene, sous la flottaison ----------------------------------------
+	var keel := PackedVector2Array([
+		Vector2(0.04, -1.62), Vector2(0.80, -1.50), Vector2(1.50, -1.15),
+		Vector2(1.98, -0.62), Vector2(2.16, -0.10), Vector2(2.20, 0.35),
 	])
-	hull.add_child(MeshBuilder.mesh_node("ShellLower",
-		MeshBuilder.lathe(lower, 40, false, Vector2(4, 2)), shell_mat))
+	hull.add_child(MeshBuilder.mesh_node("Keel",
+		MeshBuilder.lathe(keel, 44, false, Vector2(6, 2)), shell_mat))
 
-	# --- bandeau vitre : la seule ouverture sur l'exterieur ------------------
-	var band := PackedVector2Array([Vector2(2.28, 1.55), Vector2(2.30, 1.95),
-		Vector2(2.28, 2.32)])
-	var band_mesh := MeshBuilder.lathe(band, 40, false, Vector2(4, 1))
-	hull.add_child(MeshBuilder.mesh_node("Window", band_mesh, glass_mat))
-
-	# --- calotte superieure percee de l'ecoutille ----------------------------
-	var upper := PackedVector2Array([
-		Vector2(2.28, 2.32), Vector2(2.18, 2.75), Vector2(1.78, 3.12),
-		Vector2(1.10, 3.38), Vector2(0.62, 3.46), Vector2(0.58, 3.55),
+	# --- fut principal ------------------------------------------------------
+	var barrel := PackedVector2Array([
+		Vector2(2.20, 0.35), Vector2(2.22, 0.95), Vector2(2.22, 1.60),
 	])
-	hull.add_child(MeshBuilder.mesh_node("ShellUpper",
-		MeshBuilder.lathe(upper, 40, false, Vector2(4, 1)), shell_mat))
+	hull.add_child(MeshBuilder.mesh_node("Barrel",
+		MeshBuilder.lathe(barrel, 44, false, Vector2(6, 1)), shell_mat))
 
-	# --- paroi interieure ----------------------------------------------------
+	# --- bandeau vitre a hauteur d'yeux -------------------------------------
+	var band := PackedVector2Array([Vector2(2.22, 1.60), Vector2(2.24, 1.98),
+		Vector2(2.22, 2.34)])
+	hull.add_child(MeshBuilder.mesh_node("Window",
+		MeshBuilder.lathe(band, 44, false, Vector2(6, 1)), glass_mat))
+
+	# --- epaule et coiffe ---------------------------------------------------
+	var shoulder := PackedVector2Array([
+		Vector2(2.22, 2.34), Vector2(2.20, 2.72), Vector2(2.08, 2.98),
+	])
+	hull.add_child(MeshBuilder.mesh_node("Shoulder",
+		MeshBuilder.lathe(shoulder, 44, false, Vector2(6, 1)), shell_mat))
+
+	var cap := PackedVector2Array([
+		Vector2(2.08, 2.98), Vector2(1.86, 3.24), Vector2(1.40, 3.48),
+		Vector2(0.92, 3.62), Vector2(0.62, 3.70), Vector2(0.58, 3.80),
+	])
+	hull.add_child(MeshBuilder.mesh_node("Cap",
+		MeshBuilder.lathe(cap, 44, false, Vector2(6, 1)), cap_mat))
+
+	# --- bouee de flottaison : elle affleure a la surface -------------------
+	var ring := TorusMesh.new()
+	ring.inner_radius = 2.12
+	ring.outer_radius = 2.86
+	ring.rings = 48
+	ring.ring_segments = 16
+	hull.add_child(MeshBuilder.mesh_node("FloatRing", ring, float_mat,
+		Vector3(0, -0.22, 0)))
+	# sangles qui ceinturent la bouee
+	for i in 8:
+		var strap := BoxMesh.new()
+		strap.size = Vector3(0.10, 0.82, 0.86)
+		var a := TAU * float(i) / 8.0
+		var node := MeshBuilder.mesh_node("Strap%d" % i, strap, band_mat,
+			Vector3(cos(a) * 2.48, -0.22, sin(a) * 2.48))
+		node.rotation.y = -a
+		hull.add_child(node)
+
+	# --- ceintures et nervures ---------------------------------------------
+	for y in [0.55, 1.28, 2.62]:
+		var rib := TorusMesh.new()
+		rib.inner_radius = 2.20
+		rib.outer_radius = 2.30
+		rib.rings = 44
+		rib.ring_segments = 8
+		hull.add_child(MeshBuilder.mesh_node("Rib_%s" % str(y), rib, band_mat,
+			Vector3(0, y, 0)))
+
+	# --- panneaux verticaux -------------------------------------------------
+	for i in 6:
+		var seam := BoxMesh.new()
+		seam.size = Vector3(0.05, 2.0, 0.10)
+		var a := TAU * float(i) / 6.0 + 0.26
+		var node := MeshBuilder.mesh_node("Seam%d" % i, seam, band_mat,
+			Vector3(cos(a) * 2.22, 1.55, sin(a) * 2.22))
+		node.rotation.y = -a
+		hull.add_child(node)
+
+	# --- ecoutille laterale (le grand panneau de l'appareil) ----------------
+	var door := BoxMesh.new()
+	door.size = Vector3(1.35, 1.55, 0.14)
+	hull.add_child(MeshBuilder.mesh_node("SidePanel", door, band_mat,
+		Vector3(0.0, 1.35, 2.18)))
+	var door_trim := BoxMesh.new()
+	door_trim.size = Vector3(1.15, 0.10, 0.06)
+	hull.add_child(MeshBuilder.mesh_node("DoorTrim", door_trim, trim_mat,
+		Vector3(0.0, 0.68, 2.25)))
+	var door_light := BoxMesh.new()
+	door_light.size = Vector3(0.16, 0.16, 0.05)
+	hull.add_child(MeshBuilder.mesh_node("DoorLight", door_light,
+		MeshBuilder.emissive(Color(0.2, 0.9, 0.5), 2.0),
+		Vector3(0.48, 1.85, 2.26)))
+
+	# --- margelle et antenne -----------------------------------------------
+	hull.add_child(MeshBuilder.mesh_node("HatchRim",
+		MeshBuilder.annulus(0.58, 0.74, 3.80, 32, true), trim_mat))
+	var mast := CylinderMesh.new()
+	mast.top_radius = 0.035
+	mast.bottom_radius = 0.05
+	mast.height = 1.30
+	hull.add_child(MeshBuilder.mesh_node("Antenna", mast, band_mat,
+		Vector3(1.35, 3.90, -0.55)))
+	var beacon_bulb := SphereMesh.new()
+	beacon_bulb.radius = 0.10
+	beacon_bulb.height = 0.20
+	hull.add_child(MeshBuilder.mesh_node("BeaconBulb", beacon_bulb,
+		MeshBuilder.emissive(Color(1.0, 0.28, 0.10), 5.0),
+		Vector3(1.35, 4.58, -0.55)))
+
+	# --- paroi interieure ---------------------------------------------------
 	var inner_low := PackedVector2Array([
-		Vector2(INNER_RADIUS, 0.0), Vector2(2.12, 0.5), Vector2(2.16, 1.0),
-		Vector2(2.16, 1.55),
+		Vector2(INNER_RADIUS, 0.0), Vector2(2.06, 0.5), Vector2(2.10, 1.0),
+		Vector2(2.10, 1.60),
 	])
 	hull.add_child(MeshBuilder.mesh_node("InnerLower",
-		MeshBuilder.lathe(inner_low, 40, true, Vector2(4, 2)), inner_mat))
+		MeshBuilder.lathe(inner_low, 44, true, Vector2(6, 2)), inner_mat))
 	var inner_up := PackedVector2Array([
-		Vector2(2.16, 2.32), Vector2(2.06, 2.72), Vector2(1.68, 3.06),
-		Vector2(1.02, 3.30), Vector2(0.60, 3.40),
+		Vector2(2.10, 2.34), Vector2(2.08, 2.70), Vector2(1.96, 2.96),
+		Vector2(1.74, 3.22), Vector2(1.30, 3.45), Vector2(0.86, 3.58),
+		Vector2(0.60, 3.66),
 	])
 	hull.add_child(MeshBuilder.mesh_node("InnerUpper",
-		MeshBuilder.lathe(inner_up, 40, true, Vector2(4, 1)), inner_mat))
+		MeshBuilder.lathe(inner_up, 44, true, Vector2(6, 1)), inner_mat))
 
-	# --- plancher et jonctions ----------------------------------------------
+	# --- plancher -----------------------------------------------------------
 	hull.add_child(MeshBuilder.mesh_node("Floor",
-		MeshBuilder.annulus(0.0, INNER_RADIUS, 0.0, 40, true), inner_mat))
+		MeshBuilder.annulus(0.0, INNER_RADIUS, 0.0, 44, true), inner_mat))
 	hull.add_child(MeshBuilder.mesh_node("FloorRing",
-		MeshBuilder.annulus(INNER_RADIUS, 2.16, 0.0, 40, true), trim_mat))
-	hull.add_child(MeshBuilder.mesh_node("HatchRim",
-		MeshBuilder.annulus(0.58, 0.68, 3.55, 32, true), trim_mat))
+		MeshBuilder.annulus(INNER_RADIUS, 2.10, 0.0, 44, true), trim_mat))
 
 	_build_interior(trim_mat, inner_mat)
 	_build_collision()
@@ -122,13 +205,13 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 	ladder.position = Vector3(0, 0, 1.75)
 	hull.add_child(ladder)
 	var rail := BoxMesh.new()
-	rail.size = Vector3(0.05, 3.4, 0.05)
+	rail.size = Vector3(0.05, 3.6, 0.05)
 	for side in [-0.22, 0.22]:
 		ladder.add_child(MeshBuilder.mesh_node("Rail", rail, trim_mat,
-			Vector3(side, 1.7, 0.0)))
+			Vector3(side, 1.8, 0.0)))
 	var rung := BoxMesh.new()
 	rung.size = Vector3(0.46, 0.035, 0.035)
-	for i in 11:
+	for i in 12:
 		ladder.add_child(MeshBuilder.mesh_node("Rung%d" % i, rung, trim_mat,
 			Vector3(0, 0.25 + i * 0.30, 0.0)))
 
@@ -156,9 +239,9 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 	var shaft_shape := CollisionShape3D.new()
 	var scyl2 := CylinderShape3D.new()
 	scyl2.radius = 1.15
-	scyl2.height = 2.8
+	scyl2.height = 3.1
 	shaft_shape.shape = scyl2
-	shaft_shape.position = Vector3(0, 2.5, 0)
+	shaft_shape.position = Vector3(0, 2.65, 0)
 	shaft.add_child(shaft_shape)
 	hull.add_child(shaft)
 	shaft.body_entered.connect(_on_climb_entered)
@@ -253,6 +336,11 @@ func _build_collision() -> void:
 		if not (child is MeshInstance3D):
 			continue
 		var mi := child as MeshInstance3D
+		# La bouee et l'antenne debordent largement : les inclure creerait une
+		# collision invisible flottant autour de la capsule.
+		if mi.name in ["FloatRing", "Antenna", "BeaconBulb"] \
+				or mi.name.begins_with("Strap"):
+			continue
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
 			continue
@@ -301,7 +389,7 @@ func _build_lights() -> void:
 	# feu de detresse exterieur : visible de loin sous l'eau
 	var beacon := OmniLight3D.new()
 	beacon.name = "Beacon"
-	beacon.position = Vector3(0, 3.7, 0)
+	beacon.position = Vector3(1.35, 4.58, -0.55)
 	beacon.light_color = Color(1.0, 0.4, 0.1)
 	beacon.light_energy = 2.4
 	beacon.omni_range = 26.0

@@ -20,9 +20,9 @@ const UnderwaterShader := preload("res://shaders/underwater_post.gdshader")
 @export var air_fog_color: Color = Color(0.62, 0.74, 0.86)
 
 @export_group("Eau")
-@export var surface_water_color: Color = Color(0.045, 0.30, 0.38)
-@export var deep_water_color: Color = Color(0.004, 0.028, 0.07)
-@export var water_visibility: float = 48.0
+## La teinte et la visibilite viennent de WaterPalette : une seule rampe
+## alimente le brouillard, l'ambiance, la surface et le post-traitement.
+@export var mask_enabled: bool = true
 
 var sun: DirectionalLight3D
 var moon: DirectionalLight3D
@@ -267,11 +267,11 @@ func _update_submersion(delta: float) -> void:
 func _update_environment(delta: float) -> void:
 	var s := submersion
 	var depth_t: float = clampf(camera_depth / 110.0, 0.0, 1.0)
-	var water := surface_water_color.lerp(deep_water_color, depth_t)
+	var water := WaterPalette.tint(camera_depth)
 
 	# --- brouillard ---------------------------------------------------------
 	environment.fog_light_color = air_fog_color.lerp(water, s)
-	var water_density: float = lerpf(0.020, 0.075, depth_t)
+	var water_density: float = WaterPalette.fog_density(camera_depth)
 	environment.fog_density = lerpf(air_fog_density, water_density, s)
 	environment.fog_sky_affect = lerpf(0.0, 1.0, s)
 	environment.fog_aerial_perspective = lerpf(0.6, 0.0, s)
@@ -316,9 +316,8 @@ func _update_shaders() -> void:
 		ocean.material.set_shader_parameter("sun_color", sun.light_color)
 		ocean.material.set_shader_parameter("sun_energy", maxf(sun.light_energy, 0.02))
 		ocean.material.set_shader_parameter("underwater_view", submersion)
-		var depth_t: float = clampf(camera_depth / 110.0, 0.0, 1.0)
 		ocean.material.set_shader_parameter("underwater_fog_color",
-			surface_water_color.lerp(deep_water_color, depth_t))
+			WaterPalette.tint(camera_depth))
 
 	# position du soleil a l'ecran pour les rais de lumiere
 	var sun_uv := Vector2(0.5, -1.0)
@@ -335,10 +334,15 @@ func _update_shaders() -> void:
 	post_material.set_shader_parameter("water_level", water_level)
 	post_material.set_shader_parameter("submersion", submersion)
 	post_material.set_shader_parameter("depth_below", camera_depth)
-	post_material.set_shader_parameter("water_color", surface_water_color)
-	post_material.set_shader_parameter("deep_water_color", deep_water_color)
 	post_material.set_shader_parameter("visibility",
-		lerpf(water_visibility, water_visibility * 0.55, depth_t2))
+		WaterPalette.visibility(camera_depth))
+	# Niveau d'eclairement : il eteint progressivement la diffusion la nuit
+	# et sous les grandes profondeurs.
+	post_material.set_shader_parameter("light_level",
+		clampf(maxf(sun_direction.y, 0.0) * 2.2, 0.0, 1.0))
+	# Le masque n'apparait qu'une fois la tete immergee.
+	post_material.set_shader_parameter("mask_strength",
+		submersion if mask_enabled else 0.0)
 	post_material.set_shader_parameter("sun_screen_pos", sun_uv)
 	post_material.set_shader_parameter("sun_visible", visible_sun)
 	# Les caustiques existent des que le soleil est haut, meme s'il est

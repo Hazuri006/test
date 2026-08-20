@@ -204,10 +204,18 @@ func _run_checks() -> void:
 		if pod != null and pod.get("hull") != null:
 			for c in (pod.get("hull") as Node).get_children():
 				if c is MeshInstance3D and c.mesh != null \
-						and c.name in ["ShellLower", "InnerLower", "Floor"]:
+						and c.name in ["Keel", "Barrel", "InnerLower", "Floor"]:
 					meshes.append(["capsule/" + c.name, c.mesh])
 		meshes.append(["poisson", FishSchool._get_mesh()])
 		meshes.append(["gisement", ResourceNode._get_rock_mesh(0)])
+		# Formes du recif : la sphere et le tube n'ont pas le meme ordre de
+		# sommets, c'est exactement la ou l'erreur se glisse.
+		meshes.append(["recif/dalle", ReefMeshes.rock_slab(1)])
+		meshes.append(["recif/massif", ReefMeshes.coral_mound(2)])
+		meshes.append(["recif/tube", ReefMeshes.tube_coral(3)])
+		meshes.append(["recif/anemone", ReefMeshes.anemone(4)])
+		meshes.append(["recif/eventail", ReefMeshes.sea_flower(5)])
+		meshes.append(["recif/table", ReefMeshes.table_coral(6)])
 		for entry in meshes:
 			_check_winding(entry[0], entry[1])
 

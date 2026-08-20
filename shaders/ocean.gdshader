@@ -25,10 +25,16 @@ uniform float wind_angle : hint_range(-3.15, 3.15) = 0.6;
 uniform float wave_time = 0.0;
 
 // ---------------------------------------------------------------- couleur eau
-uniform vec3 shallow_color : source_color = vec3(0.16, 0.62, 0.62);
-uniform vec3 deep_color : source_color = vec3(0.006, 0.055, 0.13);
+// Memes paliers que WaterPalette (scripts/world/water_palette.gd) : la
+// surface, le brouillard et le post-traitement doivent donner exactement la
+// meme teinte a une profondeur donnee, sinon l'eau change de couleur selon
+// qu'on la regarde de dessus ou de dessous.
+uniform vec3 tint_surface : source_color = vec3(0.20, 0.82, 0.76);
+uniform vec3 tint_shallow : source_color = vec3(0.07, 0.55, 0.66);
+uniform vec3 tint_mid : source_color = vec3(0.020, 0.235, 0.470);
+uniform vec3 tint_deep : source_color = vec3(0.004, 0.070, 0.215);
 // coefficients d'extinction (m^-1) par canal : le rouge meurt en ~4 m
-uniform vec3 extinction = vec3(0.45, 0.14, 0.085);
+uniform vec3 extinction = vec3(0.45, 0.11, 0.062);
 uniform float scatter_strength : hint_range(0.0, 4.0) = 1.1;
 uniform vec3 scatter_color : source_color = vec3(0.09, 0.42, 0.42);
 
@@ -159,6 +165,15 @@ float linear_depth(vec2 uv, mat4 inv_proj) {
 	return -view.z / view.w;
 }
 
+// Couleur du milieu pour une colonne d'eau de `d` metres.
+vec3 water_tint(float d) {
+	d = max(d, 0.0);
+	vec3 c = mix(tint_surface, tint_shallow, smoothstep(0.0, 13.0, d));
+	c = mix(c, tint_mid, smoothstep(11.0, 40.0, d));
+	c = mix(c, tint_deep, smoothstep(38.0, 95.0, d));
+	return c;
+}
+
 vec3 sample_detail_normals(vec3 wpos, float t, float fade) {
 	vec2 flow = vec2(cos(wind_angle), sin(wind_angle));
 	vec2 uv_a = wpos.xz * detail_scale_a + flow * t * 0.035;
@@ -212,9 +227,8 @@ void fragment() {
 
 	// ---- absorption (Beer-Lambert) : trajet aller-retour dans l'eau ---------
 	vec3 transmit = exp(-extinction * refr_thickness * 1.35);
-	vec3 water_tint = mix(deep_color, shallow_color,
-		exp(-refr_thickness * 0.14));
-	vec3 refracted = behind * transmit + water_tint * (1.0 - transmit);
+	vec3 tint = water_tint(refr_thickness);
+	vec3 refracted = behind * transmit + tint * (1.0 - transmit);
 
 	// ---- diffusion sous-surfacique --------------------------------------
 	// Trois conditions doivent etre reunies pour qu'une vague s'allume :

@@ -10,6 +10,7 @@ const START_POSITION := Vector3(0.0, 0.0, 0.0)
 var ocean: Ocean
 var terrain: Terrain
 var flora: Flora
+var reef: Reef
 var fauna: Fauna
 var resources: ResourceField
 var world_manager: WorldManager
@@ -50,6 +51,10 @@ func _build_world() -> void:
 	flora.name = "Flora"
 	add_child(flora)
 
+	reef = Reef.new()
+	reef.name = "Reef"
+	add_child(reef)
+
 	fauna = Fauna.new()
 	fauna.name = "Fauna"
 	add_child(fauna)
@@ -85,6 +90,7 @@ func _wire() -> void:
 	ocean.set_camera(cam)
 	terrain.set_camera(cam)
 	flora.set_camera(cam)
+	reef.set_camera(cam)
 	fauna.set_camera(cam)
 	resources.set_camera(cam)
 	world_manager.bind(ocean, cam)

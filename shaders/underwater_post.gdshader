@@ -25,11 +25,30 @@ uniform float depth_below : hint_range(0.0, 2000.0) = 0.0;
 
 // Extinction (m^-1) : le rouge disparait vers 5 m, le vert vers 25 m,
 // le bleu porte au-dela de 60 m. Valeurs proches d'une eau cotiere claire.
-uniform vec3 extinction = vec3(0.36, 0.075, 0.042);
-uniform vec3 water_color : source_color = vec3(0.045, 0.28, 0.36);
-uniform vec3 deep_water_color : source_color = vec3(0.004, 0.03, 0.075);
+uniform vec3 extinction = vec3(0.42, 0.062, 0.036);
 uniform float turbidity : hint_range(0.0, 3.0) = 1.0;
-uniform float visibility : hint_range(5.0, 200.0) = 45.0;
+uniform float visibility : hint_range(5.0, 200.0) = 62.0;
+
+group_uniforms WaterColour;
+// Etages de couleur du milieu. La lumiere qui remonte d'un lagon peu profond
+// est verte-bleue (turquoise) parce que le sable renvoie encore beaucoup de
+// vert ; passe une trentaine de metres il ne subsiste que le bleu, puis plus
+// rien. Ces cinq paliers reproduisent cette descente.
+uniform vec3 tint_surface : source_color = vec3(0.20, 0.82, 0.76);
+uniform vec3 tint_shallow : source_color = vec3(0.07, 0.55, 0.66);
+uniform vec3 tint_mid : source_color = vec3(0.020, 0.235, 0.470);
+uniform vec3 tint_deep : source_color = vec3(0.004, 0.070, 0.215);
+uniform vec3 tint_abyss : source_color = vec3(0.001, 0.014, 0.055);
+uniform float light_level : hint_range(0.0, 1.0) = 1.0;
+
+group_uniforms Mask;
+// Masque de plongee : la monture est dessinee directement en fin de passe.
+uniform float mask_strength : hint_range(0.0, 1.0) = 1.0;
+uniform vec2 mask_radius = vec2(0.96, 0.93);
+uniform float mask_sharpness : hint_range(2.0, 8.0) = 3.2;
+uniform vec3 mask_frame : source_color = vec3(0.09, 0.26, 0.58);
+uniform vec3 mask_frame_dark : source_color = vec3(0.015, 0.05, 0.14);
+uniform vec3 mask_rim : source_color = vec3(0.42, 0.78, 1.0);
 
 group_uniforms Caustics;
 uniform float caustics_strength : hint_range(0.0, 4.0) = 1.4;
@@ -73,6 +92,32 @@ float vnoise(vec2 p) {
 	f = f * f * (3.0 - 2.0 * f);
 	return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), f.x),
 	           mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// Couleur du milieu a `d` metres sous la surface.
+vec3 water_tint(float d) {
+	d = max(d, 0.0);
+	vec3 c = mix(tint_surface, tint_shallow, smoothstep(0.0, 13.0, d));
+	c = mix(c, tint_mid, smoothstep(11.0, 40.0, d));
+	c = mix(c, tint_deep, smoothstep(38.0, 95.0, d));
+	c = mix(c, tint_abyss, smoothstep(90.0, 230.0, d));
+	return c;
+}
+
+// Superellipse : |x/a|^n + |y/b|^n = 1. Negatif a l'interieur.
+// Avec n autour de 3, on obtient la forme large aux angles tres arrondis
+// d'une vitre de masque, sans avoir a la decrire point par point.
+float superellipse(vec2 p, vec2 r, float n) {
+	vec2 q = abs(p) / r;
+	return pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - 1.0;
+}
+
+// Distance signee a l'ouverture du masque, bosse du nez comprise.
+float mask_distance(vec2 ndc) {
+	float d = superellipse(ndc, mask_radius, mask_sharpness);
+	// la piece de nez remonte dans le champ par le bas
+	float nose = 0.235 - length((ndc - vec2(0.0, -1.14)) * vec2(1.0, 1.18));
+	return max(d, nose);
 }
 
 // Cellules de Worley animees : reseau de caustiques tres proche du reel.
@@ -202,12 +247,14 @@ void fragment() {
 
 		// --------------------------------------- absorption + diffusion -------
 		vec3 transmit = exp(-extinction * water_dist * turbidity);
+		// La lumiere diffusee vers l'oeil provient de tout le segment
+		// traverse : on l'evalue a sa profondeur moyenne plutot qu'a celle de
+		// la camera. Un recif clair reste donc turquoise meme observe depuis
+		// plus bas, et l'eau se fonce vraiment quand on descend.
+		float far_y = min(world_pos.y, water_level);
+		float seg_depth = water_level - mix(min(cam_pos.y, water_level), far_y, 0.5);
+		vec3 medium = water_tint(seg_depth) * mix(0.22, 1.0, light_level);
 		float depth_mix = clamp(depth_below / 90.0, 0.0, 1.0);
-		vec3 medium = mix(water_color, deep_water_color, depth_mix);
-		// la lumiere ambiante decroit avec la profondeur du fragment lui-meme
-		float ambient_depth = clamp(
-			(water_level - min(world_pos.y, water_level)) / 140.0, 0.0, 1.0);
-		medium *= mix(1.0, 0.12, ambient_depth);
 		vec3 fogged = col * transmit + medium * (1.0 - transmit);
 
 		// -------------------------------------------------------- god rays ---
@@ -253,6 +300,42 @@ void fragment() {
 
 	// flash de degat
 	result = mix(result, vec3(0.55, 0.02, 0.03), damage_flash * (0.35 + edge * 0.5));
+
+	// =========================================================================
+	//  MASQUE DE PLONGEE
+	// =========================================================================
+	if (mask_strength > 0.002) {
+		vec2 ndc = uv * 2.0 - 1.0;
+		float md = mask_distance(ndc);
+		float aa = fwidth(md) * 1.2 + 0.0015;
+		float outside = smoothstep(-aa, aa, md);
+
+		// La vitre s'assombrit et se teinte juste avant la monture : c'est le
+		// verre vu de biais, plus epais optiquement sur les bords.
+		float glass = smoothstep(-0.22, -0.01, md);
+		result *= mix(1.0, 0.58, glass * mask_strength);
+		result = mix(result, result * vec3(0.62, 0.86, 1.0), glass * 0.7);
+
+		// Frange chromatique du bord de vitre
+		vec2 dir = normalize(ndc + 0.0001) * 0.004 * glass * mask_strength;
+		result.r = mix(result.r,
+			texture(screen_tex, clamp(uv + dir, vec2(0.0), vec2(1.0))).r,
+			glass * 0.35);
+
+		// Monture : sombre au loin, plus claire pres de l'ouverture
+		vec3 frame = mix(mask_frame, mask_frame_dark,
+			clamp(md / 0.45, 0.0, 1.0));
+		result = mix(result, frame, outside * mask_strength);
+
+		// Liseré lumineux le long de l'arete interieure
+		float rim = exp(-abs(md) / 0.020);
+		result += mask_rim * rim * 0.22 * mask_strength;
+
+		// Reflet diffus dans le verre, en haut a gauche
+		float sheen = exp(-length(ndc - vec2(-0.52, 0.58)) * 2.4)
+			* (1.0 - outside);
+		result += mask_rim * sheen * 0.05 * mask_strength;
+	}
 
 	ALBEDO = result;
 	ALPHA = 1.0;

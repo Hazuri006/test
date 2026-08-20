@@ -59,7 +59,6 @@ var pitch: float = 0.0
 var head_submerged: bool = false
 var depth: float = 0.0
 var in_shelter: bool = false
-var third_person: bool = false
 var sprinting: bool = false
 
 var _bob_phase: float = 0.0
@@ -85,7 +84,11 @@ func _ready() -> void:
 	stats.warning.connect(func(text, sev): GameState.notify.emit(text, sev))
 	inventory.equipment_changed.connect(_on_equipment_changed)
 	_on_equipment_changed()
-	set_third_person(false)
+	# Vue subjective exclusive. Le corps reste rendu — on voit son torse, ses
+	# bras et ses palmes en baissant les yeux — seule la tete est retiree du
+	# champ de la camera, tout en continuant de projeter son ombre.
+	camera.cull_mask = 0xFFFFF & ~(1 << (ProcBody.HEAD_LAYER - 1))
+	body.set_first_person(true)
 
 func bind_world(p_ocean: Ocean, p_world: WorldManager) -> void:
 	ocean = p_ocean
@@ -241,9 +244,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_try_interact()
 	elif event.is_action_pressed("use_tool"):
 		_use_tool()
-	elif event is InputEventKey and event.pressed and not event.echo \
-			and (event as InputEventKey).physical_keycode == KEY_V:
-		set_third_person(not third_person)
 	else:
 		for i in 5:
 			if event.is_action_pressed("slot_%d" % (i + 1)):
@@ -410,11 +410,7 @@ func _update_camera(delta: float) -> void:
 		roll += -lateral * 0.012
 	cam_pivot.rotation = Vector3(pitch, 0.0, roll)
 
-	if third_person:
-		camera.position = camera.position.lerp(Vector3(0.45, 0.35, 3.1),
-			1.0 - exp(-delta * 8.0))
-	else:
-		camera.position = camera.position.lerp(Vector3.ZERO, 1.0 - exp(-delta * 10.0))
+	camera.position = camera.position.lerp(Vector3.ZERO, 1.0 - exp(-delta * 10.0))
 
 	# --- champ de vision -----------------------------------------------------
 	var fov_target: float = Settings.fov + (9.0 if sprinting else 0.0)
@@ -640,12 +636,6 @@ func _rebuild_tool_visual() -> void:
 	holder.add_child(mesh)
 	tool_mount.add_child(holder)
 	_tool_visual = holder
-
-func set_third_person(on: bool) -> void:
-	third_person = on
-	if body != null:
-		body.set_first_person(not on)
-	camera.cull_mask = 0xFFFFF if on else (0xFFFFF & ~(1 << 1))
 
 # =============================================================================
 #  Vie et mort

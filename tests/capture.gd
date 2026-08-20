@@ -51,20 +51,37 @@ func _run() -> void:
 	# 4. Le fond marin : caustiques, sable, roche
 	await _shot("04_fond", Vector3(30.0, -9.5, 26.0), Vector3(-0.42, 0.9, 0.0), 40)
 
+	# 4b. Le recif : massifs coralliens, dalles, anemones
+	await _shot("04b_recif", Vector3(-46.0, -10.5, 34.0),
+		Vector3(-0.16, -0.9, 0.0), 45)
+
 	# 5. La foret d'algues
 	await _shot("05_algues", Vector3(120.0, -18.0, 60.0), Vector3(-0.1, 2.2, 0.0), 40)
+
+	# 5b. La capsule vue de l'exterieur, depuis l'eau
+	await _shot("05b_capsule_dehors", pod.global_position + Vector3(7.5, 0.4, 7.5),
+		Vector3(0.06, 0.79, 0.0), 40)
+
+	# 5c. La capsule vue d'en dessous
+	await _shot("05c_capsule_dessous", pod.global_position + Vector3(6.0, -7.0, 6.0),
+		Vector3(0.55, 0.79, 0.0), 40)
 
 	# 6. Interieur de la capsule : fabricateur
 	# de biais, hauteur d'yeux : le fabricateur et le casier dans le champ
 	await _shot("06_capsule", pod.global_position + Vector3(1.3, 1.25, 0.9),
 		Vector3(-0.15, 0.62, 0.0), 40)
 
-	# 7. Le joueur en vue exterieure, en train de nager
+	# 7. Le joueur vu de l'exterieur, en train de nager (plan de controle :
+	#    en jeu la camera est toujours a la premiere personne)
 	if _player != null:
 		_player.global_position = Vector3(24.0, -8.0, 18.0)
 		_player.set("pitch", -0.35)
 		_player.velocity = Vector3(0.0, 0.0, -3.0)
-		_player.call("set_third_person", true)
+		# le jeu est en vue subjective : pour ce plan de controle on rend la
+		# tete visible le temps de la prise
+		var pb: Node = _player.get("body")
+		if pb != null:
+			pb.call("set_first_person", false)
 		# on relance juste l'animation du corps, pas le deplacement
 		var anim: Node = _player.get("animator")
 		if anim != null:
@@ -85,6 +102,7 @@ func _shot(name_str: String, pos: Vector3, rot: Vector3, frames: int) -> void:
 	var cam: Camera3D = _find_camera()
 	if cam == null:
 		return
+	cam.cull_mask = 0xFFFFF
 	# on detache la camera de la hierarchie du joueur le temps de la prise
 	cam.top_level = true
 	cam.global_position = pos
