@@ -183,7 +183,7 @@ func _build_interior(trim_mat: Material, inner_mat: Material) -> void:
 	# --- fabricateur ---------------------------------------------------------
 	fabricator = Fabricator.new()
 	fabricator.name = "Fabricator"
-	fabricator.position = Vector3(0, 0.0, -1.72)
+	fabricator.position = Vector3(0, 0.0, -1.95)
 	fabricator.rotation.y = 0.0
 	hull.add_child(fabricator)
 	# l'impact a rompu son alimentation : il faudra la ressouder

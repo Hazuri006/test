@@ -55,9 +55,9 @@ func _run() -> void:
 	await _shot("05_algues", Vector3(120.0, -18.0, 60.0), Vector3(-0.1, 2.2, 0.0), 40)
 
 	# 6. Interieur de la capsule : fabricateur
-	# hauteur d'yeux d'un joueur debout sur le plancher, sous le hublot
-	await _shot("06_capsule", pod.global_position + Vector3(0.0, 1.25, 1.1),
-		Vector3(-0.12, 0.0, 0.0), 40)
+	# de biais, hauteur d'yeux : le fabricateur et le casier dans le champ
+	await _shot("06_capsule", pod.global_position + Vector3(1.3, 1.25, 0.9),
+		Vector3(-0.15, 0.62, 0.0), 40)
 
 	# 7. Le joueur en vue exterieure, en train de nager
 	if _player != null:
