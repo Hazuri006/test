@@ -12,11 +12,14 @@ class_name WaterPalette
 ## le fond clair renvoie encore du vert, bleu franc quand le vert a ete
 ## absorbe, puis bleu nuit et enfin noir.
 
-const SURFACE := Color(0.20, 0.82, 0.76)     #   0 m — turquoise de lagon
-const SHALLOW := Color(0.07, 0.55, 0.66)     #  13 m — cyan
-const MID := Color(0.020, 0.235, 0.470)      #  40 m — bleu franc
-const DEEP := Color(0.004, 0.070, 0.215)     #  95 m — bleu nuit
-const ABYSS := Color(0.001, 0.014, 0.055)    # 230 m — noir bleute
+## Ce sont des luminances diffusees, pas des couleurs d'affichage : elles
+## s'ajoutent a ce que renvoie le fond, et doivent donc rester basses sous
+## peine de noyer le decor sous une brume cyan des la vingtaine de metres.
+const SURFACE := Color(0.055, 0.300, 0.300)  #   0 m — turquoise de lagon
+const SHALLOW := Color(0.020, 0.185, 0.255)  #  13 m — cyan
+const MID := Color(0.006, 0.075, 0.175)      #  40 m — bleu franc
+const DEEP := Color(0.001, 0.022, 0.078)     #  95 m — bleu nuit
+const ABYSS := Color(0.0004, 0.005, 0.022)   # 230 m — noir bleute
 
 ## Couleur du milieu a `depth` metres sous la surface.
 static func tint(depth: float) -> Color:

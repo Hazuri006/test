@@ -13,7 +13,12 @@
 //   * ondulation de l'image, aberration chromatique et vignettage
 // =============================================================================
 shader_type spatial;
-render_mode unshaded, depth_test_disabled, depth_draw_never, fog_disabled;
+// cull_disabled est indispensable : le quad est projete directement en
+// coordonnees de clip, sans passer par la matrice de vue, et son enroulement
+// le presente alors de dos. Sans cela il est elimine par le culling et tout
+// le post-traitement disparait en silence.
+render_mode unshaded, cull_disabled, depth_test_disabled, depth_draw_never,
+            fog_disabled;
 
 uniform sampler2D screen_tex : hint_screen_texture, repeat_disable,
 	filter_linear_mipmap;
@@ -25,7 +30,7 @@ uniform float depth_below : hint_range(0.0, 2000.0) = 0.0;
 
 // Extinction (m^-1) : le rouge disparait vers 5 m, le vert vers 25 m,
 // le bleu porte au-dela de 60 m. Valeurs proches d'une eau cotiere claire.
-uniform vec3 extinction = vec3(0.42, 0.062, 0.036);
+uniform vec3 extinction = vec3(0.42, 0.048, 0.028);
 uniform float turbidity : hint_range(0.0, 3.0) = 1.0;
 uniform float visibility : hint_range(5.0, 200.0) = 62.0;
 
@@ -34,18 +39,18 @@ group_uniforms WaterColour;
 // est verte-bleue (turquoise) parce que le sable renvoie encore beaucoup de
 // vert ; passe une trentaine de metres il ne subsiste que le bleu, puis plus
 // rien. Ces cinq paliers reproduisent cette descente.
-uniform vec3 tint_surface : source_color = vec3(0.20, 0.82, 0.76);
-uniform vec3 tint_shallow : source_color = vec3(0.07, 0.55, 0.66);
-uniform vec3 tint_mid : source_color = vec3(0.020, 0.235, 0.470);
-uniform vec3 tint_deep : source_color = vec3(0.004, 0.070, 0.215);
-uniform vec3 tint_abyss : source_color = vec3(0.001, 0.014, 0.055);
+uniform vec3 tint_surface : source_color = vec3(0.055, 0.300, 0.300);
+uniform vec3 tint_shallow : source_color = vec3(0.020, 0.185, 0.255);
+uniform vec3 tint_mid : source_color = vec3(0.006, 0.075, 0.175);
+uniform vec3 tint_deep : source_color = vec3(0.001, 0.022, 0.078);
+uniform vec3 tint_abyss : source_color = vec3(0.0004, 0.005, 0.022);
 uniform float light_level : hint_range(0.0, 1.0) = 1.0;
 
 group_uniforms Mask;
 // Masque de plongee : la monture est dessinee directement en fin de passe.
 uniform float mask_strength : hint_range(0.0, 1.0) = 1.0;
-uniform vec2 mask_radius = vec2(0.96, 0.93);
-uniform float mask_sharpness : hint_range(2.0, 8.0) = 3.2;
+uniform vec2 mask_radius = vec2(0.90, 0.84);
+uniform float mask_sharpness : hint_range(2.0, 8.0) = 2.6;
 uniform vec3 mask_frame : source_color = vec3(0.09, 0.26, 0.58);
 uniform vec3 mask_frame_dark : source_color = vec3(0.015, 0.05, 0.14);
 uniform vec3 mask_rim : source_color = vec3(0.42, 0.78, 1.0);
@@ -74,9 +79,14 @@ uniform float waterline_thickness : hint_range(0.0, 0.2) = 0.028;
 uniform float damage_flash : hint_range(0.0, 1.0) = 0.0;
 
 void vertex() {
-	// quad en coordonnees de clip : couvre exactement le viewport, toujours
-	// devant la camera quelle que soit son orientation
-	POSITION = vec4(VERTEX.xy, 1.0, 1.0);
+	// Quad ecrit directement en coordonnees de clip : il couvre exactement le
+	// viewport, quelle que soit l'orientation de la camera.
+	//
+	// La profondeur DOIT valoir 0. Godot travaille en profondeur inversee :
+	// 0 est le plan lointain, 1 le plan proche. Un quad pose a 1 tombe pile
+	// sur la limite de clipping proche et se fait decouper — le
+	// post-traitement disparait alors entierement, sans le moindre message.
+	POSITION = vec4(VERTEX.xy, 0.0, 1.0);
 }
 
 // ----------------------------------------------------------------- bruit -----
@@ -116,7 +126,7 @@ float superellipse(vec2 p, vec2 r, float n) {
 float mask_distance(vec2 ndc) {
 	float d = superellipse(ndc, mask_radius, mask_sharpness);
 	// la piece de nez remonte dans le champ par le bas
-	float nose = 0.235 - length((ndc - vec2(0.0, -1.14)) * vec2(1.0, 1.18));
+	float nose = 0.30 - length((ndc - vec2(0.0, -1.08)) * vec2(1.0, 1.15));
 	return max(d, nose);
 }
 
@@ -312,7 +322,7 @@ void fragment() {
 
 		// La vitre s'assombrit et se teinte juste avant la monture : c'est le
 		// verre vu de biais, plus epais optiquement sur les bords.
-		float glass = smoothstep(-0.22, -0.01, md);
+		float glass = smoothstep(-0.30, -0.01, md);
 		result *= mix(1.0, 0.58, glass * mask_strength);
 		result = mix(result, result * vec3(0.62, 0.86, 1.0), glass * 0.7);
 
@@ -324,7 +334,7 @@ void fragment() {
 
 		// Monture : sombre au loin, plus claire pres de l'ouverture
 		vec3 frame = mix(mask_frame, mask_frame_dark,
-			clamp(md / 0.45, 0.0, 1.0));
+			clamp(md / 0.16, 0.0, 1.0));
 		result = mix(result, frame, outside * mask_strength);
 
 		// Liseré lumineux le long de l'arete interieure

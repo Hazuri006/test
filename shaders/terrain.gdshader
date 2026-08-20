@@ -16,7 +16,7 @@ uniform sampler2D rock_normal : hint_normal, repeat_enable, filter_linear_mipmap
 uniform sampler2D detail_noise : hint_default_white, repeat_enable,
 	filter_linear_mipmap;
 
-uniform vec3 sand_tint : source_color = vec3(0.86, 0.82, 0.68);
+uniform vec3 sand_tint : source_color = vec3(0.78, 0.73, 0.60);
 uniform vec3 rock_tint : source_color = vec3(0.36, 0.38, 0.40);
 uniform vec3 kelp_floor_tint : source_color = vec3(0.32, 0.40, 0.28);
 uniform vec3 deep_tint : source_color = vec3(0.20, 0.24, 0.30);

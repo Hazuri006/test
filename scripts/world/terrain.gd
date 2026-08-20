@@ -58,7 +58,7 @@ func _build_material() -> void:
 	material = ShaderMaterial.new()
 	material.shader = TerrainShader
 	material.set_shader_parameter("sand_albedo", ProcTextures.ramped(512, 0.02, 5, 21,
-		[Color(0.62, 0.58, 0.46), Color(0.88, 0.84, 0.72), Color(1.0, 0.97, 0.9)]))
+		[Color(0.46, 0.42, 0.32), Color(0.70, 0.66, 0.53), Color(0.84, 0.80, 0.67)]))
 	material.set_shader_parameter("sand_normal",
 		ProcTextures.normal_map(512, 0.045, 4, 21, 0.6))
 	material.set_shader_parameter("rock_albedo", ProcTextures.ramped(512, 0.012, 5, 88,

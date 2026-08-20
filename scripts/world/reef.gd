@@ -10,7 +10,7 @@ class_name Reef
 ## joueur existent reellement.
 
 const CoralShader := preload("res://shaders/coral.gdshader")
-const CELL := 26.0
+const CELL := 22.0
 const VARIANTS := 6
 
 ## Une espece : maillage, teintes, taille, et si elle arrete le joueur.
@@ -81,7 +81,7 @@ var _noise_tex: Texture2D
 func _ready() -> void:
 	density = clampf(float(Settings.get_p(&"kelp_density", 1.0)), 0.4, 1.6)
 	view_distance = float(Settings.get_p(&"terrain_view_distance", 520.0)) * 0.32
-	_noise_tex = ProcTextures.gray(512, 0.05, 4, 6161)
+	_noise_tex = ProcTextures.gray(512, 0.018, 5, 6161)
 	for key in SPECIES:
 		_materials[key] = _make_material(SPECIES[key])
 
@@ -189,7 +189,7 @@ func _populate(coord: Vector2i) -> void:
 	add_child(cell)
 	_cells[coord] = cell
 
-	var attempts := int(rng.randi_range(2, 6) * density)
+	var attempts := int(rng.randi_range(5, 11) * density)
 	for i in attempts:
 		var x := (coord.x + rng.randf()) * CELL
 		var z := (coord.y + rng.randf()) * CELL
@@ -205,7 +205,7 @@ func _populate(coord: Vector2i) -> void:
 		_place(cell, species, Vector3(x, h, z), nrm, rng)
 
 	# tapis d'anemones : beaucoup de petites colonies sur une meme dalle
-	if rng.randf() < 0.45 * density:
+	if rng.randf() < 0.6 * density:
 		_carpet(cell, coord, rng)
 
 func _place(parent: Node3D, species: StringName, pos: Vector3, nrm: Vector3,

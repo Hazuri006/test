@@ -62,7 +62,10 @@ void fragment() {
 	float pore = tri_noise(v_world, pore_scale * 0.35);
 
 	// plaques colonisees : seuil franc, bords irreguliers
-	float colonised = smoothstep(0.52, 0.68, patch + pore * 0.18) * patch_amount;
+	// Le bruit fractal se serre autour de 0,5 : sans etirer son contraste, le
+	// seuil de colonisation ne se declenche presque jamais.
+	patch = clamp((patch - 0.5) * 2.6 + 0.5, 0.0, 1.0);
+	float colonised = smoothstep(0.42, 0.62, patch + pore * 0.15) * patch_amount;
 	vec3 albedo = mix(base_color, patch_color, colonised);
 
 	// les sommets s'eclaircissent (croissance recente, exposee a la lumiere)

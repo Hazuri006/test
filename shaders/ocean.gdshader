@@ -29,10 +29,10 @@ uniform float wave_time = 0.0;
 // surface, le brouillard et le post-traitement doivent donner exactement la
 // meme teinte a une profondeur donnee, sinon l'eau change de couleur selon
 // qu'on la regarde de dessus ou de dessous.
-uniform vec3 tint_surface : source_color = vec3(0.20, 0.82, 0.76);
-uniform vec3 tint_shallow : source_color = vec3(0.07, 0.55, 0.66);
-uniform vec3 tint_mid : source_color = vec3(0.020, 0.235, 0.470);
-uniform vec3 tint_deep : source_color = vec3(0.004, 0.070, 0.215);
+uniform vec3 tint_surface : source_color = vec3(0.085, 0.430, 0.410);
+uniform vec3 tint_shallow : source_color = vec3(0.030, 0.250, 0.330);
+uniform vec3 tint_mid : source_color = vec3(0.008, 0.090, 0.205);
+uniform vec3 tint_deep : source_color = vec3(0.002, 0.028, 0.090);
 // coefficients d'extinction (m^-1) par canal : le rouge meurt en ~4 m
 uniform vec3 extinction = vec3(0.45, 0.11, 0.062);
 uniform float scatter_strength : hint_range(0.0, 4.0) = 1.1;

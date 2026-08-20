@@ -27,6 +27,12 @@ var _biome_label: Label
 var _prompt_label: Label
 var _heartbeat_timer := 0.0
 
+## Retrait applique a tout l'affichage pour qu'il tienne dans l'ouverture du
+## masque de plongee : la monture mange les bords de l'ecran, un cadran pose
+## trop pres du bord passerait derriere elle.
+const MASK_INSET_X := 0.075
+const MASK_INSET_Y := 0.10
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -61,7 +67,7 @@ func _build() -> void:
 	_biome_label = UITheme.label("", 26, UITheme.CYAN)
 	_biome_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_biome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_biome_label.offset_top = 78
+	_biome_label.offset_top = 116
 	_biome_label.offset_left = -360
 	_biome_label.offset_right = 360
 	_biome_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -71,8 +77,8 @@ func _build() -> void:
 	_notice_box = VBoxContainer.new()
 	_notice_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_notice_box.offset_left = -430
-	_notice_box.offset_right = -24
-	_notice_box.offset_top = 120
+	_notice_box.offset_right = -76
+	_notice_box.offset_top = 160
 	_notice_box.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_notice_box.add_theme_constant_override("separation", 5)
 	_notice_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -83,8 +89,8 @@ func _build() -> void:
 	_quickbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_quickbar.offset_left = -170
 	_quickbar.offset_right = 170
-	_quickbar.offset_top = -84
-	_quickbar.offset_bottom = -22
+	_quickbar.offset_top = -150
+	_quickbar.offset_bottom = -88
 	_quickbar.add_theme_constant_override("separation", 8)
 	_quickbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_quickbar)
@@ -188,8 +194,8 @@ func _draw_crosshair(s: Vector2) -> void:
 ## Arc d'oxygene : identique a la jauge de la combinaison, il vire au rouge
 ## et pulse quand la reserve s'epuise.
 func _draw_oxygen(s: Vector2) -> void:
-	var c := Vector2(s.x * 0.5, s.y - 108.0)
-	var radius := 86.0
+	var c := Vector2(s.x * 0.5, s.y - s.y * MASK_INSET_Y - 78.0)
+	var radius := 84.0
 	var start := PI * 0.78
 	var sweep := PI * 1.44
 
@@ -227,7 +233,8 @@ func _draw_oxygen(s: Vector2) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(UITheme.TEXT_DIM, 0.9))
 
 func _draw_vitals(s: Vector2) -> void:
-	var origin := Vector2(34.0, s.y - 116.0)
+	var origin := Vector2(s.x * MASK_INSET_X + 18.0,
+		s.y - s.y * MASK_INSET_Y - 88.0)
 	var entries := [
 		["SANTE", _health, UITheme.RED],
 		["FAIM", _food, UITheme.ORANGE],
@@ -251,7 +258,8 @@ func _draw_vitals(s: Vector2) -> void:
 
 func _draw_depth(s: Vector2) -> void:
 	var font := ThemeDB.fallback_font
-	var origin := Vector2(34.0, s.y - 148.0)
+	var origin := Vector2(s.x * MASK_INSET_X + 18.0,
+		s.y - s.y * MASK_INSET_Y - 120.0)
 	var txt := "%d m" % roundi(_depth)
 	draw_string(font, origin, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 24,
 		UITheme.CYAN if _depth < 180.0 else UITheme.ORANGE)
@@ -260,8 +268,8 @@ func _draw_depth(s: Vector2) -> void:
 
 ## Ruban de cap : les points cardinaux defilent avec la rotation de la tete.
 func _draw_compass(s: Vector2) -> void:
-	var width := 420.0
-	var c := Vector2(s.x * 0.5, 42.0)
+	var width := 400.0
+	var c := Vector2(s.x * 0.5, s.y * MASK_INSET_Y + 34.0)
 	var font := ThemeDB.fallback_font
 	draw_line(c + Vector2(-width * 0.5, 12), c + Vector2(width * 0.5, 12),
 		Color(UITheme.CYAN, 0.25), 1.0, true)
