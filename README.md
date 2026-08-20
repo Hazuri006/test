@@ -24,7 +24,6 @@ Ouvrez le dossier dans Godot puis lancez la scene `scenes/main.tscn` (F5).
 | `Molette` / `1`-`5` | Changer d'outil |
 | `Tab` | Inventaire et equipement |
 | `F` | Lampe torche |
-| `V` | Basculer vue subjective / exterieure |
 | `Echap` | Pause et reglages |
 | `F7` | Cycler le profil de qualite a chaud |
 
@@ -69,6 +68,49 @@ peintes a la main, elles tombent du calcul. S'y ajoutent une couche de cumulus
 ray-marches (bruit fbm, diffusion Henyey-Greenstein double lobe, approximation
 de multi-diffusion), un voile de cirrus, un disque solaire avec assombrissement
 centre-bord, les etoiles et la lune.
+
+### Le masque de plongee
+
+La vue est entierement a la premiere personne, encadree par la monture du
+masque : ouverture en superellipse, bosse du nez, verre qui s'assombrit et se
+teinte sur les bords parce qu'on le regarde de biais, frange chromatique le
+long de la vitre, lisere lumineux sur l'arete interieure et reflet diffus. La
+monture apparait au moment ou la tete passe sous l'eau. L'affichage de survie
+est recule dans l'ouverture pour ne jamais passer derriere elle.
+
+### La couleur de l'eau
+
+Une seule rampe (`scripts/world/water_palette.gd`) alimente la surface, le
+brouillard, la lumiere ambiante et le post-traitement. Sans ce point unique,
+l'eau changerait de teinte selon qu'on la regarde de dessus, de dessous ou en
+reflet.
+
+| Profondeur | Teinte |
+|---|---|
+| 0 m | turquoise de lagon |
+| 13 m | cyan |
+| 40 m | bleu franc |
+| 95 m | bleu nuit |
+| 230 m | noir bleute |
+
+Ce sont des **luminances diffusees**, pas des couleurs d'affichage : elles
+s'ajoutent a ce que renvoie le fond. La diffusion est evaluee a la profondeur
+moyenne du trajet reellement parcouru dans l'eau, pas a celle de la camera :
+un recif clair reste donc turquoise meme observe depuis plus bas, et l'eau se
+fonce vraiment quand on descend.
+
+### Le recif
+
+Huit especes, toutes issues de deux primitives seulement — une sphere deformee
+par du bruit et un tube balaye le long d'une courbe : dalles rocheuses a
+sommet plat, massifs coralliens, blocs erodes, coraux en eventail et en table,
+coraux tubulaires ramifies et tapis d'anemones. Le shader de corail melange
+deux teintes par plaques de colonisation, creuse les pores, laisse la lumiere
+traverser la chair et allume les extremites.
+
+Leur repartition est deterministe, comme celle des gisements : la composition
+de chaque cellule se deduit de ses coordonnees. Le decor est donc infini,
+identique d'une session a l'autre, et rien n'est stocke.
 
 ### Sous l'eau
 
@@ -229,6 +271,8 @@ godot --path . --rendering-driver vulkan --resolution 960x540 res://tests/captur
 - Pas de vehicules (Seamoth, Cyclops), pas de construction de bases, pas de
   faune hostile ni de scenario : le jeu couvre la boucle exploration → recolte
   → artisanat → progression en profondeur.
+- Le jeu est exclusivement a la premiere personne ; il n'y a pas de vue
+  exterieure.
 - Les gisements deja recoltes sont oublies au redemarrage si vous ne
   sauvegardez pas (`Echap` → *Sauvegarder*).
 - Le scanner enregistre les analyses mais n'ouvre pas encore de fiches

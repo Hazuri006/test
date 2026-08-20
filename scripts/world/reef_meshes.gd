@@ -139,9 +139,10 @@ static func coral_mound(seed_value: int) -> ArrayMesh:
 	return blob(seed_value, 20, 24, 1.3, 0.46, 5.5, 0.20, 0.85, -0.55, 1.15)
 
 ## Dalle rocheuse a sommet plat, comme les plateformes de gres du recif.
-## Le sommet est franchement tronque, les flancs restent irreguliers.
+## Le sommet est tronque mais la masse reste haute : une dalle trop ecrasee
+## ressemble a une flaque posee sur le sable au lieu d'un bloc qui en sort.
 static func rock_slab(seed_value: int) -> ArrayMesh:
-	return blob(seed_value, 16, 26, 0.9, 0.34, 3.2, 0.10, 0.34, -0.30, 0.30)
+	return blob(seed_value, 18, 28, 0.85, 0.44, 3.6, 0.16, 0.62, -0.55, 0.46)
 
 ## Gros bloc erode, plus haut que large, qui sert de relief vertical.
 static func boulder(seed_value: int) -> ArrayMesh:

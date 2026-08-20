@@ -16,49 +16,49 @@ const VARIANTS := 6
 ## Une espece : maillage, teintes, taille, et si elle arrete le joueur.
 const SPECIES := {
 	&"slab": {
-		"scale": [2.4, 5.6], "solid": "cylinder", "align": 0.85,
+		"scale": [3.2, 7.4], "solid": "cylinder", "align": 0.85,
 		"base": Color(0.80, 0.75, 0.60), "patch": Color(0.66, 0.63, 0.50),
 		"tip": Color(0.90, 0.87, 0.74), "patch_amount": 0.30,
 		"rough": 0.85, "pore": 1.1, "glow": 0.0, "sway": 0.0,
 	},
 	&"mound": {
-		"scale": [1.6, 4.4], "solid": "sphere", "align": 0.4,
+		"scale": [2.2, 5.8], "solid": "sphere", "align": 0.4,
 		"base": Color(0.62, 0.29, 0.13), "patch": Color(0.09, 0.50, 0.44),
 		"tip": Color(0.82, 0.50, 0.22), "patch_amount": 0.50,
 		"rough": 0.70, "pore": 1.0, "glow": 0.0, "sway": 0.0,
 	},
 	&"mound_pale": {
-		"scale": [1.4, 3.4], "solid": "sphere", "align": 0.4,
+		"scale": [1.8, 4.4], "solid": "sphere", "align": 0.4,
 		"base": Color(0.74, 0.46, 0.22), "patch": Color(0.16, 0.56, 0.42),
 		"tip": Color(0.92, 0.70, 0.34), "patch_amount": 0.42,
 		"rough": 0.66, "pore": 0.9, "glow": 0.0, "sway": 0.0,
 	},
 	&"boulder": {
-		"scale": [1.2, 3.0], "solid": "sphere", "align": 0.5,
+		"scale": [1.6, 4.0], "solid": "sphere", "align": 0.5,
 		"base": Color(0.52, 0.50, 0.43), "patch": Color(0.26, 0.42, 0.34),
 		"tip": Color(0.66, 0.64, 0.56), "patch_amount": 0.35,
 		"rough": 0.88, "pore": 1.2, "glow": 0.0, "sway": 0.0,
 	},
 	&"flower": {
-		"scale": [0.9, 2.1], "solid": "", "align": 0.2,
+		"scale": [1.5, 3.4], "solid": "", "align": 0.2,
 		"base": Color(0.90, 0.46, 0.12), "patch": Color(0.96, 0.74, 0.22),
 		"tip": Color(1.00, 0.86, 0.38), "patch_amount": 0.55,
 		"rough": 0.55, "pore": 2.4, "glow": 0.9, "sway": 0.35,
 	},
 	&"table": {
-		"scale": [0.7, 1.6], "solid": "", "align": 0.3,
+		"scale": [1.1, 2.6], "solid": "", "align": 0.3,
 		"base": Color(0.86, 0.52, 0.34), "patch": Color(0.32, 0.62, 0.55),
 		"tip": Color(0.96, 0.72, 0.48), "patch_amount": 0.48,
 		"rough": 0.62, "pore": 2.0, "glow": 0.0, "sway": 0.15,
 	},
 	&"tube": {
-		"scale": [0.7, 1.7], "solid": "", "align": 0.25,
+		"scale": [1.0, 2.5], "solid": "", "align": 0.25,
 		"base": Color(0.56, 0.17, 0.13), "patch": Color(0.72, 0.30, 0.18),
 		"tip": Color(0.80, 0.40, 0.28), "patch_amount": 0.40,
 		"rough": 0.58, "pore": 3.0, "glow": 0.0, "sway": 0.9,
 	},
 	&"anemone": {
-		"scale": [0.45, 0.95], "solid": "", "align": 0.6,
+		"scale": [0.7, 1.5], "solid": "", "align": 0.6,
 		"base": Color(0.92, 0.52, 0.11), "patch": Color(0.20, 0.68, 0.60),
 		"tip": Color(1.00, 0.80, 0.28), "patch_amount": 0.30,
 		"rough": 0.45, "pore": 3.5, "glow": 2.2, "sway": 0.7,
@@ -234,7 +234,7 @@ func _place(parent: Node3D, species: StringName, pos: Vector3, nrm: Vector3,
 
 	parent.add_child(node)
 	# on enfonce legerement la base dans le sable
-	node.global_transform = Transform3D(basis, pos - Vector3(0, s * 0.16, 0))
+	node.global_transform = Transform3D(basis, pos - Vector3(0, s * 0.30, 0))
 
 	var solid: String = cfg["solid"]
 	if solid != "":
@@ -244,8 +244,8 @@ func _place(parent: Node3D, species: StringName, pos: Vector3, nrm: Vector3,
 		var cs := CollisionShape3D.new()
 		if solid == "cylinder":
 			var cyl := CylinderShape3D.new()
-			cyl.radius = 0.82
-			cyl.height = 0.62
+			cyl.radius = 0.80
+			cyl.height = 0.95
 			cs.shape = cyl
 			cs.position = Vector3(0, 0.1, 0)
 		else:
@@ -261,8 +261,8 @@ func _carpet(parent: Node3D, coord: Vector2i, rng: RandomNumberGenerator) -> voi
 	var transforms: Array[Transform3D] = []
 	var cx := (coord.x + rng.randf()) * CELL
 	var cz := (coord.y + rng.randf()) * CELL
-	var spread := rng.randf_range(3.0, 7.0)
-	var count := int(rng.randi_range(18, 46) * density)
+	var spread := rng.randf_range(4.0, 9.0)
+	var count := int(rng.randi_range(28, 64) * density)
 	for i in count:
 		var a := rng.randf() * TAU
 		var r := sqrt(rng.randf()) * spread
@@ -274,7 +274,7 @@ func _carpet(parent: Node3D, coord: Vector2i, rng: RandomNumberGenerator) -> voi
 		var nrm := Biome.normal(x, z)
 		if nrm.y < 0.72:
 			continue                       # les anemones veulent du plat
-		var s := rng.randf_range(0.28, 0.62)
+		var s := rng.randf_range(0.55, 1.15)
 		var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
 		transforms.append(Transform3D(b, Vector3(x, h - s * 0.1, z)))
 	if transforms.size() < 4:
