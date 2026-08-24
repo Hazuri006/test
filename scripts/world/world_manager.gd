@@ -303,7 +303,11 @@ func _update_environment(delta: float) -> void:
 	# --- etalonnage ----------------------------------------------------------
 	environment.adjustment_saturation = lerpf(1.05, lerpf(0.95, 0.6, depth_t), s)
 	environment.adjustment_contrast = lerpf(1.03, 1.12, s)
-	environment.glow_intensity = lerpf(0.55, 0.9, s)
+	# Sous l'eau la scene est globalement claire : sans relever le seuil, le
+	# bloom deborde de partout et vient napper la monture du masque d'un halo
+	# blanc. On l'attenue et on ne laisse passer que les vrais points chauds.
+	environment.glow_intensity = lerpf(0.55, 0.40, s)
+	environment.glow_hdr_threshold = lerpf(1.1, 1.75, s)
 
 	damage_flash = move_toward(damage_flash, 0.0, delta * 1.6)
 

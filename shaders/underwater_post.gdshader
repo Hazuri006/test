@@ -28,9 +28,12 @@ uniform float water_level = 0.0;
 uniform float submersion : hint_range(0.0, 1.0) = 0.0;   // 0 = a l'air libre
 uniform float depth_below : hint_range(0.0, 2000.0) = 0.0;
 
-// Extinction (m^-1) : le rouge disparait vers 5 m, le vert vers 25 m,
-// le bleu porte au-dela de 60 m. Valeurs proches d'une eau cotiere claire.
-uniform vec3 extinction = vec3(0.42, 0.048, 0.028);
+// Extinction (m^-1). Volontairement plus douce que la physique d'une eau
+// cotiere : le rouge doit survivre assez loin pour que les coraux restent
+// oranges a une quinzaine de metres. Mesure a l'appui — en coupant la
+// turbidite, donc l'absorption, le sable redevenait net et detaille ; des
+// qu'on la retablissait a 0,42/m tout le decor virait au lavis turquoise.
+uniform vec3 extinction = vec3(0.085, 0.030, 0.020);
 uniform float turbidity : hint_range(0.0, 3.0) = 1.0;
 uniform float visibility : hint_range(5.0, 200.0) = 62.0;
 
@@ -51,16 +54,19 @@ group_uniforms Mask;
 uniform float mask_strength : hint_range(0.0, 1.0) = 1.0;
 uniform vec2 mask_radius = vec2(0.90, 0.84);
 uniform float mask_sharpness : hint_range(2.0, 8.0) = 2.6;
-uniform vec3 mask_frame : source_color = vec3(0.09, 0.26, 0.58);
-uniform vec3 mask_frame_dark : source_color = vec3(0.015, 0.05, 0.14);
-uniform vec3 mask_rim : source_color = vec3(0.42, 0.78, 1.0);
+uniform vec3 mask_frame : source_color = vec3(0.045, 0.115, 0.245);
+uniform vec3 mask_frame_dark : source_color = vec3(0.008, 0.020, 0.052);
+uniform vec3 mask_rim : source_color = vec3(0.30, 0.58, 0.82);
 
 group_uniforms Caustics;
-uniform float caustics_strength : hint_range(0.0, 4.0) = 1.4;
+uniform float caustics_strength : hint_range(0.0, 4.0) = 0.55;
 uniform float caustics_scale = 0.55;
 uniform float caustics_speed = 0.42;
 uniform float caustics_depth_fade = 45.0;
-uniform float caustics_dispersion : hint_range(0.0, 0.1) = 0.022;
+// Ecart entre longueurs d'onde. Au-dela de quelques millemes les trois
+// reseaux ne se superposent plus et donnent des taches vertes et violettes
+// au lieu d'un liseré irisé.
+uniform float caustics_dispersion : hint_range(0.0, 0.1) = 0.006;
 // Hauteur du soleil (0 = sous l'horizon, 1 = haut dans le ciel). Distincte de
 // `sun_visible`, qui indique seulement s'il est dans le champ de la camera.
 uniform float sun_above : hint_range(0.0, 1.0) = 1.0;
@@ -148,8 +154,7 @@ float worley_caustic(vec2 p, float t) {
 	return pow(1.0 - clamp(d, 0.0, 1.0), 5.0);
 }
 
-// Deux octaves suffisent : la fonction est evaluee trois fois (une par
-// longueur d'onde) et chaque octave coute deja neuf cellules de Voronoi.
+// Deux octaves suffisent : chaque octave coute deja neuf cellules de Voronoi.
 float caustics(vec3 wpos, float t, float scale) {
 	vec2 p = wpos.xz * scale;
 	float c = worley_caustic(p, t * caustics_speed);
@@ -224,8 +229,10 @@ void fragment() {
 		vec2 suv = clamp(uv + warp, vec2(0.0), vec2(1.0));
 
 		// flou de turbidite : au loin, la diffusion multiple brouille l'image
-		float blur_lod = clamp(water_dist / max(visibility, 1.0), 0.0, 1.0)
-			* 3.2 * turbidity;
+		// Le flou ne mord qu'au-dela du quart de la portee visuelle : applique
+		// des le premier plan, il effacait le grain du sable.
+		float blur_lod = smoothstep(0.22, 1.0,
+			water_dist / max(visibility, 1.0)) * 1.6 * turbidity;
 		vec3 col = textureLod(screen_tex, suv, blur_lod).rgb;
 
 		// aberration chromatique croissante vers les bords
@@ -240,18 +247,26 @@ void fragment() {
 			fade *= 1.0 - smoothstep(visibility * 0.6, visibility * 1.6, water_dist);
 			if (fade > 0.003) {
 				// dispersion : chaque longueur d'onde se refracte differemment
-				float cr = caustics(world_pos, t,
-					caustics_scale * (1.0 - caustics_dispersion));
+				// Une seule evaluation complete du reseau ; la frange
+				// chromatique se contente d'une octave decalee par canal,
+				// pour un tiers du cout.
 				float cg = caustics(world_pos, t, caustics_scale);
-				float cb = caustics(world_pos, t,
-					caustics_scale * (1.0 + caustics_dispersion));
-				vec3 caus = vec3(cr, cg, cb) * fade * caustics_strength * sun_above;
+				vec2 cp = world_pos.xz * caustics_scale;
+				float ct = t * caustics_speed;
+				float cr = worley_caustic(cp * (1.0 - caustics_dispersion), ct);
+				float cb = worley_caustic(cp * (1.0 + caustics_dispersion), ct);
+				vec3 caus = vec3(mix(cg, cr, 0.5), cg, mix(cg, cb, 0.5))
+					* fade * caustics_strength * sun_above;
 				// elles n'apparaissent que sur les surfaces tournees vers le haut
 				vec3 dx = dFdx(world_pos);
 				vec3 dy = dFdy(world_pos);
 				vec3 nrm = normalize(cross(dy, dx));
 				float up = clamp(abs(nrm.y), 0.0, 1.0);
-				col += caus * (0.25 + 0.75 * up) * sun_tint;
+				// Une caustique est un surcroit d'ECLAIREMENT : elle module ce
+				// que la surface renvoie deja. En lumiere pure, elle noierait
+				// le decor sous des taches independantes de ce qu'il y a
+				// dessous.
+				col += col * caus * (0.25 + 0.75 * up) * sun_tint * 1.6;
 			}
 		}
 
@@ -269,24 +284,29 @@ void fragment() {
 
 		// -------------------------------------------------------- god rays ---
 		if (godray_strength > 0.001 && sun_visible > 0.001) {
-			vec2 delta = (sun_screen_pos - uv) / 26.0;
+			vec2 delta = (sun_screen_pos - uv) / 18.0;
 			vec2 p = uv;
 			float decay = 1.0;
 			float acc = 0.0;
-			for (int i = 0; i < 26; i++) {
+			for (int i = 0; i < 18; i++) {
 				p += delta;
 				vec2 cp = clamp(p, vec2(0.0), vec2(1.0));
 				float d = texture(depth_tex, cp).r;
 				// seuls les pixels "vides" (eau lointaine) laissent passer
 				float mask = step(d, 0.00002);
 				acc += mask * decay;
-				decay *= 0.955;
+				decay *= 0.938;
 			}
-			acc /= 26.0;
+			acc /= 18.0;
 			float aim = 1.0 - clamp(length(uv - sun_screen_pos) * 0.75, 0.0, 1.0);
-			float dust = 0.75 + 0.25 * vnoise(uv * 8.0 + vec2(t * 0.15, -t * 0.11));
-			fogged += sun_tint * acc * aim * dust * godray_strength * sun_visible
-				* (1.0 - depth_mix * 0.85);
+			float dust = 0.88 + 0.12 * vnoise(uv * 26.0 + vec2(t * 0.15, -t * 0.11));
+			// Un rai se voit dans la MASSE D'EAU, pas plaque sur ce qui est
+			// juste devant soi. Sans cette ponderation par la distance du
+			// pixel lui-meme, la brume accumulee le long du trajet vers le
+			// soleil vient napper tout l'ecran, fond marin compris.
+			float shaft = smoothstep(0.18, 0.65, water_dist / max(visibility, 1.0));
+			fogged += sun_tint * acc * aim * dust * shaft * godray_strength
+				* sun_visible * (1.0 - depth_mix * 0.85);
 		}
 
 		// ---------------------------------------------------- neige marine ----
@@ -334,17 +354,19 @@ void fragment() {
 
 		// Monture : sombre au loin, plus claire pres de l'ouverture
 		vec3 frame = mix(mask_frame, mask_frame_dark,
-			clamp(md / 0.16, 0.0, 1.0));
+			clamp(md / 0.10, 0.0, 1.0));
 		result = mix(result, frame, outside * mask_strength);
 
 		// Liseré lumineux le long de l'arete interieure
 		float rim = exp(-abs(md) / 0.020);
-		result += mask_rim * rim * 0.22 * mask_strength;
+		// Volontairement faible : au-dela, le lisere depasse le seuil de bloom
+		// de l'environnement et se transforme en halo blanc.
+		result += mask_rim * rim * 0.085 * mask_strength;
 
 		// Reflet diffus dans le verre, en haut a gauche
 		float sheen = exp(-length(ndc - vec2(-0.52, 0.58)) * 2.4)
 			* (1.0 - outside);
-		result += mask_rim * sheen * 0.05 * mask_strength;
+		result += mask_rim * sheen * 0.018 * mask_strength;
 	}
 
 	ALBEDO = result;
