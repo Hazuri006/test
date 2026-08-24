@@ -33,7 +33,15 @@ uniform float depth_below : hint_range(0.0, 2000.0) = 0.0;
 // oranges a une quinzaine de metres. Mesure a l'appui — en coupant la
 // turbidite, donc l'absorption, le sable redevenait net et detaille ; des
 // qu'on la retablissait a 0,42/m tout le decor virait au lavis turquoise.
-uniform vec3 extinction = vec3(0.085, 0.030, 0.020);
+// Le rouge s'eteint le premier, mais pas au point d'effacer un massif
+// corallien a dix metres : les recifs gardent leurs oranges sur la premiere
+// vingtaine de metres, puis basculent vers le turquoise.
+uniform vec3 extinction = vec3(0.055, 0.026, 0.018);
+uniform float sky_blur : hint_range(0.0, 6.0) = 2.6;
+uniform float sky_knee : hint_range(0.0, 2.0) = 0.55;
+// Aide au diagnostic : 1 = longueur du trajet dans l'eau, 2 = pixels de ciel,
+// 3 = distance a la geometrie. Toujours 0 en jeu.
+uniform int debug_view : hint_range(0, 3) = 0;
 uniform float turbidity : hint_range(0.0, 3.0) = 1.0;
 uniform float visibility : hint_range(5.0, 200.0) = 62.0;
 
@@ -54,8 +62,13 @@ group_uniforms Mask;
 uniform float mask_strength : hint_range(0.0, 1.0) = 1.0;
 uniform vec2 mask_radius = vec2(0.90, 0.84);
 uniform float mask_sharpness : hint_range(2.0, 8.0) = 2.6;
-uniform vec3 mask_frame : source_color = vec3(0.045, 0.115, 0.245);
-uniform vec3 mask_frame_dark : source_color = vec3(0.008, 0.020, 0.052);
+// Jupe du masque. Elle est la ou elle touche le visage — c'est un caoutchouc
+// noir, dans l'ombre : la teinte la plus sombre est au CONTACT de l'ouverture,
+// et la jupe s'eclaircit tres legerement en s'ecartant. L'inverse (une monture
+// claire cernant l'ouverture) dessinait un anneau bleu lumineux en travers de
+// l'image, plus clair que l'eau qu'il encadrait.
+uniform vec3 mask_frame_inner : source_color = vec3(0.002, 0.004, 0.008);
+uniform vec3 mask_frame_outer : source_color = vec3(0.012, 0.020, 0.036);
 uniform vec3 mask_rim : source_color = vec3(0.30, 0.58, 0.82);
 
 group_uniforms Caustics;
@@ -208,9 +221,19 @@ void fragment() {
 		if (abs(rd.y) > 0.0001) {
 			float t_cross = (water_level - cam_pos.y) / rd.y;
 			if (cam_rel < 0.0) {
-				// on part de l'eau : on en sort si le rayon monte
+				// On part de l'eau. Un rayon qui monte n'en sort QUE s'il
+				// reste dans le cone de Snell — moins de 48.6 deg de la
+				// verticale, soit cos > 0.662. Au-dela, il est totalement
+				// reflechi vers le bas et poursuit sa route dans l'eau : le
+				// trajet n'est alors pas borne par la surface.
+				//
+				// Sans cette condition, tout rayon montant s'arretait a la
+				// surface : l'horizon rasant traversait deux metres d'eau au
+				// lieu de cent, et le ciel s'affichait en clair d'un bord a
+				// l'autre de l'image, comme s'il n'y avait pas d'eau.
 				if (rd.y > 0.0) {
-					t_exit = min(t_exit, max(t_cross, 0.0));
+					float snell = smoothstep(0.48, 0.80, rd.y);
+					t_exit = mix(t_exit, min(t_exit, max(t_cross, 0.0)), snell);
 				}
 			} else {
 				// on part de l'air : on entre dans l'eau si le rayon descend
@@ -233,12 +256,28 @@ void fragment() {
 		// des le premier plan, il effacait le grain du sable.
 		float blur_lod = smoothstep(0.22, 1.0,
 			water_dist / max(visibility, 1.0)) * 1.6 * turbidity;
+		// Le ciel n'arrive jamais net a travers la fenetre de Snell : la
+		// surface est froissee et brasse tout l'hemisphere dans un cone de
+		// 97 degres. Sans ce flou, les cumulus restaient decoupes comme a
+		// l'air libre.
+		float sky_f = is_sky ? 1.0 : 0.0;
+		blur_lod = max(blur_lod, sky_blur * sky_f);
 		vec3 col = textureLod(screen_tex, suv, blur_lod).rgb;
 
 		// aberration chromatique croissante vers les bords
 		vec2 ca = normalize(uv - 0.5 + 0.0001) * chromatic * edge * under;
 		col.r = textureLod(screen_tex, clamp(suv + ca, vec2(0.0), vec2(1.0)), blur_lod).r;
 		col.b = textureLod(screen_tex, clamp(suv - ca, vec2(0.0), vec2(1.0)), blur_lod).b;
+
+		// Genou sur les hautes lumieres du ciel. Un cumulus vaut plusieurs
+		// fois le blanc : sans compression, apres absorption differentielle,
+		// il ressortait rose vif au milieu du turquoise.
+		//
+		// IMPERATIF : apres l'aberration chromatique. Placee avant, elle etait
+		// annulee pour le rouge et le bleu — que les deux lignes ci-dessus
+		// relisent a l'etat brut — et ne comprimait plus que le vert, ce qui
+		// virait les nuages au rouge franc.
+		col = mix(col, col / (1.0 + col * sky_knee), sky_f * step(0.0001, sky_knee));
 
 		// ------------------------------------------------------ caustiques ---
 		if (!is_sky && caustics_strength > 0.001) {
@@ -277,7 +316,12 @@ void fragment() {
 		// la camera. Un recif clair reste donc turquoise meme observe depuis
 		// plus bas, et l'eau se fonce vraiment quand on descend.
 		float far_y = min(world_pos.y, water_level);
-		float seg_depth = water_level - mix(min(cam_pos.y, water_level), far_y, 0.5);
+		// Le trajet est pondere vers l'OBSERVATEUR : la lumiere diffusee au
+		// loin est elle-meme absorbee avant de revenir a l'oeil, elle pese
+		// donc moins que celle diffusee tout pres. A poids egal (0.5), un
+		// tombant lointain plongeant vers l'abysse teignait tout l'horizon
+		// en noir, alors qu'il est vu a travers de l'eau de surface.
+		float seg_depth = water_level - mix(min(cam_pos.y, water_level), far_y, 0.28);
 		vec3 medium = water_tint(seg_depth) * mix(0.22, 1.0, light_level);
 		float depth_mix = clamp(depth_below / 90.0, 0.0, 1.0);
 		vec3 fogged = col * transmit + medium * (1.0 - transmit);
@@ -337,31 +381,42 @@ void fragment() {
 	if (mask_strength > 0.002) {
 		vec2 ndc = uv * 2.0 - 1.0;
 		float md = mask_distance(ndc);
-		float aa = fwidth(md) * 1.2 + 0.0015;
-		float outside = smoothstep(-aa, aa, md);
+		// Bord franchement adouci : a quelques centimetres de l'oeil, la
+		// jupe du masque est tres floue. Un bord net donnait un decoupage
+		// de carton.
+		float outside = smoothstep(-0.045, 0.035, md);
 
-		// La vitre s'assombrit et se teinte juste avant la monture : c'est le
-		// verre vu de biais, plus epais optiquement sur les bords.
-		float glass = smoothstep(-0.30, -0.01, md);
-		result *= mix(1.0, 0.58, glass * mask_strength);
+		// La vitre s'assombrit et se teinte a l'approche de la jupe : verre
+		// vu de biais, donc optiquement plus epais, puis ombre portee du
+		// caoutchouc. C'est ce long degrade — et non un lisere — qui donne
+		// la sensation de regarder a travers quelque chose.
+		float glass = smoothstep(-0.26, -0.01, md);
+		result *= mix(1.0, 0.28, glass * mask_strength);
 		result = mix(result, result * vec3(0.62, 0.86, 1.0), glass * 0.7);
 
-		// Frange chromatique du bord de vitre
+		// Frange chromatique du bord de vitre. On decale le rouge d'un
+		// RAPPORT et non d'une valeur : `screen_tex` est l'image BRUTE, sans
+		// brouillard ni absorption, et y puiser directement un rouge absolu
+		// reinjectait le rouge cru d'un nuage — plusieurs fois le blanc en
+		// HDR — dans une eau turquoise. Les cumulus ressortaient en taches
+		// ecarlates le long de la monture, la ou `glass` vaut 1.
 		vec2 dir = normalize(ndc + 0.0001) * 0.004 * glass * mask_strength;
-		result.r = mix(result.r,
-			texture(screen_tex, clamp(uv + dir, vec2(0.0), vec2(1.0))).r,
-			glass * 0.35);
+		float r_here = max(texture(screen_tex, uv).r, 0.002);
+		float r_there = texture(screen_tex, clamp(uv + dir, vec2(0.0), vec2(1.0))).r;
+		float r_ratio = clamp(r_there / r_here, 0.4, 2.2);
+		result.r *= mix(1.0, r_ratio, glass * 0.35);
 
-		// Monture : sombre au loin, plus claire pres de l'ouverture
-		vec3 frame = mix(mask_frame, mask_frame_dark,
-			clamp(md / 0.10, 0.0, 1.0));
+		// Monture : noire au contact de l'ouverture, a peine relevee vers
+		// l'exterieur.
+		vec3 frame = mix(mask_frame_inner, mask_frame_outer,
+			smoothstep(0.0, 0.22, md));
 		result = mix(result, frame, outside * mask_strength);
 
-		// Liseré lumineux le long de l'arete interieure
-		float rim = exp(-abs(md) / 0.020);
-		// Volontairement faible : au-dela, le lisere depasse le seuil de bloom
-		// de l'environnement et se transforme en halo blanc.
-		result += mask_rim * rim * 0.085 * mask_strength;
+		// Reflet rasant sur la face interne de la vitre, juste avant la
+		// jupe. Tres faible : au-dela, il depasse le seuil de bloom de
+		// l'environnement et se transforme en halo blanc.
+		float rim = exp(-abs(md + 0.030) / 0.045) * (1.0 - outside);
+		result += mask_rim * rim * 0.020 * mask_strength;
 
 		// Reflet diffus dans le verre, en haut a gauche
 		float sheen = exp(-length(ndc - vec2(-0.52, 0.58)) * 2.4)
@@ -369,6 +424,22 @@ void fragment() {
 		result += mask_rim * sheen * 0.018 * mask_strength;
 	}
 
+	// Vues de diagnostic. Trois defauts de ce shader n'etaient pas trouvables
+	// autrement : ils ne produisent aucune erreur et ne se lisent qu'a l'image.
+	if (debug_view == 1) {
+		// trajet : rouge = distance a la surface, vert = pente du rayon,
+		// bleu = part immergee du pixel
+		float t_c = (water_level - cam_pos.y) / (abs(rd.y) < 0.0001 ? 0.0001 : rd.y);
+		result = vec3(clamp(t_c / 60.0, 0.0, 1.0) * step(0.0, t_c),
+			clamp(rd.y, 0.0, 1.0), under);
+	} else if (debug_view == 2) {
+		// geometrie : rouge = pixel de ciel, bleu = eloignement
+		result = vec3(is_sky ? 1.0 : 0.0, clamp(raw_depth * 400.0, 0.0, 1.0),
+			clamp(scene_dist / 200.0, 0.0, 1.0));
+	} else if (debug_view == 3) {
+		// image brute avant brouillard, ramenee au dixieme pour lire le HDR
+		result = clamp(texture(screen_tex, uv).rgb * 0.1, 0.0, 1.0);
+	}
 	ALBEDO = result;
 	// Le quad ne doit PAS etre opaque partout. Il travaille sur une copie de
 	// l'ecran prise avant le rendu de la surface de l'eau : la recopier telle

@@ -311,8 +311,33 @@ void fragment() {
 		sky_seen.r = texture(screen_tex, clamp(refr_uv + ca, vec2(0.001), vec2(0.999))).r;
 		sky_seen.b = texture(screen_tex, clamp(refr_uv - ca, vec2(0.001), vec2(0.999))).b;
 
-		// hors fenetre : reflexion totale interne du volume d'eau
-		vec3 tir = underwater_fog_color * (0.85 + 0.4 * pow(max(dot(N, L), 0.0), 2.0));
+		// Hors fenetre : reflexion totale interne. Ce que l'on voit alors,
+		// c'est la colonne d'eau elle-meme renvoyee par le dessous de la
+		// surface — donc, a peu de chose pres, le brouillard deja peint a
+		// l'ecran par le post-traitement. On se garde bien de le repeindre :
+		// la surface est rendue APRES le quad de post-traitement, et une
+		// bande opaque de `underwater_fog_color` y ressortait en noir en
+		// travers de l'image, la teinte brute du bandeau etant bien plus
+		// sombre que le brouillard eclaire qui l'entoure.
+		//
+		// On laisse donc passer le fond et on n'ajoute que le miroitement :
+		// la surface froissee module la reflexion, et le soleil y trace une
+		// trainee.
+		float tir_zone = 1.0 - window;
+		float ripple = 0.5 + 0.5 * det.x * 2.0;
+		float mirror_sun = pow(max(dot(reflect(-view_dir, N), L), 0.0), 6.0);
+		vec3 tir = underwater_fog_color * (2.4 + 1.0 * ripple)
+			+ sun_color * sun_energy * mirror_sun * 0.45;
+		// On ne couvre QUE le miroitement. Toute couverture de fond, meme
+		// faible, repeignait une bande sombre en travers de l'image : le
+		// dessous de la surface ne s'ecrit pas dans le tampon de profondeur,
+		// le post-traitement ne peut donc pas le brouillarder a sa vraie
+		// distance, et sa teinte brute restait bien plus sombre que le
+		// brouillard eclaire qui l'entoure. En laissant passer le fond, c'est
+		// la colonne d'eau deja correctement brouillardee qui tient lieu de
+		// reflexion — ce qu'elle est physiquement.
+		float tir_cover = clamp(mirror_sun * 0.50 + ripple * 0.04, 0.0, 0.55)
+			* tir_zone;
 
 		vec3 col = mix(tir, sky_seen * 1.15, window);
 		col += sun_color * sun_energy * pow(window, 3.0)
@@ -321,7 +346,7 @@ void fragment() {
 
 		out_color = col;
 		out_rough = 0.06;
-		out_alpha = 1.0;
+		out_alpha = clamp(window + tir_cover, 0.0, 1.0);
 	} else {
 		// =====================================================================
 		//  VUE DEPUIS L'AIR

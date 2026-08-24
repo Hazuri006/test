@@ -6,7 +6,7 @@
 //    A = occlusion ambiante pre-calculee (creux et crevasses)
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley,
+render_mode depth_draw_opaque, cull_back, diffuse_burley,
             specular_schlick_ggx;
 
 uniform sampler2D sand_albedo : source_color, repeat_enable, filter_linear_mipmap;

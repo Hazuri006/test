@@ -266,7 +266,7 @@ godot --path . --rendering-driver vulkan --resolution 960x540 res://tests/captur
 
 ## Pieges de rendu rencontres
 
-Trois defauts de ce projet ne provoquaient aucun message d'erreur et n'etaient
+Cinq defauts de ce projet ne provoquaient aucun message d'erreur et n'etaient
 visibles qu'a l'image. Ils sont notes ici parce qu'ils se reproduisent dans
 tout projet Godot qui touche a l'eau.
 
@@ -283,6 +283,21 @@ tout projet Godot qui touche a l'eau.
 - **L'eau ne doit pas ecrire sa propre profondeur.** Avec `depth_draw_always`
   la surface se relit elle-meme dans le tampon : l'epaisseur d'eau tombe a
   zero et le shader laisse passer le fond sans attenuation.
+- **Un decor solide ne doit jamais ecrire `ALPHA`.** Godot bascule dans la
+  file transparente tout shader qui affecte `ALPHA`, meme pour y ecrire `1.0`.
+  Un materiau transparent n'ecrit plus la profondeur ; le post-traitement
+  sous-marin, qui brouillarde chaque pixel d'apres le tampon de profondeur,
+  prend alors ces pixels pour du vide a l'infini et les noie entierement.
+  Coraux, rochers, algues et poissons etaient presents, places et eclaires —
+  et invisibles des que la camera passait sous l'eau. Le test de fumee verifie
+  desormais l'absence d'ecriture d'`ALPHA` dans les shaders de decor.
+- **Le dessous de la surface ne peut pas etre peint en opaque.** N'ecrivant pas
+  la profondeur, il echappe au brouillard du post-traitement : sa teinte brute
+  restait bien plus sombre que le brouillard eclaire qui l'entoure et tracait
+  une bande noire en travers de l'image, a la limite de la fenetre de Snell.
+  Hors de cette fenetre, la reflexion totale interne renvoie de toute facon la
+  colonne d'eau : on laisse donc passer le fond deja brouillarde et l'on
+  n'ajoute que le miroitement.
 
 ## Limites connues
 

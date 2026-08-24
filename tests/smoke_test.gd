@@ -231,6 +231,21 @@ func _run_checks() -> void:
 			"res://shaders/hologram.gdshader"]:
 		var sh: Shader = load(path)
 		_check("shader charge : %s" % path.get_file(), sh != null)
+		_check("shader compile : %s" % path.get_file(),
+			sh != null and sh.get_shader_uniform_list().size() > 0)
+
+	# Le decor solide doit rester OPAQUE. Godot bascule dans la file
+	# transparente tout shader qui affecte ALPHA ; un materiau transparent
+	# n'ecrit plus la profondeur, et le post-traitement sous-marin, qui lit
+	# le tampon de profondeur, prend alors ces pixels pour du vide a l'infini
+	# et les noie entierement dans le brouillard. Le decor devenait invisible
+	# des que la camera passait sous l'eau.
+	for path in ["res://shaders/terrain.gdshader", "res://shaders/coral.gdshader",
+			"res://shaders/kelp.gdshader", "res://shaders/outcrop.gdshader",
+			"res://shaders/fish.gdshader"]:
+		var src := FileAccess.get_file_as_string(path)
+		_check("decor opaque (pas d'ALPHA) : %s" % path.get_file(),
+			not src.contains("ALPHA ="))
 
 ## Verifie que l'enroulement d'un maillage s'accorde a ses normales.
 func _check_winding(label: String, mesh: Mesh) -> void:

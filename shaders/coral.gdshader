@@ -8,7 +8,11 @@
 //  "caillou peint". Les extremites peuvent s'allumer (polypes fluorescents).
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, cull_back, depth_draw_opaque, diffuse_burley,
+// Materiau OPAQUE : ne jamais ecrire ALPHA ici. Godot bascule tout shader
+// qui affecte ALPHA dans la file transparente, ou il cesse d'ecrire la
+// profondeur ; le post-traitement sous-marin le prend alors pour du vide a
+// l'infini et le noie entierement dans le brouillard.
+render_mode cull_back, depth_draw_opaque, diffuse_burley,
             specular_schlick_ggx;
 
 uniform vec3 base_color : source_color = vec3(0.62, 0.30, 0.14);
@@ -96,5 +100,4 @@ void fragment() {
 			0.0, 1.0), 3.0);
 		EMISSION += vec3(0.25, 0.9, 1.0) * fres * highlight * 2.5;
 	}
-	ALPHA = 1.0;
 }

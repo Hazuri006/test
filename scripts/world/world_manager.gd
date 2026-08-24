@@ -273,7 +273,12 @@ func _update_environment(delta: float) -> void:
 	environment.fog_light_color = air_fog_color.lerp(water, s)
 	var water_density: float = WaterPalette.fog_density(camera_depth)
 	environment.fog_density = lerpf(air_fog_density, water_density, s)
-	environment.fog_sky_affect = lerpf(0.0, 1.0, s)
+	# Sous l'eau, le brouillard du moteur ne doit PAS repeindre le ciel. C'est
+	# a travers le ciel que l'on voit la fenetre de Snell : a 1.0, le disque
+	# de ciel comprime disparaissait sous une nappe uniforme et le regard vers
+	# la surface devenait un aplat. L'attenuation de la colonne d'eau est de
+	# toute facon faite par le post-traitement, en Beer-Lambert.
+	environment.fog_sky_affect = lerpf(0.0, 0.20, s)
 	environment.fog_aerial_perspective = lerpf(0.6, 0.0, s)
 	environment.fog_light_energy = lerpf(1.0, lerpf(0.9, 0.15, depth_t), s)
 

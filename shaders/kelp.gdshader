@@ -6,7 +6,11 @@
 //  ancree au sol (l'amplitude croit avec la hauteur le long de la tige).
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_draw_opaque, diffuse_burley;
+// Materiau OPAQUE : ne jamais ecrire ALPHA ici. Godot bascule tout shader
+// qui affecte ALPHA dans la file transparente, ou il cesse d'ecrire la
+// profondeur ; le post-traitement sous-marin le prend alors pour du vide a
+// l'infini et le noie entierement dans le brouillard.
+render_mode cull_disabled, depth_draw_opaque, diffuse_burley;
 
 uniform vec3 blade_color : source_color = vec3(0.16, 0.31, 0.13);
 uniform vec3 tip_color : source_color = vec3(0.45, 0.62, 0.22);
@@ -60,5 +64,4 @@ void fragment() {
 		EMISSION = glow_color * pods * glow_amount
 			* (0.6 + 0.4 * sin(TIME * 1.1 + v_world.x));
 	}
-	ALPHA = 1.0;
 }

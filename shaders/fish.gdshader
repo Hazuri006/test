@@ -5,7 +5,11 @@
 //  .y la vitesse, .z la taille relative, .w la teinte.
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_draw_opaque, diffuse_burley;
+// Materiau OPAQUE : ne jamais ecrire ALPHA ici. Godot bascule tout shader
+// qui affecte ALPHA dans la file transparente, ou il cesse d'ecrire la
+// profondeur ; le post-traitement sous-marin le prend alors pour du vide a
+// l'infini et le noie entierement dans le brouillard.
+render_mode cull_disabled, depth_draw_opaque, diffuse_burley;
 
 uniform vec3 body_color : source_color = vec3(0.22, 0.42, 0.55);
 uniform vec3 belly_color : source_color = vec3(0.86, 0.88, 0.84);
@@ -50,5 +54,4 @@ void fragment() {
 	SPECULAR = 0.6;
 	METALLIC = 0.15;
 	EMISSION = iridescence * fres * emission_energy;
-	ALPHA = 1.0;
 }

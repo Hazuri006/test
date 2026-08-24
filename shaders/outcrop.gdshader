@@ -2,7 +2,11 @@
 //  GISEMENT DE MINERAI — roche avec veines de cristal luminescentes
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, cull_back, depth_draw_opaque, specular_schlick_ggx;
+// Materiau OPAQUE : ne jamais ecrire ALPHA ici. Godot bascule tout shader
+// qui affecte ALPHA dans la file transparente, ou il cesse d'ecrire la
+// profondeur ; le post-traitement sous-marin le prend alors pour du vide a
+// l'infini et le noie entierement dans le brouillard.
+render_mode cull_back, depth_draw_opaque, specular_schlick_ggx;
 
 uniform vec3 rock_color : source_color = vec3(0.30, 0.29, 0.27);
 uniform vec3 vein_color : source_color = vec3(0.25, 0.85, 0.95);
@@ -49,5 +53,4 @@ void fragment() {
 	EMISSION = vein_color * vein * vein_amount * emission_energy * pulse;
 	// liseré au survol : le contour du gisement s'allume
 	EMISSION += vein_color * fres * highlight * 3.0;
-	ALPHA = 1.0;
 }
