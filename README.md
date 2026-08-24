@@ -264,6 +264,26 @@ Pour produire des images de controle :
 godot --path . --rendering-driver vulkan --resolution 960x540 res://tests/capture.tscn
 ```
 
+## Pieges de rendu rencontres
+
+Trois defauts de ce projet ne provoquaient aucun message d'erreur et n'etaient
+visibles qu'a l'image. Ils sont notes ici parce qu'ils se reproduisent dans
+tout projet Godot qui touche a l'eau.
+
+- **Sens d'enroulement.** Godot tient pour face avant celle dont la normale
+  calculee a la main droite s'ecarte de l'observateur — l'inverse de la
+  convention OpenGL. Un maillage genere "naturellement" est integralement
+  elimine par le culling et devient invisible. Le test de fumee verifie
+  desormais l'invariant sur une dizaine de familles de maillages.
+- **Quad de post-traitement.** Ecrit directement en coordonnees de clip, il
+  presente lui aussi sa face arriere : il lui faut `cull_disabled`, et une
+  profondeur de 0 (le tampon est inverse, 1 est le plan proche). Surtout, il
+  ne doit pas etre opaque partout : il travaille sur une copie de l'ecran
+  prise avant le rendu de l'eau, et la recopier a l'air libre efface la mer.
+- **L'eau ne doit pas ecrire sa propre profondeur.** Avec `depth_draw_always`
+  la surface se relit elle-meme dans le tampon : l'epaisseur d'eau tombe a
+  zero et le shader laisse passer le fond sans attenuation.
+
 ## Limites connues
 
 - Le rendu exige **Forward+**. En mode Compatibility, `DEPTH_TEXTURE` n'existe
