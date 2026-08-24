@@ -370,5 +370,10 @@ void fragment() {
 	}
 
 	ALBEDO = result;
-	ALPHA = 1.0;
+	// Le quad ne doit PAS etre opaque partout. Il travaille sur une copie de
+	// l'ecran prise avant le rendu de la surface de l'eau : la recopier telle
+	// quelle a l'air libre effacait purement et simplement la mer, qui
+	// laissait alors voir le fond sans aucune attenuation. On ne couvre donc
+	// que la ou l'on a effectivement quelque chose a ajouter.
+	ALPHA = clamp(max(under, damage_flash), 0.0, 1.0);
 }

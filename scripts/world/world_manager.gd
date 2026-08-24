@@ -361,6 +361,9 @@ func _update_shaders() -> void:
 	post_material.set_shader_parameter("caustics_strength",
 		float(Settings.get_p(&"caustics", 1.4)) * exp(-camera_depth * 0.012))
 	post_material.set_shader_parameter("damage_flash", damage_flash)
+	# Hors de l'eau et sans degat en cours, le quad n'a rien a faire : on le
+	# retire du rendu plutot que de lui faire recopier l'ecran.
+	post_quad.visible = submersion > 0.001 or damage_flash > 0.001
 
 func _update_ambience() -> void:
 	var depth_t: float = clampf(camera_depth / 90.0, 0.0, 1.0)

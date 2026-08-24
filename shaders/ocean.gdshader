@@ -12,7 +12,14 @@
 //  * Vue par en dessous : fenetre de Snell + reflexion totale interne
 // =============================================================================
 shader_type spatial;
-render_mode blend_mix, depth_draw_always, cull_disabled, diffuse_burley,
+// `depth_draw_never` est essentiel : avec `depth_draw_always`, la surface
+// s'inscrivait dans le tampon de profondeur puis s'y relisait elle-meme. La
+// profondeur "de la scene" derriere l'eau valait alors celle de l'eau, donc
+// une epaisseur nulle : le shader laissait passer le fond tel quel et la mer
+// prenait la couleur du sable. Le post-traitement sous-marin, lui, n'a pas
+// besoin de cette profondeur — il calcule analytiquement l'intersection du
+// rayon avec le plan d'eau.
+render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley,
             specular_schlick_ggx, world_vertex_coords;
 
 // ---------------------------------------------------------------- etat de mer
