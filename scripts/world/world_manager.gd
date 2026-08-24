@@ -306,8 +306,11 @@ func _update_environment(delta: float) -> void:
 	# Sous l'eau la scene est globalement claire : sans relever le seuil, le
 	# bloom deborde de partout et vient napper la monture du masque d'un halo
 	# blanc. On l'attenue et on ne laisse passer que les vrais points chauds.
-	environment.glow_intensity = lerpf(0.55, 0.40, s)
-	environment.glow_hdr_threshold = lerpf(1.1, 1.75, s)
+	# Sous l'eau on coupe presque le bloom. La scene y est globalement claire,
+	# et la monture sombre du masque juste a cote lui sert de repoussoir : le
+	# moindre debordement se lit comme un halo blanc soulignant l'ouverture.
+	environment.glow_intensity = lerpf(0.55, 0.12, s)
+	environment.glow_hdr_threshold = lerpf(1.1, 2.4, s)
 
 	damage_flash = move_toward(damage_flash, 0.0, delta * 1.6)
 

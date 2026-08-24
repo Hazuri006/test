@@ -64,6 +64,9 @@ uniform vec3 sun_direction = vec3(0.4, 0.75, 0.3);   // vers le soleil
 uniform vec3 sun_color : source_color = vec3(1.0, 0.94, 0.82);
 uniform float sun_energy = 1.0;
 uniform float underwater_view = 0.0;                 // 1 quand la camera est immergee
+// Diagnostic : peint la surface en aplat, pour verifier ou elle est
+// reellement dessinee. Sans effet en jeu (reste a zero).
+uniform float debug_flat = 0.0;
 uniform vec3 underwater_fog_color : source_color = vec3(0.03, 0.15, 0.22);
 
 uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_linear_mipmap;
@@ -157,9 +160,19 @@ void vertex() {
 	v_crest = crest * fade;
 }
 
-// Reconstruit la profondeur lineaire (distance a la camera le long de -Z vue)
+// Reconstruit la profondeur lineaire (distance a la camera le long de -Z vue).
+//
+// Godot travaille en profondeur inversee : une valeur nulle signifie "aucune
+// geometrie" — le ciel, ou du terrain pas encore charge. Reconstruire la
+// profondeur telle quelle donne alors zero, donc une epaisseur d'eau nulle :
+// le shader croit voir un bord de plage et couvre la mer d'ecume. On renvoie
+// au contraire une distance tres grande, ce qui est le sens physique : sous ce
+// pixel, il n'y a pas de fond.
 float linear_depth(vec2 uv, mat4 inv_proj) {
 	float d = texture(depth_tex, uv).r;
+	if (d <= 0.000001) {
+		return 10000.0;
+	}
 	vec3 ndc = vec3(uv * 2.0 - 1.0, d);
 	vec4 view = inv_proj * vec4(ndc, 1.0);
 	return -view.z / view.w;
@@ -207,7 +220,14 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(N, 0.0)).xyz);
 
 	// ---- geometrie de la colonne d'eau --------------------------------------
-	float surface_depth = -VERTEX.z;                         // VERTEX = espace vue
+	// Profondeur de la surface, en espace vue. On la recalcule depuis la
+	// position monde : le shader tourne en `world_vertex_coords`, donc VERTEX
+	// n'est PAS en espace vue ici. La comparer telle quelle a la profondeur
+	// lue dans le tampon revenait a soustraire deux grandeurs exprimees dans
+	// des reperes differents — l'epaisseur d'eau devenait fonction de la
+	// position dans le monde et non de la distance, et la mer prenait par
+	// endroits la couleur du sable qu'elle recouvre.
+	float surface_depth = -(VIEW_MATRIX * vec4(world_pos, 1.0)).z;
 	float scene_depth = linear_depth(SCREEN_UV, INV_PROJECTION_MATRIX);
 	float thickness = max(scene_depth - surface_depth, 0.0);
 
@@ -317,7 +337,7 @@ void fragment() {
 	}
 
 	ALBEDO = vec3(0.0);
-	EMISSION = out_color;
+	EMISSION = mix(out_color, vec3(1.0, 0.0, 1.0), clamp(debug_flat, 0.0, 1.0));
 	// F0 de l'eau = 0.02  ->  SPECULAR = sqrt(0.02 / 0.16)
 	SPECULAR = 0.354;
 	METALLIC = 0.0;

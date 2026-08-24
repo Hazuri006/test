@@ -32,6 +32,11 @@ func _run() -> void:
 	var pod: Node3D = (_main.get("lifepod") as Node).get("hull")
 	await _snap(cam, "q4_capsule", pod.global_position + Vector3(8.0, 0.8, 8.0),
 		Vector3(0.02, 0.79, 0.0))
+	# Diagnostic : ou la surface de l'eau est-elle reellement dessinee ?
+	var ocean: Node = _main.get("ocean")
+	(ocean.get("material") as ShaderMaterial).set_shader_parameter("debug_flat", 1.0)
+	await _snap(cam, "q5_ocean_aplat", pod.global_position + Vector3(8.0, 0.8, 8.0),
+		Vector3(0.02, 0.79, 0.0))
 	get_tree().quit()
 
 func _snap(cam: Camera3D, name_str: String, pos: Vector3, rot: Vector3) -> void:
