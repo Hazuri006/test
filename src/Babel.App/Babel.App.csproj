@@ -6,6 +6,12 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <RootNamespace>Babel.App</RootNamespace>
+
+    <!-- Desactive volontairement. Le projet temporaire genere par le compilateur
+         de markup WPF ne reprend pas les usings implicites : un fichier qui s'y
+         fie compile dans la passe normale et echoue dans la passe XAML. Usings
+         explicites partout, et les deux passes voient la meme chose. -->
+    <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>Babel</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- x64 impose : les bibliotheques natives a venir (whisper.cpp, CTranslate2)
