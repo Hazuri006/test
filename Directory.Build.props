@@ -1,0 +1,20 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+
+    <!-- Le produit manipule du japonais, du coreen et du chinois : la
+         globalisation invariante casserait la comparaison et la mise en forme. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <Product>Babel</Product>
+    <Company>Babel</Company>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

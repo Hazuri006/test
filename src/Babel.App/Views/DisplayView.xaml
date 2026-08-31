@@ -1,0 +1,48 @@
+<UserControl x:Class="Babel.App.Views.DisplayView"
+             x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <StackPanel HorizontalAlignment="Left">
+
+    <TextBlock Style="{StaticResource TitleText}" Text="Affichage" />
+    <TextBlock Style="{StaticResource SecondaryText}"
+               MaxWidth="520"
+               Text="Position, taille et lisibilité des sous-titres. Les changements s'appliquent tout de suite." />
+
+    <Border Style="{StaticResource Rule}" />
+
+    <CheckBox x:Name="VisibleToggle" Content="Afficher les sous-titres" Click="OnVisibleChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,24,0,6" Text="Position horizontale" />
+    <Slider x:Name="AnchorXSlider" Minimum="0" Maximum="1" ValueChanged="OnOverlayValueChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,20,0,6" Text="Position verticale" />
+    <Slider x:Name="AnchorYSlider" Minimum="0" Maximum="1" ValueChanged="OnOverlayValueChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,20,0,6" Text="Largeur du bandeau" />
+    <Slider x:Name="WidthSlider" Minimum="0.2" Maximum="1" ValueChanged="OnOverlayValueChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,20,0,6" Text="Taille du texte" />
+    <Slider x:Name="FontSizeSlider" Minimum="18" Maximum="72" ValueChanged="OnOverlayValueChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,20,0,6" Text="Opacité du fond" />
+    <Slider x:Name="BackdropSlider" Minimum="0" Maximum="1" ValueChanged="OnOverlayValueChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,20,0,6" Text="Épaisseur du contour" />
+    <Slider x:Name="OutlineSlider" Minimum="0" Maximum="5" ValueChanged="OnOverlayValueChanged" />
+
+    <Border Style="{StaticResource Rule}" />
+
+    <TextBlock Style="{StaticResource SecondaryText}"
+               MaxWidth="520"
+               Text="Les sous-titres ne peuvent pas s'afficher au-dessus d'un jeu en plein écran exclusif. Passe le jeu en fenêtré sans bordure : l'image est identique et Babel peut écrire par-dessus." />
+
+    <TextBlock x:Name="HotkeyHint"
+               Style="{StaticResource SecondaryText}"
+               Margin="0,16,0,0"
+               MaxWidth="520" />
+
+  </StackPanel>
+
+</UserControl>
