@@ -153,6 +153,22 @@ gabarits complets des contrôles WPF standards — liste déroulante, curseur �
 un travail de finition et relèvent de M5. Les couleurs et les polices sont déjà
 celles de la section 5 ; ce sont les gabarits qui manquent.
 
+### Usings implicites désactivés sur Babel.App
+
+Le compilateur de markup WPF génère un projet temporaire pour sa première passe,
+et ce projet ne reprend pas les usings implicites du projet d'origine. Un fichier
+qui s'y fie compile dans la passe normale et échoue dans la passe XAML — sur
+`System.IO` en particulier, donc `Path`, `File` et `Directory`.
+
+`ImplicitUsings` est donc désactivé sur `Babel.App` et chaque fichier déclare ce
+qu'il utilise. Les deux passes voient exactement le même code, et la divergence ne
+peut plus réapparaître. `Babel.Core` garde les usings implicites : il ne contient
+aucun XAML.
+
+Corollaire à connaître : un élément portant un `x:Name` doit exposer un
+constructeur public. `StatusLamp` et `VuMeter` sont publics pour cette raison, et
+non par choix d'API.
+
 ### Limite du plein écran exclusif
 
 Un overlay externe ne s'affiche pas au-dessus d'un jeu en plein écran exclusif.
