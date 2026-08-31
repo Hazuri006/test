@@ -11,7 +11,7 @@ namespace Babel.App.Controls;
 /// Si l'utilisateur ne voit rien bouger, c'est qu'il a choisi le mauvais
 /// peripherique. Il reste a zero jusqu'a M1, ou la capture WASAPI l'alimentera.
 /// </summary>
-internal sealed class VuMeter : FrameworkElement
+public sealed class VuMeter : FrameworkElement
 {
     private const int SegmentCount = 32;
     private const double SegmentGap = 2;
@@ -26,7 +26,7 @@ internal sealed class VuMeter : FrameworkElement
     private static readonly Brush UnlitBrush = Frozen(Color.FromRgb(0x3E, 0x48, 0x44));
     private static readonly Brush ClipBrush = Frozen(Color.FromRgb(0xC4, 0x48, 0x3A));
 
-    internal VuMeter()
+    public VuMeter()
     {
         Height = 16;
         HorizontalAlignment = HorizontalAlignment.Left;
