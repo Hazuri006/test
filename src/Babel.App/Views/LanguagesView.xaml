@@ -1,0 +1,29 @@
+<UserControl x:Class="Babel.App.Views.LanguagesView"
+             x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <StackPanel HorizontalAlignment="Left">
+
+    <TextBlock Style="{StaticResource TitleText}" Text="Langues" />
+    <TextBlock Style="{StaticResource SecondaryText}"
+               MaxWidth="520"
+               Text="La langue que tu entends, et celle dans laquelle tu veux lire." />
+
+    <Border Style="{StaticResource Rule}" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Text="Langue entendue" />
+    <ComboBox x:Name="SourceSelector" SelectionChanged="OnSourceChanged" />
+
+    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,24,0,6" Text="Langue affichée" />
+    <ComboBox x:Name="TargetSelector" SelectionChanged="OnTargetChanged" />
+
+    <Border Style="{StaticResource Rule}" />
+
+    <TextBlock Style="{StaticResource SecondaryText}"
+               MaxWidth="520"
+               Text="La traduction n'est pas encore branchée. Ce choix est enregistré et sera repris tel quel." />
+
+  </StackPanel>
+
+</UserControl>

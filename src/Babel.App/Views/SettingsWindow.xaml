@@ -1,0 +1,76 @@
+<Window x:Class="Babel.App.Views.SettingsWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Babel.App.Controls"
+        Title="Babel"
+        Width="900"
+        Height="640"
+        MinWidth="760"
+        MinHeight="520"
+        Background="{StaticResource PanelBrush}"
+        WindowStartupLocation="CenterScreen">
+
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="230" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+
+    <!-- Rail de navigation. Hierarchie par filets et espacement, jamais par des
+         cartes ou des ombres. -->
+    <Border Grid.Column="0" BorderBrush="{StaticResource RuleBrush}" BorderThickness="0,0,1,0">
+      <DockPanel LastChildFill="True">
+
+        <StackPanel DockPanel.Dock="Top" Margin="18,20,18,0">
+          <StackPanel Orientation="Horizontal">
+            <controls:StatusLamp x:Name="Lamp" VerticalAlignment="Center" />
+            <TextBlock x:Name="StateLabel"
+                       Margin="10,0,0,0"
+                       VerticalAlignment="Center"
+                       Text="Chaîne arrêtée" />
+          </StackPanel>
+          <Border Style="{StaticResource Rule}" Margin="0,18,0,10" />
+        </StackPanel>
+
+        <StackPanel x:Name="HotkeyWarningHost" DockPanel.Dock="Bottom" Margin="18,0,18,18">
+          <TextBlock x:Name="HotkeyWarning"
+                     Style="{StaticResource SecondaryText}"
+                     Foreground="{StaticResource PausedBrush}"
+                     Visibility="Collapsed" />
+        </StackPanel>
+
+        <StackPanel>
+          <RadioButton x:Name="NavSource"
+                       Style="{StaticResource NavItem}"
+                       GroupName="Nav"
+                       Content="Source"
+                       IsChecked="True"
+                       Checked="OnNavChecked" />
+          <RadioButton x:Name="NavLanguages"
+                       Style="{StaticResource NavItem}"
+                       GroupName="Nav"
+                       Content="Langues"
+                       Checked="OnNavChecked" />
+          <RadioButton x:Name="NavDisplay"
+                       Style="{StaticResource NavItem}"
+                       GroupName="Nav"
+                       Content="Affichage"
+                       Checked="OnNavChecked" />
+          <RadioButton x:Name="NavProfiles"
+                       Style="{StaticResource NavItem}"
+                       GroupName="Nav"
+                       Content="Profils"
+                       Checked="OnNavChecked" />
+        </StackPanel>
+
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+      <ContentControl x:Name="PageHost" Margin="32,28,32,32" HorizontalAlignment="Left" />
+    </ScrollViewer>
+
+  </Grid>
+
+</Window>

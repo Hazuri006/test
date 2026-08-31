@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+.vs/
+.idea/
+
+# Sorties locales
+*.binlog
+TestResults/
+
+# Modèles téléchargés par l'utilisateur (jamais versionnés)
+models/
+
+# Polices : fichiers binaires à déposer localement, voir assets/fonts/README.md
+assets/fonts/*.ttf
+assets/fonts/*.otf
+assets/fonts/*.ttc
