@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using Babel.Core.Settings;
 
@@ -35,7 +36,7 @@ internal sealed partial class DisplayView : UserControl
         _loading = false;
     }
 
-    private void OnVisibleChanged(object sender, System.Windows.RoutedEventArgs e) => Commit();
+    private void OnVisibleChanged(object sender, RoutedEventArgs e) => Commit();
 
     private void OnOverlayValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => Commit();
 
