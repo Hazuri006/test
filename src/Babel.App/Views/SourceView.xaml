@@ -28,7 +28,7 @@
 
     <TextBlock Style="{StaticResource SecondaryText}"
                MaxWidth="520"
-               Text="La capture du son n'est pas encore branchée. Le vumètre reste à zéro." />
+               Text="La capture du son n'est pas encore branchée. Le vumètre reste à zéro, et le texte qui défile à l'écran est un motif de test : quatre phrases en boucle, qui servent à vérifier l'affichage et à mesurer les temps de réponse. Rien n'est encore écouté ni traduit." />
 
   </StackPanel>
 

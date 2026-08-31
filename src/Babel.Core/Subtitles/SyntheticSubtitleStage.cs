@@ -16,12 +16,15 @@ namespace Babel.Core.Subtitles;
 /// </summary>
 public sealed class SyntheticSubtitleStage : IPipelineStage
 {
+    // Ces phrases disent ce qu'elles sont. Un texte de test qui imite une vraie
+    // traduction se confond avec un produit en panne, et c'est exactement ce qui
+    // est arrive au premier essai.
     private static readonly string[] Phrases =
     [
-        "だから、この扉の向こうには誰もいないはずだ。",
-        "그 이야기는 나중에 하기로 하죠.",
-        "我们必须在天亮之前离开这里。",
-        "The signal is holding steady for now.",
+        "Texte de test — le son n'est pas encore capté.",
+        "Test japonais : この扉の向こうには誰もいない。",
+        "Test coréen : 그 이야기는 나중에 하기로 하죠.",
+        "Test chinois : 我们必须在天亮之前离开。",
     ];
 
     private readonly StageLink<SubtitleMessage> _output;

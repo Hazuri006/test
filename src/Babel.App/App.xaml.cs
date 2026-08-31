@@ -74,7 +74,8 @@ public partial class App : Application
         _settingsWindow.DisplaySettingsChanged += () => _overlay.ApplySettings();
         _settingsWindow.Closed += (_, _) => Shutdown();
 
-        _pipeline.StateChanged += state => Dispatcher.Invoke(() => _settingsWindow.SetPipelineState(state));
+        _settingsWindow.PauseToggleRequested += () => _pipeline.TogglePause();
+        _pipeline.StateChanged += state => Dispatcher.Invoke(() => OnPipelineStateChanged(state));
 
         _overlay.Show();
 
@@ -90,6 +91,20 @@ public partial class App : Application
         _settingsWindow.SetPipelineState(_pipeline.State);
 
         StartBenchIfRequested(e.Args, metrics);
+    }
+
+    /// <summary>
+    /// La pause efface l'affichage. Laisser le dernier sous-titre a l'ecran
+    /// donnerait a croire que la chaine tourne encore.
+    /// </summary>
+    private void OnPipelineStateChanged(PipelineState state)
+    {
+        _settingsWindow?.SetPipelineState(state);
+
+        if (state != PipelineState.Running)
+        {
+            _overlay?.Clear();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

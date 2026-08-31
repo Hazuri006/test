@@ -31,6 +31,9 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>Leve quand un reglage d'affichage change, pour replacer l'overlay.</summary>
     internal event Action? DisplaySettingsChanged;
 
+    /// <summary>Leve quand l'utilisateur demande la marche ou la pause.</summary>
+    internal event Action? PauseToggleRequested;
+
     internal void Bind(SettingsStore store, GlobalHotkeyService hotkeys)
     {
         _languages.Bind(store);
@@ -50,7 +53,11 @@ internal sealed partial class SettingsWindow : Window
             PipelineState.Paused => "Chaîne en pause",
             _ => "Chaîne arrêtée",
         };
+
+        PauseButton.Content = state == PipelineState.Running ? "Mettre en pause" : "Reprendre";
     }
+
+    private void OnPauseClicked(object sender, RoutedEventArgs e) => PauseToggleRequested?.Invoke();
 
     internal void SetAudioLevel(double level) => _source.SetLevel(level);
 

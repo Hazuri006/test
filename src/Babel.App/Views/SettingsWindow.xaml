@@ -30,6 +30,13 @@
                        VerticalAlignment="Center"
                        Text="Chaîne arrêtée" />
           </StackPanel>
+          <Button x:Name="PauseButton"
+                  Style="{StaticResource FlatButton}"
+                  Content="Mettre en pause"
+                  HorizontalAlignment="Stretch"
+                  Margin="0,16,0,0"
+                  Click="OnPauseClicked" />
+
           <Border Style="{StaticResource Rule}" Margin="0,18,0,10" />
         </StackPanel>
 
