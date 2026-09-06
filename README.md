@@ -48,3 +48,10 @@ Les sous-titres ne peuvent pas s'afficher au-dessus d'un jeu en **plein écran
 exclusif**. Le mode fenêtré sans bordure est nécessaire. C'est une conséquence
 directe du refus de toute injection dans le processus cible, et ce refus n'est pas
 négociable : il protège les utilisateurs d'un bannissement par les anticheat.
+
+## Autre projet dans ce dépôt
+
+Le dossier [`peek/`](peek/) contient **Peek**, un logiciel distinct : une fenêtre
+par-dessus le jeu le temps d'un appui sur une touche. Il a sa propre
+spécification, sa propre solution et sa propre intégration continue, et ne
+partage aucun code avec Babel. Il y séjourne en attendant son propre dépôt.

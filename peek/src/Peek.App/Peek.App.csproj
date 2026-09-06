@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Peek.App</RootNamespace>
+    <AssemblyName>Peek</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <!-- Le callback du hook dereference KBDLLHOOKSTRUCT directement.
+         Marshal.PtrToStructure allouerait, et une allocation dans un callback
+         de hook peut tomber pendant une pause du ramasse-miettes : Windows
+         retire alors un hook trop lent, sans rien dire. Voir I7. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Desactive volontairement. Le projet temporaire genere par le
+         compilateur de markup WPF ne reprend pas les usings implicites : un
+         fichier qui s'y fie compile dans la passe normale et echoue dans la
+         passe XAML. Usings explicites partout, les deux passes voient la meme
+         chose. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- L'icone est un fichier binaire, absent du depot par defaut : voir
+       assets/icons/README.md. La condition evite de casser la compilation tant
+       qu'elle n'a pas ete deposee, et TrayIcon retombe alors sur l'icone
+       generique de Windows. -->
+  <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\assets\icons\peek.ico')">
+    <ApplicationIcon>..\..\assets\icons\peek.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Peek.Core\Peek.Core.csproj" />
+  </ItemGroup>
+
+</Project>

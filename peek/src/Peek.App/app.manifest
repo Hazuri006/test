@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+
+  <assemblyIdentity version="1.0.0.0" name="Peek.app" />
+
+  <!-- asInvoker, jamais d'elevation.
+       Consequence assumee et documentee : un hook non eleve ne voit pas les
+       frappes destinees a une fenetre elevee, donc Peek ne repond pas au-dessus
+       d'un jeu lance en administrateur. Demander les droits administrateur pour
+       y arriver serait pire : c'est un signal d'alarme pour l'utilisateur comme
+       pour les anticheat, et I8 vise precisement a ne pas en declencher. -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 et 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!-- PerMonitorV2 : les coordonnees de fenetres restituees a l'identique
+           (I5) n'ont de sens que si Peek et Windows parlent des memes pixels,
+           y compris apres un changement de resolution a chaud. -->
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
+
+</assembly>
