@@ -10,7 +10,7 @@ namespace Peek.App.Interop;
 /// ni ne charge de bibliotheque chez lui. Le hook clavier est un mecanisme
 /// public de Windows, hors processus, et il ne voit que des codes de touches.
 /// </summary>
-internal static class NativeMethods
+internal static partial class NativeMethods
 {
     internal const int WhKeyboardLowLevel = 13;
 

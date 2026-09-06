@@ -47,6 +47,14 @@ internal sealed class HookCoordinator : IDisposable
         _hook = new KeyboardHookThread(_buffer, _signal, hookLogger);
     }
 
+    /// <summary>
+    /// Les intentions produites par la machine a etats, dans l'ordre.
+    ///
+    /// Emis depuis le fil de travail : l'abonne est responsable de repasser sur
+    /// le fil d'interface avant de toucher a une fenetre.
+    /// </summary>
+    internal event Action<PeekIntent>? IntentProduced;
+
     internal bool IsInstalled => _hook.IsInstalled;
 
     internal int WatchedKeyCount { get; private set; }
@@ -212,8 +220,7 @@ internal sealed class HookCoordinator : IDisposable
     }
 
     /// <summary>
-    /// M0 s'arrete ici : l'intention part au journal, aucune fenetre n'est
-    /// touchee.
+    /// L'intention part au journal, puis a qui veut l'executer.
     ///
     /// Seules les touches que l'utilisateur a lui-meme assignees peuvent
     /// arriver jusqu'ici : le callback ecarte tout le reste avant la file. La
@@ -236,5 +243,7 @@ internal sealed class HookCoordinator : IDisposable
             intent.ShortcutId,
             verb,
             intent.HeldMilliseconds);
+
+        IntentProduced?.Invoke(intent);
     }
 }

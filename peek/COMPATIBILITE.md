@@ -17,10 +17,12 @@ Ce qui est vérifié à ce jour :
 
 | Vérification | État |
 |---|---|
-| `Peek.Core` compile et ses 60 tests passent | fait, sur Linux |
+| `Peek.Core` compile et ses 78 tests passent | fait, sur Linux |
 | `Peek.App` compile, passe de markup XAML comprise | fait, en compilation croisée |
 | Aucun avertissement, `TreatWarningsAsErrors` actif | fait |
 | Le hook s'installe et avale une touche | **à faire, sur Windows** |
+| Le voile apparaît et la fenêtre passe devant sans vol de focus | **à faire, sur Windows** |
+| La fenêtre est restituée à l'identique, y compris après un plantage | **à faire, sur Windows** |
 | Tout le reste du tableau ci-dessous | **à faire, sur Windows** |
 
 ---

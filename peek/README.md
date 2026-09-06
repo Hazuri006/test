@@ -10,24 +10,29 @@ par jeu et par anticheat dans [COMPATIBILITE.md](COMPATIBILITE.md).
 
 ## État
 
-**Jalon M0 — socle.** Icône dans la zone de notification, fichier de
-configuration, hook clavier bas niveau conforme à I7, journalisation.
+**Jalon M1 — coup d'œil.** Maintenir la touche affiche la fenêtre visée
+par-dessus le jeu assombri, sans que le jeu perde le focus. Relâcher la remet
+exactement où elle était. Une pression brève la laisse affichée.
 
-**Aucune fenêtre n'est encore manipulée** : c'est la frontière du jalon, et elle
-est volontaire. Un appui sur une touche assignée est avalé, mesuré, et part au
-journal. Le voile, le déplacement des fenêtres et leur restitution arrivent à M1.
+M0 avant lui : icône dans la zone de notification, fichier de configuration,
+hook clavier bas niveau conforme à I7, journalisation.
 
-Le code a été écrit et compilé en compilation croisée depuis Linux. Le hook,
-l'icône et la fenêtre **n'ont jamais été exécutés sur Windows** : voir
-[COMPATIBILITE.md](COMPATIBILITE.md).
+Le mode utilisation, les raccourcis multiples et la capture de touche arrivent
+aux jalons suivants.
+
+> **Rien de tout cela n'a jamais été exécuté.** Le code est écrit, compilé en
+> compilation croisée depuis Linux, et le noyau est couvert par 78 tests. Le
+> hook, le voile, l'icône et la manipulation de fenêtres **n'ont jamais tourné
+> sur Windows**, et le banc de tests manuel de M0 n'a jamais été passé. Voir
+> [COMPATIBILITE.md](COMPATIBILITE.md).
 
 ## Structure
 
 | Dossier | Contenu |
 |---|---|
-| `src/Peek.Core` | Configuration, machine à états, file du hook, mesures. Sans WPF ni Win32, testable partout. |
-| `src/Peek.App` | WPF, interop Win32, hook clavier, icône de notification. Windows uniquement. |
-| `tests/Peek.Core.Tests` | 60 tests du noyau. |
+| `src/Peek.Core` | Configuration, machine à états, file du hook, désignation de fenêtre, mesures. Sans WPF ni Win32, testable partout. |
+| `src/Peek.App` | WPF, interop Win32, hook clavier, voile, manipulation de fenêtres, icône de notification. Windows uniquement. |
+| `tests/Peek.Core.Tests` | 78 tests du noyau. |
 
 ## Construire
 
@@ -74,16 +79,16 @@ défaut s'appliquent ; une valeur hors bornes est ramenée dans ses bornes.
 
 Le journal est dans `%APPDATA%\Peek\logs`, accessible depuis le menu de l'icône.
 
-## Banc de tests du jalon M0
+## Banc de tests
 
-À exécuter sur Windows. Un test qui échoue bloque le passage à M1.
+À exécuter sur Windows. Un test qui échoue bloque le passage au jalon suivant.
 
-**Tests automatisés** — `dotnet test`, 60 tests : sérialisation et réparation de
+**Tests automatisés** — `dotnet test`, 78 tests : sérialisation et réparation de
 la configuration, instantané des touches surveillées, détection des conflits,
 file entre le hook et le fil de travail, machine à états du maintien contre la
-bascule, relevés de mesure.
+bascule, désignation de la fenêtre visée, état de restitution, relevés de mesure.
 
-**Tests manuels**, dans cet ordre :
+**Tests manuels de M0**, dans cet ordre :
 
 | # | Test | Vérifie |
 |---|---|---|
@@ -97,6 +102,20 @@ bascule, relevés de mesure.
 | 8 | **Test anticheat**, protocole dans [COMPATIBILITE.md](COMPATIBILITE.md). | D1 |
 
 Le test 8 commande la suite du projet. Voir D1.
+
+**Tests manuels de M1**, les invariants I1 à I5 de la spécification :
+
+| # | Test | Vérifie |
+|---|---|---|
+| 9 | Maintenir la touche pendant une partie : la fenêtre apparaît par-dessus le jeu assombri, le jeu garde le clavier et la souris, aucune frame sautée. | I1, I3 |
+| 10 | Relâcher : retour au jeu en moins de 100 ms, la fenêtre reprend sa place et son ordre d'affichage. | I3, I5 |
+| 11 | Enchaîner cinquante ouvertures et fermetures rapides : aucune fenêtre ne reste topmost, aucune fuite mémoire. | I3, I5 |
+| 12 | Déclencher un coup d'œil, tuer Peek depuis le gestionnaire des tâches, relancer : les fenêtres retrouvent leur place. | I4 |
+| 13 | Fermer la fenêtre visée pendant qu'elle est affichée, puis relâcher : aucun plantage. | — |
+| 14 | Viser une fenêtre maximisée, puis une fenêtre réduite : les deux réapparaissent sans voler le focus, et retrouvent leur état. | I5 |
+| 15 | Changer de résolution et débrancher un écran pendant que Peek tourne. | — |
+| 16 | **Après plusieurs coups d'œil sur une fenêtre de navigateur, vérifier que la première image n'est pas figée.** Si elle l'est, D15 doit être révisée. | D15 |
+| 17 | Relever dans le journal le temps d'apparition : il doit tenir sous 80 ms. | section 6 |
 
 ## Limites connues
 

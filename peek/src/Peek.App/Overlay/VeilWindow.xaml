@@ -1,0 +1,34 @@
+<Window x:Class="Peek.App.Overlay.VeilWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Peek"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Topmost="True"
+        Focusable="False"
+        Background="Transparent"
+        Opacity="0">
+
+  <Grid>
+    <!-- Le voile lui-meme. Son opacite vient de la configuration, 40 % par
+         defaut ; celle de la fenetre sert a l'apparition. -->
+    <Rectangle x:Name="Veil" Fill="Black" Opacity="0.4" />
+
+    <!-- La barre fine en bas. Le nom du raccourci actif, et rien d'autre : la
+         baisse du son arrive au jalon M4. Aucun logo, aucun filigrane. -->
+    <Border x:Name="Bar"
+            VerticalAlignment="Bottom"
+            Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource RuleBrush}"
+            BorderThickness="0,1,0,0"
+            Padding="24,9">
+      <TextBlock x:Name="ShortcutLabel"
+                 Foreground="{StaticResource AccentBrush}"
+                 FontSize="13"
+                 HorizontalAlignment="Left" />
+    </Border>
+  </Grid>
+</Window>

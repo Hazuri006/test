@@ -190,6 +190,84 @@ historique intact.
 
 ---
 
+## Jalon M1
+
+### D15 — Peek ne déplace pas les fenêtres, il ne change que l'ordre d'affichage
+
+La fenêtre visée reste exactement où l'utilisateur l'a mise. Le coup d'œil la
+fait passer devant par `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)`, et le
+relâchement lui rend sa bande et son voisin d'origine dans l'ordre d'affichage.
+Rien n'est déplacé, rien n'est redimensionné.
+
+C'est le périmètre le plus étroit qui rende le produit utilisable, et il évite
+un comportement que la spécification n'a jamais demandé : une fenêtre qu'on
+assigne à Peek et qui saute aussitôt hors de l'écran serait une mauvaise
+surprise.
+
+Conséquence à mesurer, pas à supposer. Le piège de la section 5 dit qu'une
+fenêtre de navigateur totalement masquée peut voir son rendu ralenti par le
+navigateur lui-même, et qu'il faut la laisser dépasser d'un pixel. Ici, ce n'est
+pas Peek qui la masque, c'est le jeu qui la recouvre — mais l'effet est le même,
+et le premier coup d'œil peut montrer une image figée. Le remède identifié, si
+la mesure le confirme : garder la fenêtre topmost et positionnée hors écran sauf
+un pixel entre deux coups d'œil. Ce serait un déplacement, donc une révision de
+cette décision, et c'est précisément pour cela que I5 exige déjà une restitution
+exacte. **À mesurer au banc de tests de M1 avant d'écrire M2.**
+
+### D16 — Le filet avant la modification, et un échec d'écriture annule le coup d'œil
+
+I4 dit « avant toute modification ». L'ordre est donc : relever l'état,
+l'écrire sur le disque, et seulement ensuite toucher à la fenêtre. Si l'écriture
+échoue, le coup d'œil n'a pas lieu du tout.
+
+Refuser d'agir plutôt qu'agir sans filet est le seul choix cohérent avec I4 :
+sans ce fichier, un plantage laisserait une fenêtre topmost que rien ne saurait
+remettre en place, et l'utilisateur n'aurait aucune idée de ce qui s'est passé.
+
+Symétriquement, le fichier n'est effacé qu'**après** que la fenêtre a été
+réellement remise. L'ordre inverse ouvrirait une fenêtre de temps, courte mais
+réelle, où un plantage perdrait l'information.
+
+### D17 — Un descripteur de fenêtre est vérifié avant d'être restitué
+
+Windows réattribue les `HWND`. Après un plantage, le descripteur enregistré peut
+appartenir à une tout autre fenêtre, et la « restituer » reviendrait à déplacer
+celle de quelqu'un d'autre.
+
+Le nom du processus est enregistré à côté du descripteur pour cette seule
+raison, et il est vérifié avant chaque restitution. Coût : une résolution de nom
+de processus, de l'ordre de la milliseconde, sur un chemin qui en a cent.
+
+### D18 — Le voile est construit au démarrage, pas au premier coup d'œil
+
+Créer une fenêtre WPF transparente coûte des dizaines de millisecondes. Les
+payer au premier coup d'œil ferait sauter le budget de 80 ms exactement au
+moment où l'utilisateur juge le produit.
+
+Le voile est donc construit et masqué au démarrage — mais seulement si au moins
+un raccourci peut le déclencher. Sans raccourci configuré, rien n'est construit
+et I6 reste intact.
+
+### D19 — Le voile d'abord, la fenêtre ensuite
+
+Parmi les fenêtres topmost, la dernière placée passe devant. On affiche donc le
+voile, puis on amène la cible : elle se retrouve au-dessus du voile, et le voile
+au-dessus du jeu. L'ordre inverse mettrait le voile par-dessus la fenêtre qu'il
+est censé mettre en valeur.
+
+### D20 — Une fenêtre visée introuvable n'affiche rien du tout
+
+Si aucune fenêtre ouverte ne correspond, Peek ne fait rien et le journal le dit.
+Assombrir le jeu pour ne rien montrer par-dessus serait pire que de ne pas
+réagir.
+
+Le titre d'une fenêtre de navigateur change à chaque onglet. Quand le motif de
+titre ne correspond plus, Peek retombe sur la première fenêtre du bon processus
+plutôt que d'abandonner : afficher la mauvaise fenêtre du bon programme est un
+moindre mal.
+
+---
+
 ## Points en attente d'arbitrage
 
 Ils ne bloquent pas M0 mais engagent les jalons suivants.

@@ -30,6 +30,8 @@ public partial class App : Application
     private ServiceProvider? _services;
     private Mutex? _instanceMutex;
     private ConfigStore? _config;
+    private RestoreStateStore? _restore;
+    private PeekOrchestrator? _orchestrator;
     private HookCoordinator? _hook;
     private TrayIcon? _tray;
     private SettingsWindow? _window;
@@ -76,16 +78,32 @@ public partial class App : Application
 
         var logger = _services.GetRequiredService<ILogger<App>>();
 
-        logger.LogInformation(
-            "Peek {Version} demarre. Jalon M0 : aucune fenetre n'est manipulee.",
-            typeof(App).Assembly.GetName().Version);
+        logger.LogInformation("Peek {Version} demarre.", typeof(App).Assembly.GetName().Version);
+
+        _restore = new RestoreStateStore(
+            ConfigStore.RestoreStatePath,
+            _services.GetRequiredService<ILogger<RestoreStateStore>>());
+
+        _orchestrator = new PeekOrchestrator(
+            _config,
+            _restore,
+            Dispatcher,
+            _services.GetRequiredService<ILogger<PeekOrchestrator>>());
+
+        // I4 : avant toute chose. Si la derniere execution a ete tuee en plein
+        // coup d'oeil, les fenetres retrouvent leur place maintenant, avant que
+        // l'utilisateur ne s'en apercoive.
+        _orchestrator.RecoverFromPreviousRun();
 
         _hook = new HookCoordinator(
             _config,
             _services.GetRequiredService<ILogger<HookCoordinator>>(),
             _services.GetRequiredService<ILogger<KeyboardHookThread>>());
 
+        _hook.IntentProduced += _orchestrator.Handle;
         _hook.Start();
+
+        _orchestrator.Prepare();
 
         _tray = new TrayIcon(_services.GetRequiredService<ILogger<TrayIcon>>());
         _tray.OpenRequested += ShowWindow;
@@ -97,7 +115,12 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _tray?.Dispose();
+
+        // Le hook d'abord : plus aucune intention n'arrive ensuite. Puis
+        // l'orchestrateur, qui referme ce qui serait reste ouvert, pour qu'un
+        // arret normal ne laisse jamais de travail a la reprise sur plantage.
         _hook?.Dispose();
+        _orchestrator?.Dispose();
         _config?.Dispose();
         _services?.Dispose();
         _instanceMutex?.Dispose();
