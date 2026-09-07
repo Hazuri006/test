@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Babel.App.Interop;
+using Babel.Core.Audio;
 using Babel.Core.Pipeline;
 using Babel.Core.Settings;
 
@@ -34,8 +36,16 @@ internal sealed partial class SettingsWindow : Window
     /// <summary>Leve quand l'utilisateur demande la marche ou la pause.</summary>
     internal event Action? PauseToggleRequested;
 
-    internal void Bind(SettingsStore store, GlobalHotkeyService hotkeys)
+    /// <summary>Leve quand l'utilisateur choisit un autre peripherique de sortie.</summary>
+    internal event Action<string>? AudioDeviceChanged;
+
+    internal void Bind(
+        SettingsStore store,
+        GlobalHotkeyService hotkeys,
+        IReadOnlyList<AudioDevice> devices)
     {
+        _source.Bind(store, devices);
+        _source.DeviceChanged += id => AudioDeviceChanged?.Invoke(id);
         _languages.Bind(store);
         _display.Bind(store, store.Current.Hotkeys);
         _display.Changed += () => DisplaySettingsChanged?.Invoke();
@@ -60,6 +70,10 @@ internal sealed partial class SettingsWindow : Window
     private void OnPauseClicked(object sender, RoutedEventArgs e) => PauseToggleRequested?.Invoke();
 
     internal void SetAudioLevel(double level) => _source.SetLevel(level);
+
+    internal void SetEngineStatus(string text) => _source.SetEngineStatus(text);
+
+    internal void ShowSourceProblem(string? message) => _source.ShowProblem(message);
 
     private void ShowHotkeyFailures(GlobalHotkeyService hotkeys)
     {

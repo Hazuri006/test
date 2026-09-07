@@ -9,10 +9,14 @@ dans [PERF.md](PERF.md), les licences dans [LICENSES.md](LICENSES.md).
 
 ## État
 
-**Jalon M0 — squelette.** Fenêtre de réglages, overlay transparent et
-click-through, raccourcis globaux, sauvegarde des réglages, HUD de latence câblé.
-Ni audio, ni transcription, ni traduction, ni OCR : ils arrivent aux jalons
-suivants.
+**Jalon M1 — audio et transcription.** Capture du son système, choix du
+périphérique, vumètre, découpage en phrases par Silero VAD, transcription par
+whisper.cpp. Le texte affiché est celui qui est **entendu**, dans sa langue
+d'origine.
+
+**La traduction n'existe pas encore** : elle arrive au jalon M2. Choisir
+« langue affichée : français » enregistre le choix mais ne change rien pour
+l'instant.
 
 ## Structure
 
@@ -21,6 +25,40 @@ suivants.
 | `src/Babel.Core` | Pipeline, politique de rejet, métriques, réglages. Sans WPF, testable partout. |
 | `src/Babel.App` | WPF, interop Win32, overlay, réglages, HUD. Windows uniquement. |
 | `tests/Babel.Core.Tests` | Tests du noyau. |
+
+## Modèles à déposer
+
+Aucun téléchargement n'a lieu à l'exécution — c'est la contrainte 2 de la
+spécification, et le téléchargement explicite arrive en M5. En attendant, dépose
+ces deux fichiers dans `%LOCALAPPDATA%\Babel\models\` :
+
+```powershell
+$dossier = "$env:LOCALAPPDATA\Babel\models"
+New-Item -ItemType Directory -Force -Path $dossier | Out-Null
+
+# Transcription — environ 190 Mo
+Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin" `
+                  -OutFile "$dossier\ggml-small-q5_1.bin"
+
+# Détection de la parole — environ 2 Mo
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx" `
+                  -OutFile "$dossier\silero_vad.onnx"
+```
+
+Sans eux, Babel se lance et le dit franchement dans l'écran Source, en nommant le
+fichier manquant et son emplacement.
+
+## Accélération matérielle
+
+Par défaut, la transcription tourne sur le processeur. Pour l'accélération CUDA,
+ajoute le paquet natif au projet — aucun changement de code n'est nécessaire, le
+repli CUDA puis Vulkan puis processeur est déjà en place :
+
+```powershell
+dotnet add src\Babel.App package Whisper.net.Runtime.Cuda
+```
+
+Il pèse plus d'un gigaoctet, d'où son absence par défaut.
 
 ## Construire
 

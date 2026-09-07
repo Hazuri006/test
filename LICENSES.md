@@ -15,6 +15,10 @@ ressource, quel que soit son intérêt technique.
 | Microsoft.Extensions.Logging.Abstractions | 8.0.2 | MIT | Journalisation locale |
 | Microsoft.Extensions.Logging | 8.0.1 | MIT | Journalisation locale |
 | Microsoft.Extensions.DependencyInjection | 8.0.1 | MIT | Racine de composition |
+| NAudio | 2.2.1 | MIT | Capture WASAPI, rééchantillonnage |
+| Microsoft.ML.OnnxRuntime | 1.20.1 | MIT | Exécution de Silero VAD |
+| Whisper.net | 1.8.1 | MIT | Liaison .NET vers whisper.cpp |
+| Whisper.net.Runtime | 1.8.1 | MIT | Bibliothèque native whisper.cpp, processeur |
 
 ## Dépendances de développement seulement
 
@@ -25,6 +29,20 @@ Elles ne sont pas distribuées avec le produit.
 | xunit | 2.9.2 | Apache-2.0 |
 | xunit.runner.visualstudio | 2.8.2 | Apache-2.0 |
 | Microsoft.NET.Test.Sdk | 17.12.0 | MIT |
+
+## Modèles
+
+Ils ne sont pas versionnés : l'utilisateur les dépose lui-même, et le
+téléchargement intégré arrive en M5. Voir le README pour les emplacements.
+
+| Modèle | Licence | Rôle |
+|---|---|---|
+| silero_vad.onnx | MIT | Détection de la parole |
+| ggml-small-q5_1.bin (whisper.cpp) | MIT | Transcription |
+
+Les poids Whisper sont publiés par OpenAI sous licence MIT, et les conversions
+ggml distribuées avec whisper.cpp le restent. Silero VAD est passé en MIT à partir
+de sa version 4 ; les versions antérieures étaient en AGPL et sont donc à écarter.
 
 ## Polices
 
@@ -54,12 +72,7 @@ jour, au moment où le composant entre réellement dans le produit.
 
 | Composant | Jalon | Licence attendue |
 |---|---|---|
-| NAudio | M1 | MIT |
-| Silero VAD | M1 | MIT |
-| ONNX Runtime | M1 | MIT |
-| whisper.cpp | M1 | MIT |
-| Whisper.net | M1 | MIT |
-| Modèles Whisper quantifiés | M1 | MIT — à confirmer pour chaque fichier |
+| Whisper.net.Runtime.Cuda | M1, si la mesure l'exige | MIT |
 | CTranslate2 | M2 | MIT |
 | Modèles opus-mt (Helsinki-NLP) | M2 | CC-BY-4.0 — à confirmer paire par paire |
 | PaddleOCR en ONNX, si repli nécessaire | M3 | Apache-2.0 |

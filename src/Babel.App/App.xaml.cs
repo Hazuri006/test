@@ -1,13 +1,17 @@
 using System;
+using System.Buffers;
 using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
+using Babel.App.Audio;
 using Babel.App.Hud;
 using Babel.App.Infrastructure;
 using Babel.App.Interop;
 using Babel.App.Overlay;
 using Babel.App.Views;
+using Babel.Core.Audio;
 using Babel.Core.Diagnostics;
 using Babel.Core.Pipeline;
 using Babel.Core.Settings;
@@ -36,6 +40,12 @@ public partial class App : Application
     private HudWindow? _hud;
     private SettingsWindow? _settingsWindow;
 
+    private WasapiAudioCapture? _capture;
+    private SileroSpeechDetector? _detector;
+    private WhisperAsrEngine? _asr;
+    private StageLink<AudioFrame>? _audioLink;
+    private DispatcherTimer? _levelTimer;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -55,6 +65,8 @@ public partial class App : Application
             return;
         }
 
+        var benchSeconds = ParseBenchDuration(e.Args);
+
         _services = BuildServices();
 
         _settings = _services.GetRequiredService<SettingsStore>();
@@ -67,14 +79,23 @@ public partial class App : Application
         _hud = new HudWindow(metrics);
         _settingsWindow = new SettingsWindow();
 
-        BuildPipeline(metrics);
+        if (benchSeconds is null)
+        {
+            BuildAudioPipeline(metrics);
+        }
+        else
+        {
+            BuildBenchPipeline(metrics);
+        }
+
         SetUpHotkeys();
 
-        _settingsWindow.Bind(_settings, _hotkeys!);
+        _settingsWindow.Bind(_settings, _hotkeys!, _capture?.ListDevices() ?? []);
         _settingsWindow.DisplaySettingsChanged += () => _overlay.ApplySettings();
+        _settingsWindow.PauseToggleRequested += () => _pipeline.TogglePause();
+        _settingsWindow.AudioDeviceChanged += StartCapture;
         _settingsWindow.Closed += (_, _) => Shutdown();
 
-        _settingsWindow.PauseToggleRequested += () => _pipeline.TogglePause();
         _pipeline.StateChanged += state => Dispatcher.Invoke(() => OnPipelineStateChanged(state));
 
         _overlay.Show();
@@ -90,32 +111,31 @@ public partial class App : Application
         _pipeline.Start();
         _settingsWindow.SetPipelineState(_pipeline.State);
 
-        StartBenchIfRequested(e.Args, metrics);
-    }
+        ReportEngineStatus();
 
-    /// <summary>
-    /// La pause efface l'affichage. Laisser le dernier sous-titre a l'ecran
-    /// donnerait a croire que la chaine tourne encore.
-    /// </summary>
-    private void OnPipelineStateChanged(PipelineState state)
-    {
-        _settingsWindow?.SetPipelineState(state);
-
-        if (state != PipelineState.Running)
+        if (benchSeconds is { } seconds)
         {
-            _overlay?.Clear();
+            new BenchRunner(metrics, TimeSpan.FromSeconds(seconds)).Start();
+            return;
         }
+
+        StartCapture(_settings.Current.AudioDeviceId);
+        StartLevelMeter();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _levelTimer?.Stop();
         _hotkeys?.Dispose();
+        _capture?.Dispose();
 
         if (_pipeline is not null)
         {
             _pipeline.StopAsync().GetAwaiter().GetResult();
         }
 
+        _detector?.Dispose();
+        _asr?.Dispose();
         _settings?.Dispose();
         _services?.Dispose();
 
@@ -146,16 +166,139 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// M0 ne comporte qu'une source synthetique et l'etage de rendu. Les liens et
-    /// la politique de rejet sont deja ceux de la version finale : c'est ce qui
-    /// rend le budget mesurable des maintenant.
+    /// La chaine reelle : capture, decoupage, transcription, affichage.
+    ///
+    /// Les capacites des liens ne sont pas uniformes, et c'est deliberé. Jeter un
+    /// sous-titre ne coute qu'un affichage manque ; jeter une trame audio troue une
+    /// phrase et corrompt sa transcription. Le lien audio a donc de la marge — huit
+    /// trames, soit 256 ms — pour absorber une pause du ramasse-miettes sans rien
+    /// perdre, tout en restant borne comme l'exige la contrainte 5.
     /// </summary>
-    private void BuildPipeline(PipelineMetrics metrics)
+    private void BuildAudioPipeline(PipelineMetrics metrics)
+    {
+        var logger = _services!.GetRequiredService<ILoggerFactory>();
+
+        _capture = new WasapiAudioCapture(logger.CreateLogger<WasapiAudioCapture>());
+        _detector = new SileroSpeechDetector(logger.CreateLogger<SileroSpeechDetector>());
+        _asr = new WhisperAsrEngine(logger.CreateLogger<WhisperAsrEngine>());
+
+        var audioLink = new StageLink<AudioFrame>(
+            "audio",
+            capacity: 8,
+            recycle: frame => ArrayPool<float>.Shared.Return(frame.Buffer));
+
+        var utteranceLink = new StageLink<Utterance>(
+            "phrases",
+            capacity: 4,
+            recycle: utterance => ArrayPool<float>.Shared.Return(utterance.Buffer));
+
+        var subtitleLink = new StageLink<SubtitleMessage>("sous-titres", capacity: 1);
+
+        _audioLink = audioLink;
+
+        _capture.FrameReady += frame =>
+        {
+            // En pause, on rend la trame au pool sans la publier : la capture
+            // continue pour que le vumetre reste un outil de diagnostic.
+            if (_pipeline!.IsFlowing)
+            {
+                audioLink.Publish(frame);
+            }
+            else
+            {
+                ArrayPool<float>.Shared.Return(frame.Buffer);
+            }
+        };
+
+        _capture.Failed += message => Dispatcher.Invoke(() => _settingsWindow?.ShowSourceProblem(message));
+
+        _pipeline!.Add(new VadStage(
+            audioLink,
+            utteranceLink,
+            _detector,
+            metrics,
+            frame => ArrayPool<float>.Shared.Return(frame.Buffer)));
+
+        _pipeline.Add(new AsrStage(
+            utteranceLink,
+            subtitleLink,
+            _asr,
+            metrics,
+            () => _settings!.Current.SourceLanguage,
+            logger.CreateLogger<AsrStage>()));
+
+        _pipeline.Add(new SubtitleRenderStage(subtitleLink, _overlay!, metrics));
+    }
+
+    /// <summary>
+    /// Chaine de mesure : un generateur synthetique remplace la capture, pour
+    /// eprouver le chemin d'affichage sans dependre d'un son qui joue.
+    /// </summary>
+    private void BuildBenchPipeline(PipelineMetrics metrics)
     {
         var link = new StageLink<SubtitleMessage>("sous-titres", capacity: 1);
 
         _pipeline!.Add(new SyntheticSubtitleStage(link, _pipeline));
         _pipeline.Add(new SubtitleRenderStage(link, _overlay!, metrics));
+    }
+
+    private void StartCapture(string deviceId)
+    {
+        if (_capture is null)
+        {
+            return;
+        }
+
+        _settingsWindow?.ShowSourceProblem(null);
+        _capture.Start(deviceId);
+    }
+
+    /// <summary>
+    /// Le vumetre est rafraichi a 30 Hz depuis l'interface, jamais depuis le thread
+    /// de capture : c'est un indicateur, il n'a rien a faire sur le chemin chaud.
+    /// </summary>
+    private void StartLevelMeter()
+    {
+        _levelTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(33),
+        };
+
+        _levelTimer.Tick += (_, _) =>
+        {
+            if (_capture is not null && _settingsWindow is { IsVisible: true })
+            {
+                _settingsWindow.SetAudioLevel(_capture.Level);
+            }
+        };
+
+        _levelTimer.Start();
+    }
+
+    private void ReportEngineStatus()
+    {
+        if (_settingsWindow is null)
+        {
+            return;
+        }
+
+        if (_asr is null || _detector is null)
+        {
+            _settingsWindow.SetEngineStatus("Mode mesure : la transcription est désactivée.");
+            return;
+        }
+
+        _settingsWindow.SetEngineStatus(
+            _asr.IsReady
+                ? $"whisper.cpp, exécution sur {_asr.Backend}."
+                : "En attente du modèle de transcription.");
+
+        var problem = _detector.UnavailableReason ?? _asr.UnavailableReason;
+
+        if (problem is not null)
+        {
+            _settingsWindow.ShowSourceProblem(problem);
+        }
     }
 
     private void SetUpHotkeys()
@@ -165,6 +308,20 @@ public partial class App : Application
 
         _hotkeys.Pressed += OnHotkey;
         _hotkeys.RegisterAll(_settings!.Current.Hotkeys);
+    }
+
+    /// <summary>
+    /// La pause efface l'affichage. Laisser le dernier sous-titre a l'ecran
+    /// donnerait a croire que la chaine tourne encore.
+    /// </summary>
+    private void OnPipelineStateChanged(PipelineState state)
+    {
+        _settingsWindow?.SetPipelineState(state);
+
+        if (state != PipelineState.Running)
+        {
+            _overlay?.Clear();
+        }
     }
 
     private void OnHotkey(HotkeyAction action)
@@ -217,16 +374,17 @@ public partial class App : Application
             "Relevé manuel",
             string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}, {1} cœurs logiques",
+                "{0}, {1} cœurs logiques, transcription sur {2}",
                 Environment.OSVersion.VersionString,
-                Environment.ProcessorCount),
+                Environment.ProcessorCount,
+                _asr?.Backend ?? "aucun"),
             metrics.SnapshotAll());
 
         _services.GetRequiredService<ILogger<App>>()
                  .LogInformation("Relevé de latence écrit dans {Path}.", path);
     }
 
-    private void StartBenchIfRequested(string[] args, PipelineMetrics metrics)
+    private static double? ParseBenchDuration(string[] args)
     {
         for (var i = 0; i < args.Length; i++)
         {
@@ -235,17 +393,16 @@ public partial class App : Application
                 continue;
             }
 
-            var seconds = 60.0;
-
             if (i + 1 < args.Length
                 && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
                 && parsed > 0)
             {
-                seconds = parsed;
+                return parsed;
             }
 
-            new BenchRunner(metrics, TimeSpan.FromSeconds(seconds)).Start();
-            return;
+            return 60;
         }
+
+        return null;
     }
 }

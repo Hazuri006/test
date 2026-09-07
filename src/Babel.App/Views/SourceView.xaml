@@ -9,12 +9,12 @@
     <TextBlock Style="{StaticResource TitleText}" Text="Source" />
     <TextBlock Style="{StaticResource SecondaryText}"
                MaxWidth="520"
-               Text="Babel écoute le son qui sort de ton ordinateur. Choisis le périphérique sur lequel le jeu joue son audio." />
+               Text="Babel écoute le son qui sort de ton ordinateur. Choisis le périphérique sur lequel le jeu ou la vidéo joue son audio." />
 
     <Border Style="{StaticResource Rule}" />
 
     <TextBlock Style="{StaticResource SettingLabel}" Text="Périphérique de sortie" />
-    <ComboBox x:Name="DeviceSelector" IsEnabled="False" />
+    <ComboBox x:Name="DeviceSelector" SelectionChanged="OnDeviceChanged" />
 
     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,24,0,6" Text="Niveau capté" />
     <controls:VuMeter x:Name="Meter" />
@@ -26,9 +26,15 @@
 
     <Border Style="{StaticResource Rule}" />
 
-    <TextBlock Style="{StaticResource SecondaryText}"
+    <TextBlock Style="{StaticResource SettingLabel}" Text="Transcription" />
+    <TextBlock x:Name="EngineStatus" Style="{StaticResource SecondaryText}" MaxWidth="520" />
+
+    <TextBlock x:Name="Problem"
+               Style="{StaticResource SecondaryText}"
+               Foreground="{StaticResource PausedBrush}"
+               Margin="0,12,0,0"
                MaxWidth="520"
-               Text="La capture du son n'est pas encore branchée. Le vumètre reste à zéro, et le texte qui défile à l'écran est un motif de test : quatre phrases en boucle, qui servent à vérifier l'affichage et à mesurer les temps de réponse. Rien n'est encore écouté ni traduit." />
+               Visibility="Collapsed" />
 
   </StackPanel>
 

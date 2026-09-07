@@ -174,3 +174,83 @@ non par choix d'API.
 Un overlay externe ne s'affiche pas au-dessus d'un jeu en plein écran exclusif.
 C'est écrit dans l'écran Affichage, en langage utilisateur. Aucune tentative de
 contournement : voir contrainte 1.
+
+---
+
+## Jalon M1
+
+### Les capacités des liens ne sont pas uniformes
+
+**Choisi :** 8 trames sur le lien audio, 4 sur les phrases, 1 sur les sous-titres.
+
+La contrainte 5 dit de jeter plutôt que de mettre en file, et elle reste tenue :
+chaque lien est borné et jette la donnée la plus ancienne. Mais la conséquence
+d'un rejet n'est pas la même partout.
+
+Jeter un sous-titre ne coûte qu'un affichage manqué — le suivant arrive et il est
+plus récent, donc meilleur. Capacité 1, sans hésitation.
+
+Jeter une trame audio **troue une phrase** et corrompt la transcription de tout ce
+qui l'entoure. La donnée perdue n'est pas remplacée par une meilleure, elle est
+perdue. Le lien audio a donc 256 ms de marge, de quoi absorber une pause du
+ramasse-miettes sans rien perdre, tout en restant borné.
+
+Les phrases sont entre les deux : une hypothèse partielle est jetable, une phrase
+finale ne l'est pas. Capacité 4, faute de pouvoir donner une priorité aux finales
+sans compliquer le lien. À revoir si le HUD montre des rejets à cet étage.
+
+### Silence de fin : 200 ms, et c'est le réglage à surveiller
+
+C'est le budget de la section 3, et c'est le compromis central du jalon : cette
+durée s'ajoute **telle quelle** à la latence perçue, mais la raccourcir coupe
+l'orateur au milieu de ses respirations. Un test le rend explicite en comparant
+100 ms et 400 ms sur la même phrase.
+
+Si les sous-titres arrivent coupés en morceaux à l'usage, c'est le premier
+paramètre à augmenter, dans `VadOptions`.
+
+### Recherche gloutonne, pas en faisceau
+
+La recherche en faisceau gagne quelques pourcents de justesse pour plusieurs fois
+le temps de calcul. Avec 250 ms de budget pour la transcription, ce n'est pas
+finançable. À reconsidérer seulement si la mesure montre une marge confortable.
+
+### Chaque segment est transcrit sans contexte
+
+Sans `WithNoContext`, whisper enchaîne sur le texte précédent et invente la suite
+d'une phrase déjà terminée — un défaut connu qui produit des sous-titres
+plausibles et faux. Le contexte reviendra en M2, mais du côté de la traduction, où
+il sert vraiment.
+
+### Les extraits courts sont complétés, pas jetés
+
+whisper.cpp refuse ce qui dure moins d'une seconde. Une réplique brève est donc
+complétée par du silence plutôt qu'abandonnée.
+
+### Le modèle Silero est reconnu à la lecture, pas imposé
+
+Le fichier est déposé par l'utilisateur, et les versions 4 et 5 n'ont pas les
+mêmes entrées — un état unique d'un côté, un couple h/c de l'autre. On lit les
+métadonnées du fichier au chargement et on s'adapte, plutôt que d'exiger une
+version précise et d'échouer avec un message incompréhensible.
+
+### CUDA n'est pas référencé par défaut
+
+L'ordre d'exécution demandé par la section 4 est bien posé — CUDA, puis Vulkan,
+puis le processeur — et Whisper.net retombe seul sur le suivant quand une
+bibliothèque native est absente. Mais le paquet `Whisper.net.Runtime.Cuda` pèse
+plus d'un gigaoctet, ce qui rendrait le dépôt et chaque compilation pénibles pour
+un gain invérifiable depuis un environnement de développement sans GPU.
+
+Seul le runtime processeur est donc référencé. Ajouter le paquet CUDA suffit à
+activer l'accélération, sans changer une ligne de code.
+
+**Critère de bascule :** dès que la mesure sur machine réelle montre un p95 de
+transcription au-dessus de 250 ms sur processeur — ce qui est probable avec le
+modèle `small` — le paquet CUDA devient nécessaire et sera ajouté.
+
+### Le générateur de test n'existe plus qu'en mode mesure
+
+Il alimentait la chaîne en M0, faute de son réel. Maintenant qu'il y a une vraie
+capture, le laisser tourner en usage normal ferait exactement ce qu'il a déjà fait
+une fois : passer pour un produit en panne. Il ne sert plus que sous `--bench`.
