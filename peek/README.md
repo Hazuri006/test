@@ -40,15 +40,13 @@ arrivent aux jalons suivants.
 
 ## Installer
 
-Il n'y a rien à installer, et pas d'installateur avant le jalon M5. Le plus
-simple est de télécharger l'exécutable produit par l'intégration continue :
+Il n'y a rien à installer, et pas d'installateur avant le jalon M5.
 
-1. Onglet **Actions** du dépôt, workflow **Peek — exécutable Windows**.
-2. Ouvre la dernière exécution réussie, section **Artifacts** en bas de page.
-3. Télécharge `Peek-windows-x64`, décompresse le zip, lance `Peek.exe`.
+**[Télécharger Peek.exe](https://github.com/Hazuri006/test/releases/download/peek-dernier/Peek.exe)**
 
 Un seul fichier, environ 78 Mo, qui embarque tout ce dont il a besoin : ni SDK,
-ni runtime, ni Git.
+ni runtime, ni Git. On le lance par un double-clic, il n'y a rien à installer et
+rien à désinstaller — supprimer le fichier suffit.
 
 Windows affichera **« Windows a protégé votre ordinateur »** au premier
 lancement, parce que le binaire n'est pas signé. *Informations complémentaires*

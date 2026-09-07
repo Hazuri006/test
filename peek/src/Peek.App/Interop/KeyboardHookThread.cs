@@ -166,6 +166,10 @@ internal sealed unsafe class KeyboardHookThread : IDisposable
         if (_callbackHandle.IsAllocated)
         {
             _callbackHandle.Free();
+
+            // Remis a zero : liberer deux fois un GCHandle fait tomber le
+            // processus, et Dispose peut etre appele deux fois.
+            _callbackHandle = default;
         }
     }
 

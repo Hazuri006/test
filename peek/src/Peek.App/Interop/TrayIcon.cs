@@ -33,8 +33,9 @@ internal sealed class TrayIcon : IDisposable
     private readonly ILogger<TrayIcon> _logger;
     private readonly uint _taskbarCreated;
 
+    private readonly bool _ownsIcon;
+
     private IntPtr _icon;
-    private bool _ownsIcon;
     private bool _added;
     private bool _suspended;
     private bool _disposed;
