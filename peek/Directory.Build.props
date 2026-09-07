@@ -1,0 +1,21 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+
+    <!-- Peek ne compare que des codes de touches et des noms de fenetres. Le
+         mode invariant allege le binaire et le demarrage, et .NET 6 et suivants
+         y assurent quand meme la casse Unicode complete. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <Product>Peek</Product>
+    <Company>Peek</Company>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

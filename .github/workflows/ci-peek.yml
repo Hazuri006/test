@@ -1,0 +1,55 @@
+name: CI Peek
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "peek/**"
+      - ".github/workflows/ci-peek.yml"
+  pull_request:
+    paths:
+      - "peek/**"
+      - ".github/workflows/ci-peek.yml"
+
+jobs:
+  # Le noyau ne depend ni de WPF ni de Win32 : il se compile et se teste
+  # partout, et il donne le retour le plus rapide.
+  core:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj
+
+      - name: Build
+        run: dotnet build peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj -c Release --no-restore
+
+      - name: Test
+        run: dotnet test peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj -c Release --no-build --verbosity normal
+
+  # La solution complete, y compris la passe de markup WPF, sur la plateforme
+  # qui est la cible du produit.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore peek/Peek.sln
+
+      - name: Build
+        run: dotnet build peek/Peek.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj -c Release --no-build --verbosity normal

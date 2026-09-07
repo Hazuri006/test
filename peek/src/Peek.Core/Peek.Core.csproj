@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Peek.Core</RootNamespace>
+    <!-- Volontairement sans WPF ni Win32 : tout ce qui est ici se compile et se
+         teste sur n'importe quelle machine. C'est ce qui rend la logique du
+         hook verifiable sans jeu et sans Windows. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>

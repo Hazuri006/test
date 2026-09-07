@@ -1,0 +1,7 @@
+# Complete la configuration a la racine du depot, ne la remplace pas.
+
+[*.cs]
+# Les classes de configuration sont serialisees par System.Text.Json : leurs
+# collections doivent avoir un accesseur en ecriture.
+dotnet_diagnostic.CA2227.severity = none
+dotnet_diagnostic.CA1002.severity = none

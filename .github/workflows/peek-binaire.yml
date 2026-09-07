@@ -1,0 +1,81 @@
+name: Peek — exécutable Windows
+
+# Produit un Peek.exe autonome, a telecharger et a lancer sans rien installer.
+# Ce n'est pas l'installateur du jalon M5 : c'est le moyen d'essayer Peek sans
+# SDK, sans Git et sans ligne de commande.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "peek/**"
+      - ".github/workflows/peek-binaire.yml"
+
+# Le binaire doit etre telechargeable d'un clic, sans naviguer dans les
+# artefacts d'une execution.
+permissions:
+  contents: write
+
+jobs:
+  publier:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version figee, la meme qu'en local via peek/global.json. Un SDK plus
+      # recent embarque des analyseurs plus recents, et le projet compile avec
+      # TreatWarningsAsErrors : une derive de version casse la CI sans que le
+      # defaut soit reproductible ailleurs.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.424"
+
+      - name: Tests du noyau
+        run: dotnet test peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj -c Release
+
+      # Autonome et compresse : un seul fichier, aucune dependance a installer.
+      # Le runtime .NET est embarque, d'ou les quelque 78 Mo.
+      - name: Publier
+        run: >
+          dotnet publish peek/src/Peek.App/Peek.App.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          -o publication
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Peek-windows-x64
+          path: publication/Peek.exe
+          retention-days: 90
+
+      # Une publication a etiquette fixe : le lien de telechargement ne change
+      # jamais et ne demande pas de compte GitHub.
+      - name: Publier le lien de telechargement direct
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: peek-dernier
+          name: Peek — dernière compilation
+          prerelease: true
+          body: |
+            Compilation automatique de la branche de développement.
+
+            **Télécharge `Peek.exe` ci-dessous et lance-le.** Un seul fichier,
+            rien à installer.
+
+            Windows affichera « Windows a protégé votre ordinateur » au premier
+            lancement, parce que le binaire n'est pas signé : *Informations
+            complémentaires*, puis *Exécuter quand même*.
+
+            Peek se met dans la zone de notification, en bas à droite. Clic
+            gauche sur l'icône pour ouvrir sa fenêtre, puis « Ajouter ».
+
+            Rien de ce code n'a encore été validé sur une vraie machine
+            Windows : voir COMPATIBILITE.md.
+          files: publication/Peek.exe
