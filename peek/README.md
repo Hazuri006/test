@@ -38,6 +38,24 @@ arrivent aux jalons suivants.
 | `src/Peek.App` | WPF, interop Win32, hook clavier, voile, manipulation de fenêtres, icône de notification. Windows uniquement. |
 | `tests/Peek.Core.Tests` | 82 tests du noyau. |
 
+## Installer
+
+Il n'y a rien à installer, et pas d'installateur avant le jalon M5. Le plus
+simple est de télécharger l'exécutable produit par l'intégration continue :
+
+1. Onglet **Actions** du dépôt, workflow **Peek — exécutable Windows**.
+2. Ouvre la dernière exécution réussie, section **Artifacts** en bas de page.
+3. Télécharge `Peek-windows-x64`, décompresse le zip, lance `Peek.exe`.
+
+Un seul fichier, environ 78 Mo, qui embarque tout ce dont il a besoin : ni SDK,
+ni runtime, ni Git.
+
+Windows affichera **« Windows a protégé votre ordinateur »** au premier
+lancement, parce que le binaire n'est pas signé. *Informations complémentaires*
+puis *Exécuter quand même*. C'est attendu, et c'est exactement le sujet du
+point 3 de [DECISIONS.md](DECISIONS.md) : un certificat de signature est un
+poste de dépense du projet, pas une finition.
+
 ## Construire
 
 ```

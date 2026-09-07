@@ -1,0 +1,47 @@
+name: Peek — exécutable Windows
+
+# Produit un Peek.exe autonome, a telecharger et a lancer sans rien installer.
+# Ce n'est pas l'installateur du jalon M5 : c'est le moyen d'essayer Peek sans
+# SDK, sans Git et sans ligne de commande.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "peek/**"
+      - ".github/workflows/peek-binaire.yml"
+
+jobs:
+  publier:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Tests du noyau
+        run: dotnet test peek/tests/Peek.Core.Tests/Peek.Core.Tests.csproj -c Release
+
+      # Autonome et compresse : un seul fichier, aucune dependance a installer.
+      # Le runtime .NET est embarque, d'ou les quelque 78 Mo.
+      - name: Publier
+        run: >
+          dotnet publish peek/src/Peek.App/Peek.App.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          -o publication
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Peek-windows-x64
+          path: publication/Peek.exe
+          retention-days: 90
