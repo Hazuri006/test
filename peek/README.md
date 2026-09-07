@@ -10,20 +10,24 @@ par jeu et par anticheat dans [COMPATIBILITE.md](COMPATIBILITE.md).
 
 ## État
 
-**Jalon M1 — coup d'œil.** Maintenir la touche affiche la fenêtre visée
-par-dessus le jeu assombri, sans que le jeu perde le focus. Relâcher la remet
-exactement où elle était. Une pression brève la laisse affichée.
+**Jalon M2 — plusieurs raccourcis.** La fenêtre affiche la liste : une ligne
+par raccourci, avec la touche, la fenêtre visée, le mode et un bouton de
+suppression. L'ajout se fait en deux gestes — appuie sur la touche, choisis la
+fenêtre. Les conflits se signalent en clair. Les modifications s'appliquent sans
+relancer Peek.
 
-M0 avant lui : icône dans la zone de notification, fichier de configuration,
-hook clavier bas niveau conforme à I7, journalisation.
+M0 et M1 avant lui : icône dans la zone de notification, configuration, hook
+clavier conforme à I7, journalisation, puis le coup d'œil lui-même — voile,
+affichage sans vol de focus, restitution exacte.
 
-Le mode utilisation, les raccourcis multiples et la capture de touche arrivent
-aux jalons suivants.
+Le mode utilisation, la baisse du son et les réglages avancés modifiables
+arrivent aux jalons suivants.
 
 > **Rien de tout cela n'a jamais été exécuté.** Le code est écrit, compilé en
 > compilation croisée depuis Linux, et le noyau est couvert par 78 tests. Le
-> hook, le voile, l'icône et la manipulation de fenêtres **n'ont jamais tourné
-> sur Windows**, et le banc de tests manuel de M0 n'a jamais été passé. Voir
+> hook, le voile, l'icône, la manipulation de fenêtres et la fenêtre de
+> réglages **n'ont jamais tourné sur Windows**, et aucun banc de tests manuel
+> n'a été passé. Trois jalons de code jamais exécuté. Voir
 > [COMPATIBILITE.md](COMPATIBILITE.md).
 
 ## Structure
@@ -32,7 +36,7 @@ aux jalons suivants.
 |---|---|
 | `src/Peek.Core` | Configuration, machine à états, file du hook, désignation de fenêtre, mesures. Sans WPF ni Win32, testable partout. |
 | `src/Peek.App` | WPF, interop Win32, hook clavier, voile, manipulation de fenêtres, icône de notification. Windows uniquement. |
-| `tests/Peek.Core.Tests` | 78 tests du noyau. |
+| `tests/Peek.Core.Tests` | 82 tests du noyau. |
 
 ## Construire
 
@@ -48,8 +52,9 @@ lance évidemment que sous Windows.
 
 ## Configurer
 
-Jusqu'au jalon M2, qui apporte la capture de touche et la sélection de fenêtre,
-les raccourcis s'écrivent à la main dans `%APPDATA%\Peek\config.json`.
+Ouvre la fenêtre depuis l'icône, clique sur « Ajouter », appuie sur la touche
+voulue, choisis la fenêtre. Le fichier reste modifiable à la main dans
+`%APPDATA%\Peek\config.json` si tu préfères :
 
 ```json
 {
@@ -83,10 +88,14 @@ Le journal est dans `%APPDATA%\Peek\logs`, accessible depuis le menu de l'icône
 
 À exécuter sur Windows. Un test qui échoue bloque le passage au jalon suivant.
 
-**Tests automatisés** — `dotnet test`, 78 tests : sérialisation et réparation de
+**Tests automatisés** — `dotnet test`, 82 tests : sérialisation et réparation de
 la configuration, instantané des touches surveillées, détection des conflits,
 file entre le hook et le fil de travail, machine à états du maintien contre la
-bascule, désignation de la fenêtre visée, état de restitution, relevés de mesure.
+bascule, désignation de la fenêtre visée et construction de la cible, état de
+restitution, relevés de mesure.
+
+L'interface de M2 n'est pas couverte : elle est faite de WPF et ne se teste pas
+sans Windows. Seules ses règles ont été sorties dans le noyau pour l'être.
 
 **Tests manuels de M0**, dans cet ordre :
 
@@ -116,6 +125,17 @@ Le test 8 commande la suite du projet. Voir D1.
 | 15 | Changer de résolution et débrancher un écran pendant que Peek tourne. | — |
 | 16 | **Après plusieurs coups d'œil sur une fenêtre de navigateur, vérifier que la première image n'est pas figée.** Si elle l'est, D15 doit être révisée. | D15 |
 | 17 | Relever dans le journal le temps d'apparition : il doit tenir sous 80 ms. | section 6 |
+
+**Tests manuels de M2** :
+
+| # | Test | Vérifie |
+|---|---|---|
+| 18 | Ajouter un raccourci en deux gestes : la touche est saisie, la fenêtre choisie, le raccourci fonctionne aussitôt sans relancer Peek. | M2 |
+| 19 | Assigner une touche déjà prise : le message la nomme et propose d'en choisir une autre, sans quitter l'attente. | M2 |
+| 20 | Assigner `Échap`, `Ctrl`, `Maj` ou la touche Windows : refusé, en clair. | M2 |
+| 21 | Ajouter et supprimer des raccourcis pendant qu'un coup d'œil est affiché : rien ne reste topmost, rien ne se bloque. | D22 |
+| 22 | Assigner une touche étendue — une flèche, `Inser`, `Origine` : le nom affiché est le bon, pas celui du pavé numérique. | M2 |
+| 23 | Viser une des deux fenêtres d'un même navigateur, changer d'onglet, redéclencher : le raccourci vise toujours la bonne. | D23 |
 
 ## Limites connues
 

@@ -50,6 +50,8 @@ internal sealed unsafe class KeyboardHookThread : IDisposable
 
     private KeySnapshot _keys = KeySnapshot.Empty;
     private volatile bool _suspended;
+    private volatile bool _capturing;
+    private volatile int _swallowUpFor = -1;
 
     internal KeyboardHookThread(KeyRingBuffer buffer, AutoResetEvent signal, ILogger<KeyboardHookThread> logger)
     {
@@ -79,6 +81,19 @@ internal sealed unsafe class KeyboardHookThread : IDisposable
     /// version, complete et coherente.
     /// </summary>
     internal void UpdateKeys(KeySnapshot keys) => Volatile.Write(ref _keys, keys);
+
+    /// <summary>
+    /// Saisit la prochaine touche enfoncee, quelle qu'elle soit, au lieu de la
+    /// laisser passer.
+    ///
+    /// C'est la seule situation ou le hook avale une touche non assignee, et
+    /// elle est toujours declenchee par un geste explicite de l'utilisateur :
+    /// il a cliqué sur « Ajouter » et Peek attend qu'il appuie. Le desarmement
+    /// est immediat, des la premiere touche.
+    /// </summary>
+    internal void ArmCapture() => _capturing = true;
+
+    internal void CancelCapture() => _capturing = false;
 
     /// <summary>
     /// Duree du dernier passage dans le callback, en ticks, remise a zero par la
@@ -265,30 +280,54 @@ internal sealed unsafe class KeyboardHookThread : IDisposable
             // Dereferencement direct : Marshal.PtrToStructure allouerait, et une
             // allocation ici peut tomber pendant une pause du ramasse-miettes.
             var data = *(NativeMethods.KeyboardHookData*)lParam;
+            var virtualKey = (int)data.VirtualKey;
 
-            if (!_suspended
-                && (data.Flags & NativeMethods.LlkhfInjected) == 0
-                && Volatile.Read(ref _keys).Contains((int)data.VirtualKey))
+            if ((data.Flags & NativeMethods.LlkhfInjected) == 0)
             {
                 var message = (int)wParam;
-                var transition = message is NativeMethods.WmKeyDown or NativeMethods.WmSysKeyDown
-                    ? KeyTransition.Down
-                    : KeyTransition.Up;
+                var down = message is NativeMethods.WmKeyDown or NativeMethods.WmSysKeyDown;
+                var capture = _capturing && down;
 
-                _buffer.TryEnqueue(new KeyEvent(
-                    (int)data.VirtualKey,
-                    (int)data.ScanCode,
-                    transition,
-                    data.Time,
-                    entry));
+                if (capture)
+                {
+                    // Desarme avant meme d'empiler : une repetition automatique
+                    // ne doit pas produire deux captures.
+                    _capturing = false;
+                    _swallowUpFor = virtualKey;
+                }
 
-                // Seul appel au noyau du chemin chaud, de l'ordre de la
-                // microseconde. L'alternative serait une attente active du fil
-                // de travail, et I6 l'interdit.
-                _signal.Set();
+                // Le relachement de la touche saisie est avale lui aussi, sinon
+                // l'application au premier plan recevrait un relachement seul.
+                var pendingUp = !down && _swallowUpFor == virtualKey;
 
-                // I1 : la touche est avalee, le jeu ne la recoit pas.
-                swallow = true;
+                if (pendingUp)
+                {
+                    _swallowUpFor = -1;
+                }
+
+                if (capture
+                    || pendingUp
+                    || (!_suspended && Volatile.Read(ref _keys).Contains(virtualKey)))
+                {
+                    if (!pendingUp)
+                    {
+                        _buffer.TryEnqueue(new KeyEvent(
+                            virtualKey,
+                            (int)data.ScanCode,
+                            down ? KeyTransition.Down : KeyTransition.Up,
+                            data.Time,
+                            entry,
+                            capture));
+
+                        // Seul appel au noyau du chemin chaud, de l'ordre de la
+                        // microseconde. L'alternative serait une attente active
+                        // du fil de travail, et I6 l'interdit.
+                        _signal.Set();
+                    }
+
+                    // I1 : la touche est avalee, le jeu ne la recoit pas.
+                    swallow = true;
+                }
             }
         }
         catch (Exception)

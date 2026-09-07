@@ -16,9 +16,15 @@ namespace Peek.Core.Input;
 /// doit jamais transformer une pression breve en maintien.
 /// </param>
 /// <param name="CaptureTicks">Horodatage haute resolution a l'entree du callback.</param>
+/// <param name="IsCapture">
+/// Vrai quand la touche a ete saisie pour etre assignee, et non pour declencher
+/// un raccourci. Le hook n'avale une touche non assignee que dans ce cas, et
+/// seulement apres que l'utilisateur l'a explicitement demande.
+/// </param>
 public readonly record struct KeyEvent(
     int VirtualKey,
     int ScanCode,
     KeyTransition Transition,
     uint SystemTimeMs,
-    long CaptureTicks);
+    long CaptureTicks,
+    bool IsCapture = false);

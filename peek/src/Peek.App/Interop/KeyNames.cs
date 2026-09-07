@@ -15,17 +15,27 @@ internal static class KeyNames
             return string.Empty;
         }
 
-        var code = scanCode > 0
-            ? (uint)scanCode
-            : NativeMethods.MapVirtualKeyW((uint)virtualKey, NativeMethods.MapvkVkToVsc);
+        // MAPVK_VK_TO_VSC_EX renvoie le prefixe 0xE0 ou 0xE1 dans l'octet haut
+        // pour les touches etendues. Sans le bit correspondant dans lParam,
+        // GetKeyNameText nomme « 4 » la fleche gauche, parce qu'il croit lire la
+        // touche du pave numerique.
+        var mapped = NativeMethods.MapVirtualKeyW((uint)virtualKey, NativeMethods.MapvkVkToVscEx);
 
-        if (code == 0)
+        if (mapped == 0)
         {
             return string.Empty;
         }
 
+        var prefix = (mapped >> 8) & 0xFF;
+        var lParam = (int)((mapped & 0xFF) << 16);
+
+        if (prefix is 0xE0 or 0xE1)
+        {
+            lParam |= 1 << 24;
+        }
+
         var buffer = new char[64];
-        var length = NativeMethods.GetKeyNameTextW((int)(code << 16), buffer, buffer.Length);
+        var length = NativeMethods.GetKeyNameTextW(lParam, buffer, buffer.Length);
 
         return length > 0 ? new string(buffer, 0, length) : string.Empty;
     }

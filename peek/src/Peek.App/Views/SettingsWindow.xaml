@@ -3,15 +3,15 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Peek"
-        Width="640"
-        Height="520"
-        MinWidth="520"
-        MinHeight="420"
+        Width="660"
+        Height="560"
+        MinWidth="560"
+        MinHeight="440"
         Background="{StaticResource BackgroundBrush}"
         WindowStartupLocation="CenterScreen">
 
-  <!-- Un seul ecran, pas d'onglets, pas de rail. Marge interieure genereuse :
-       la fenetre doit paraitre vide plutot que remplie. -->
+  <!-- Un seul ecran, pas d'onglets, pas de rail de navigation. Marge interieure
+       genereuse : la fenetre doit paraitre vide plutot que remplie. -->
   <DockPanel Margin="40,36,40,28" LastChildFill="True">
 
     <StackPanel DockPanel.Dock="Top">
@@ -20,7 +20,7 @@
     </StackPanel>
 
     <StackPanel DockPanel.Dock="Bottom">
-      <Border Style="{StaticResource Rule}" Margin="0,0,0,16" />
+      <Border Style="{StaticResource Rule}" Margin="0,16,0,16" />
 
       <ToggleButton x:Name="AdvancedToggle"
                     Style="{StaticResource QuietLink}"
@@ -31,23 +31,112 @@
       <StackPanel x:Name="AdvancedPanel" Visibility="Collapsed" Margin="0,10,0,0">
         <TextBlock x:Name="AdvancedValues" Style="{StaticResource SecondaryText}" />
         <TextBlock x:Name="ConfigPathLabel" Style="{StaticResource SecondaryText}" Margin="0,10,0,0" />
+        <TextBlock x:Name="StatusLine" Style="{StaticResource SecondaryText}" Margin="0,10,0,0" />
         <TextBlock Style="{StaticResource SecondaryText}"
                    Margin="0,10,0,0"
                    Text="Peek a besoin du mode fenêtré sans bordure. Un jeu en plein écran exclusif n'accepte aucune fenêtre par-dessus, et Peek ne cherche pas à le contourner. Un jeu lancé en administrateur ne lui envoie pas non plus ses touches." />
       </StackPanel>
     </StackPanel>
 
-    <!-- Etat vide : une phrase, un bouton. Pas de tutoriel, pas d'accueil en
-         plusieurs etapes. -->
-    <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Left">
-      <TextBlock Text="Ajoute ton premier raccourci" />
-      <Button x:Name="AddButton"
-              Style="{StaticResource FlatButton}"
-              Content="Ajouter"
-              Margin="0,18,0,0"
-              IsEnabled="False" />
-      <TextBlock x:Name="StatusLine" Style="{StaticResource SecondaryText}" Margin="0,18,0,0" />
-    </StackPanel>
+    <Grid>
 
+      <!-- Etat vide : une phrase, un bouton. Pas de tutoriel. -->
+      <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Left">
+        <TextBlock Text="Ajoute ton premier raccourci" />
+        <Button x:Name="EmptyAddButton"
+                Style="{StaticResource FlatButton}"
+                Content="Ajouter"
+                Margin="0,18,0,0"
+                Click="OnAddClicked" />
+      </StackPanel>
+
+      <!-- La liste. Une ligne contient quatre choses, et rien d'autre. -->
+      <DockPanel x:Name="ListState" Visibility="Collapsed">
+        <Button x:Name="AddButton"
+                DockPanel.Dock="Bottom"
+                Style="{StaticResource FlatButton}"
+                Content="Ajouter"
+                Margin="0,18,0,0"
+                Click="OnAddClicked" />
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="ShortcutList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,14,0,14">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="72" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- L'accent signale le raccourci. Nulle part ailleurs. -->
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding KeyLabel}"
+                               Foreground="{StaticResource AccentBrush}"
+                               VerticalAlignment="Center" />
+
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding TargetLabel}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,16,0" />
+
+                    <Button Grid.Column="2"
+                            Style="{StaticResource GhostButton}"
+                            Content="{Binding ModeLabel}"
+                            Click="OnModeClicked" />
+
+                    <Button Grid.Column="3"
+                            Style="{StaticResource GhostButton}"
+                            Content="Supprimer"
+                            Click="OnDeleteClicked" />
+                  </Grid>
+
+                  <TextBlock Text="{Binding Conflict}"
+                             Style="{StaticResource SecondaryText}"
+                             Margin="72,6,0,0">
+                    <TextBlock.Visibility>
+                      <Binding Path="HasConflict">
+                        <Binding.Converter>
+                          <BooleanToVisibilityConverter />
+                        </Binding.Converter>
+                      </Binding>
+                    </TextBlock.Visibility>
+                  </TextBlock>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+
+      <!-- L'ajout : deux gestes. Une touche, puis une fenetre. -->
+      <DockPanel x:Name="AddState" Visibility="Collapsed" Background="{StaticResource BackgroundBrush}">
+        <StackPanel DockPanel.Dock="Top">
+          <TextBlock x:Name="AddPrompt" />
+          <TextBlock x:Name="AddHint" Style="{StaticResource SecondaryText}" Margin="0,8,0,0" />
+        </StackPanel>
+
+        <ScrollViewer x:Name="WindowChoiceScroller"
+                      Visibility="Collapsed"
+                      Margin="0,20,0,0"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="WindowList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Button Style="{StaticResource ChoiceButton}"
+                        Content="{Binding Display}"
+                        Click="OnWindowChosen" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+
+    </Grid>
   </DockPanel>
 </Window>

@@ -162,7 +162,7 @@ public partial class App : Application
         {
             // La fenetre n'est construite qu'a la premiere ouverture : au repos,
             // Peek n'a aucun arbre visuel a entretenir.
-            _window = new SettingsWindow(_config, _hook);
+            _window = new SettingsWindow(_config, _hook, ApplyConfiguration);
             _window.Closed += (_, _) => _window = null;
             _window.Show();
             return;
@@ -176,6 +176,18 @@ public partial class App : Application
         }
 
         _window.Activate();
+    }
+
+    /// <summary>
+    /// Prend en compte une liste de raccourcis modifiee, sans relancer Peek : le
+    /// hook recoit un nouvel instantane, la machine a etats une nouvelle
+    /// configuration, et le voile est prechauffe si c'etait le premier
+    /// raccourci.
+    /// </summary>
+    private void ApplyConfiguration()
+    {
+        _hook?.ApplyConfiguration();
+        _orchestrator?.Prepare();
     }
 
     private void ToggleSuspend()

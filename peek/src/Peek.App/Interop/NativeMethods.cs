@@ -65,6 +65,7 @@ internal static partial class NativeMethods
     internal const uint LrDefaultSize = 0x00000040;
 
     internal const uint MapvkVkToVsc = 0x00;
+    internal const uint MapvkVkToVscEx = 0x04;
 
     internal const int IdiApplication = 32512;
 

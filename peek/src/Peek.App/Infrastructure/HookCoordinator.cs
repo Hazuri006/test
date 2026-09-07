@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Peek.App.Interop;
@@ -34,6 +36,7 @@ internal sealed class HookCoordinator : IDisposable
 
     private Thread? _worker;
     private volatile bool _running;
+    private volatile PendingConfiguration? _pending;
     private long _knownDropped;
     private bool _disposed;
 
@@ -55,6 +58,12 @@ internal sealed class HookCoordinator : IDisposable
     /// </summary>
     internal event Action<PeekIntent>? IntentProduced;
 
+    /// <summary>
+    /// Une touche saisie a la demande, pour etre assignee a un raccourci.
+    /// Emis depuis le fil de travail, comme les intentions.
+    /// </summary>
+    internal event Action<KeyEvent>? KeyCaptured;
+
     internal bool IsInstalled => _hook.IsInstalled;
 
     internal int WatchedKeyCount { get; private set; }
@@ -69,6 +78,11 @@ internal sealed class HookCoordinator : IDisposable
             _logger.LogInformation(value ? "Peek suspendu." : "Peek actif.");
         }
     }
+
+    /// <summary>Saisit la prochaine touche enfoncee au lieu de la laisser passer.</summary>
+    internal void ArmKeyCapture() => _hook.ArmCapture();
+
+    internal void CancelKeyCapture() => _hook.CancelCapture();
 
     internal bool Start()
     {
@@ -89,15 +103,23 @@ internal sealed class HookCoordinator : IDisposable
     }
 
     /// <summary>
-    /// Recharge les raccourcis. Appele au demarrage, et a chaque modification de
-    /// la configuration a partir de M2.
+    /// Recharge les raccourcis. Appele au demarrage, et a chaque modification
+    /// faite dans la fenetre.
+    ///
+    /// La machine a etats appartient au fil de travail et n'est touchee que par
+    /// lui. Modifier son dictionnaire depuis le fil d'interface pendant qu'il y
+    /// lit corromprait la structure, et le defaut ne se verrait qu'une fois sur
+    /// mille, chez l'utilisateur. La nouvelle configuration est donc deposee
+    /// puis appliquee par le fil de travail lui-meme.
+    ///
+    /// La liste est copiee au passage : l'originale continue d'etre modifiee
+    /// par la fenetre pendant ce temps.
     /// </summary>
     internal void ApplyConfiguration()
     {
         var config = _config.Current;
-        var conflicts = ShortcutConflicts.Find(config.Shortcuts);
 
-        foreach (var conflict in conflicts)
+        foreach (var conflict in ShortcutConflicts.Find(config.Shortcuts))
         {
             _logger.LogWarning("Raccourci {Shortcut} : {Message}", conflict.ShortcutId, conflict.Message);
         }
@@ -105,20 +127,46 @@ internal sealed class HookCoordinator : IDisposable
         var snapshot = KeySnapshot.FromShortcuts(config.Shortcuts);
         WatchedKeyCount = snapshot.Count;
 
+        // Publication par echange de reference : sans danger depuis n'importe
+        // quel fil, y compris pendant qu'un callback lit l'ancien instantane.
         _hook.UpdateKeys(snapshot);
 
-        var closing = _machine.Apply(config.Shortcuts, config.Advanced.HoldThresholdMs);
+        _pending = new PendingConfiguration(
+            [.. config.Shortcuts.Select(Copy)],
+            config.Advanced.HoldThresholdMs);
 
-        for (var i = 0; i < closing.Count; i++)
-        {
-            LogIntent(closing[i]);
-        }
+        _signal.Set();
 
         _logger.LogInformation(
             "{Count} touche(s) surveillee(s), seuil de maintien a {Threshold} ms.",
             snapshot.Count,
             config.Advanced.HoldThresholdMs);
     }
+
+    /// <summary>
+    /// Copie defensive d'un raccourci. La fenetre continue de modifier les
+    /// siens ; le fil de travail doit lire une version figee.
+    /// </summary>
+    private static Shortcut Copy(Shortcut shortcut) => new()
+    {
+        Id = shortcut.Id,
+        Mode = shortcut.Mode,
+        Enabled = shortcut.Enabled,
+        Key = new KeyBinding
+        {
+            VirtualKey = shortcut.Key.VirtualKey,
+            ScanCode = shortcut.Key.ScanCode,
+            Label = shortcut.Key.Label,
+        },
+        Target = new WindowTarget
+        {
+            ProcessName = shortcut.Target.ProcessName,
+            TitlePattern = shortcut.Target.TitlePattern,
+        },
+    };
+
+    /// <summary>Configuration deposee par la fenetre, en attente du fil de travail.</summary>
+    private sealed record PendingConfiguration(IReadOnlyList<Shortcut> Shortcuts, int HoldThresholdMs);
 
     internal HookHealthSnapshot Health => _health.Snapshot();
 
@@ -152,7 +200,28 @@ internal sealed class HookCoordinator : IDisposable
                 return;
             }
 
+            ApplyPending();
             Drain();
+        }
+    }
+
+    /// <summary>Installe la configuration deposee. Sur le fil de travail, et lui seul.</summary>
+    private void ApplyPending()
+    {
+        var pending = _pending;
+
+        if (pending is null)
+        {
+            return;
+        }
+
+        _pending = null;
+
+        var closing = _machine.Apply(pending.Shortcuts, pending.HoldThresholdMs);
+
+        for (var i = 0; i < closing.Count; i++)
+        {
+            LogIntent(closing[i]);
         }
     }
 
@@ -162,6 +231,14 @@ internal sealed class HookCoordinator : IDisposable
         {
             _health.RecordQueueLatency(Stopwatch.GetTimestamp() - keyEvent.CaptureTicks);
             SampleCallbackDuration();
+
+            if (keyEvent.IsCapture)
+            {
+                // Une touche saisie pour etre assignee ne traverse pas la
+                // machine a etats : elle n'a encore declenche aucun raccourci.
+                KeyCaptured?.Invoke(keyEvent);
+                continue;
+            }
 
             var intents = _machine.Handle(keyEvent);
 

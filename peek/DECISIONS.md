@@ -268,6 +268,58 @@ moindre mal.
 
 ---
 
+## Jalon M2
+
+### D21 — La capture de touche est le seul moment où le hook avale une touche non assignée
+
+Ajouter un raccourci se fait en appuyant sur la touche voulue, pas en la
+choisissant dans une liste déroulante. Le hook doit donc pouvoir saisir
+n'importe quelle touche, ce qui est exactement ce que D5 interdit le reste du
+temps.
+
+La capture est donc armée par un geste explicite — l'utilisateur a cliqué sur
+« Ajouter » et Peek attend —, elle est désarmée dès la première touche, avant
+même que l'événement soit empilé, et une répétition automatique ne peut pas en
+produire deux. Le relâchement de la touche saisie est avalé lui aussi, sinon
+l'application au premier plan recevrait un relâchement orphelin.
+
+La propriété de D5 tient toujours : hors capture, une touche non assignée
+n'entre pas dans la file, donc rien en aval ne peut la journaliser.
+
+### D22 — La machine à états appartient au fil de travail, et à lui seul
+
+Jusqu'à M2, la configuration ne changeait qu'au démarrage et la question ne se
+posait pas. Modifier un raccourci depuis la fenêtre pendant que le fil de
+travail lit la machine à états corromprait son dictionnaire, et le défaut ne se
+verrait qu'une fois sur mille, chez l'utilisateur, sans trace exploitable.
+
+La fenêtre dépose donc une configuration, et le fil de travail se l'applique
+lui-même au réveil suivant. La liste est copiée au passage, parce que la fenêtre
+continue de modifier l'originale.
+
+L'instantané des touches surveillées, lui, se publie depuis n'importe quel fil :
+c'est un échange de référence vers une valeur immuable, et c'est précisément
+pour cela que D2 l'a construit ainsi.
+
+### D23 — Le titre d'une fenêtre n'est retenu que s'il faut départager
+
+Quand l'utilisateur choisit une fenêtre, Peek enregistre le nom du processus.
+Le titre n'est ajouté que si plusieurs fenêtres du même programme sont ouvertes
+au moment du choix.
+
+Le titre d'un navigateur change à chaque onglet. Le figer systématiquement
+casserait le raccourci dès le lendemain, et l'utilisateur n'aurait aucune idée
+de pourquoi. La règle vit dans `Peek.Core`, pas dans la fenêtre, pour être
+vérifiable par un test.
+
+### D24 — Les réglages avancés restent en lecture seule jusqu'à M4
+
+Le lien discret et le panneau existent depuis M0, mais les valeurs ne s'y
+modifient pas encore : la section 8 place les réglages avancés au jalon M4. Le
+panneau dit où les changer en attendant.
+
+---
+
 ## Points en attente d'arbitrage
 
 Ils ne bloquent pas M0 mais engagent les jalons suivants.
