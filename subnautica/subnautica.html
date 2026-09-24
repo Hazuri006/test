@@ -259,10 +259,10 @@ h3{margin:8px 0 6px;font-weight:400;letter-spacing:.12em;color:var(--cy);text-tr
   </div>
 
   <div id="pda" class="overlay hidden"><div class="tablet"><div class="tabs" id="pdaTabs"></div><div class="tabBody" id="pdaBody"></div><div class="footer"><span class="small" style="margin-right:auto">TAB / ESC to close</span><button class="btn" data-close>Back</button></div></div></div>
-  <div id="fabUI" class="overlay hidden"><div class="ring" id="fabRing"></div></div>
+  <div id="fabUI" class="overlay hidden"><div class="ring" id="fabRing"></div><div style="position:absolute;bottom:28px;left:50%;transform:translateX(-50%)"><button class="btn" data-close>Back</button></div></div>
   <div id="buildUI" class="overlay hidden"><div class="panel"><div class="tabs" id="buildTabs"></div><div class="bgrid scroll" id="buildGrid" style="flex:1"></div><div class="footer"><span class="small" style="margin-right:auto" id="buildInfo"></span><button class="btn" data-close>Back</button></div></div></div>
   <div id="storageUI" class="overlay hidden"><div class="panel"><div><h3>Inventory</h3><div id="stInv"></div></div><div><h3 id="stTitle">Storage</h3><div id="stCont"></div></div><div style="align-self:flex-end"><button class="btn" data-close>Back</button></div></div></div>
-  <div id="vehUI" class="overlay hidden"><div class="panel" id="vehUIBody"></div></div>
+  <div id="vehUI" class="overlay hidden"><div class="panel"><div id="vehUIBody"></div><div class="footer"><button class="btn" data-close>Back</button></div></div></div>
   <div id="keypad" class="overlay hidden"><div class="panel"><h3>Door Keypad</h3><div class="disp" id="kpDisp">____</div><div class="keys" id="kpKeys"></div><div class="footer"><button class="btn" data-close>Back</button></div></div></div>
   <div id="terminal" class="overlay hidden"><div class="panel"><h2 id="termTitle"></h2><div class="body scroll" id="termBody" style="max-height:56vh"></div><div class="footer" id="termFoot"><button class="btn" data-close>Back</button></div></div></div>
   <div id="pause" class="overlay hidden"><div class="panel" id="pauseMain">
@@ -807,6 +807,8 @@ function terrainLib() {
   // biomeAt: cave biomes override the 2D surface map
   function biomeAt(x, y, z) {
     if (y < -420) {
+      // the lava cavern takes precedence over the lost river tunnel that opens into it
+      if (y < -820 && inBox(LAVABOX, x, y, z) && ellip(x, y, z, LAVA.c, LAVA.r) < 8) return B.LAVA;
       for (const T of TUNNELS) { if (T.floorK === 0) continue; if (inBox(T, x, y, z)) { const d = segDist(x, y, z, T.a[0], T.a[1], T.a[2], T.b[0], T.b[1], T.b[2], _sd); if (d < lerp(T.a[3], T.b[3], _sd.t) + 25) return B.LOST; } }
       if (inBox(LAVABOX, x, y, z) && ellip(x, y, z, LAVA.c, LAVA.r) < 25) return B.LAVA;
     }
@@ -1096,7 +1098,9 @@ vec3 uwFog(vec3 col, vec3 wp) {
   C.lights_fragment_begin = `
 vec3 uwSA = vec3(1.0); vec3 uwAA = vec3(1.0);
 #ifdef USE_FOG
-  uwSA = uwLightAtten(vFogWPos.y); uwAA = uwSA;
+  uwSA = uwLightAtten(vFogWPos.y);
+  // ambient decays more gently than direct sun and never reaches black (gameplay readability at depth)
+  uwAA = vFogWPos.y < 0.0 ? max(exp(guLightAbs * vec3(0.4, 0.6, 0.6) * max(vFogWPos.y, -1600.0)), vec3(0.018, 0.045, 0.085)) : vec3(1.0);
   #ifdef TERRAIN
     uwSA *= vSkyVis; uwAA *= mix(0.3, 1.0, vSkyVis);
   #endif
@@ -1437,7 +1441,7 @@ const Terrain = {
     // dispatch
     while (this.queue.length && (this.workers.length ? this.idle.length : this.inflight.size === 0)) {
       const q = this.queue.shift(); if (this.chunks.has(q.k) || this.inflight.has(q.k)) continue;
-      const req = { key: q.k, ox: q.cx * this.CH, oy: q.cy * this.CH, oz: q.cz * this.CH, N: this.N, vs: this.VS, flora: q.d < P().floraDist + 40, floraMul: P().flora };
+      const req = { key: q.k, ox: q.cx * this.CH, oy: q.cy * this.CH, oz: q.cz * this.CH, N: this.N, vs: this.VS, flora: true, floraMul: P().flora }; // flora + resources always generated (cheap); Flora.lodChunk handles draw distance
       this.inflight.set(q.k, q);
       if (this.workers.length) { const w = this.idle.pop(); w.postMessage(req); }
       else { const r = TL.meshChunk(req); this.ready.push(r); break; }
@@ -1934,7 +1938,7 @@ const Env = {
     // ambient light level at the camera (for exposure adaptation, snow, AI light perception)
     const att = Math.exp(-0.022 * this.depth);
     this.ambientLevel = clamp(this.light * att + this.glow.r * 6 + this.glow.g * 6 + this.glow.b * 6, 0, 1);
-    const targetExp = this.under ? 1.0 + 1.5 * (1 - smooth(0.0, 0.45, this.ambientLevel)) : 1.0 + (1 - sunUp) * 0.6;
+    const targetExp = Player.indoors() ? 1.0 : this.under ? 1.0 + 1.5 * (1 - smooth(0.0, 0.45, this.ambientLevel)) : 1.0 + (1 - sunUp) * 0.6;
     this.exposure = damp(this.exposure, targetExp, 0.6, dt);
     // post FX drivers
     const fx = Post.fx; fx.under = this.under ? 1 : 0; fx.exposure = this.exposure;
@@ -1957,6 +1961,8 @@ const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color(),
 const lin = (c) => [Math.pow(c[0], 2.2), Math.pow(c[1], 2.2), Math.pow(c[2], 2.2)];
 // GB accumulates transformed primitives with per-vertex colour, emissive and sway weight.
 class GB {
+  // GB.LO: build the far-LOD variant (fewer tube rings/sides, fewer leaf segments)
+  static LO = false;
   constructor() { this.p = []; this.n = []; this.c = []; this.e = []; this.s = []; this.idx = []; this.col = [1, 1, 1]; this.emis = [0, 0, 0]; this.sw = -1; }
   color(c, e) { this.col = lin(c); this.emis = e ? e.slice() : [0, 0, 0]; return this; }
   // add an existing THREE geometry with a transform; colorFn(x,y,z,nx,ny,nz) -> [r,g,b] sRGB optional
@@ -1978,6 +1984,7 @@ class GB {
   }
   // swept tube through points [[x,y,z,r],...]
   tube(pts, radial = 6, colorFn, emisFn, capEnd = true) {
+    if (GB.LO) { radial = Math.max(3, Math.ceil(radial / 2)); if (pts.length > 4) pts = pts.filter((q, i) => i % 2 === 0 || i === pts.length - 1); }
     const base = this.p.length / 3, n = pts.length; const T = V3(), N = V3(1, 0, 0), Bn = V3(), up = V3(0, 1, 0), tmp = V3();
     for (let i = 0; i < n; i++) {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
@@ -2001,6 +2008,7 @@ class GB {
   }
   // flat leaf strip from origin along dir, bending by curl, width profile sin; double sided via material
   leaf(ox, oy, oz, dir, side, len, wid, segs, curl, colorFn, emisFn) {
+    if (GB.LO) segs = Math.max(2, Math.ceil(segs / 2));
     const base = this.p.length / 3; const d = dir.clone().normalize(); const s = side.clone().normalize(); const nrm = V3().crossVectors(s, d).normalize();
     const p = V3(ox, oy, oz), cd = d.clone();
     for (let i = 0; i <= segs; i++) {
@@ -2027,13 +2035,25 @@ class GB {
     g.setIndex(this.idx); g.computeBoundingSphere(); return g;
   }
 }
+// make triangle winding agree with the vertex normals (so single-sided materials show the outside)
+function orientOutward(geo) {
+  const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array; let bad = 0;
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+    if (fx * (N[a] + N[b] + N[c]) + fy * (N[a + 1] + N[b + 1] + N[c + 1]) + fz * (N[a + 2] + N[b + 2] + N[c + 2]) < 0) bad++;
+  }
+  if (bad > I.length / 6) { for (let t = 0; t < I.length; t += 3) { const s = I[t + 1]; I[t + 1] = I[t + 2]; I[t + 2] = s; } geo.index.needsUpdate = true; }
+  return geo;
+}
 const tmpM = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => new THREE.Matrix4().compose(V3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), V3(sx, sy, sz));
 
 // ------------------------------------------------------------------ Flora geometry library
-const FloraGeo = {};
-function buildFloraGeometries() {
-  const R = (a, b, s) => { const f = seededRandom(s); return () => a + f() * (b - a); };
-  const F = FloraGeo;
+const FloraGeo = {}, FloraGeoLo = {};
+// builds every flora type into F; called twice (full detail, then GB.LO far variant)
+function buildFloraGeometries(F = FloraGeo) {
+  const LO = GB.LO, Q = (hi, lo) => (LO ? lo : hi);
   { // creepvine: tall kelp stalk with leaves and glowing seed clusters
     const g = new GB(), H = 24, rnd = seededRandom(3), pts = [];
     for (let i = 0; i <= 18; i++) { const t = i / 18; pts.push([Math.sin(t * 5) * 0.35, t * H, Math.cos(t * 4) * 0.3, lerp(0.24, 0.09, t)]); }
@@ -2045,7 +2065,7 @@ function buildFloraGeometries() {
     }
     for (let c = 0; c < 4; c++) {
       const t = 0.66 + c * 0.08, a = c * 1.9, sx = Math.sin(t * 5) * 0.35 + Math.cos(a) * 0.35, sz = Math.cos(t * 4) * 0.3 + Math.sin(a) * 0.35;
-      for (let k = 0; k < 6; k++) { const s = new THREE.IcosahedronGeometry(0.13 + rnd() * 0.07, 1); g.color([1.0, 0.72, 0.2], [2.2, 1.3, 0.25]).add(s, tmpM(sx + (rnd() - 0.5) * 0.35, t * H + (rnd() - 0.5) * 0.4, sz + (rnd() - 0.5) * 0.35)); }
+      for (let k = 0; k < 6; k++) { const s = new THREE.IcosahedronGeometry(0.15 + rnd() * 0.07, 0); if (LO && k % 2) { rnd(); rnd(); rnd(); s.dispose(); continue; } g.color([1.0, 0.72, 0.2], [2.2, 1.3, 0.25]).add(s, tmpM(sx + (rnd() - 0.5) * 0.35, t * H + (rnd() - 0.5) * 0.4, sz + (rnd() - 0.5) * 0.35)); }
     }
     F[FL.CREEPVINE] = g.build(3.2, H, 2); F[FL.CREEPVINE].userData = { H };
   }
@@ -2061,7 +2081,7 @@ function buildFloraGeometries() {
     F[FL.TABLE_CORAL] = g.build(0.05, 1.5, 1);
   }
   { // brain coral: wrinkled hemisphere
-    const geo = new THREE.SphereGeometry(1, 28, 14, 0, TAU, 0, Math.PI / 2); const P = geo.attributes.position; const fold = [];
+    const geo = new THREE.SphereGeometry(1, Q(28, 14), Q(14, 7), 0, TAU, 0, Math.PI / 2); const P = geo.attributes.position; const fold = [];
     for (let k = 0; k < P.count; k++) { const v = V3().fromBufferAttribute(P, k); const a = Math.atan2(v.z, v.x), e = Math.asin(clamp(v.y, -1, 1)); const f = Math.sin(a * 11 + Math.sin(e * 7) * 2.5) * Math.sin(e * 9 + a * 2); fold.push(f); v.multiplyScalar(1 + f * 0.05); P.setXYZ(k, v.x, v.y * 0.75, v.z); }
     geo.computeVertexNormals(); const g = new GB(); let i = 0;
     const ng = geo.toNonIndexed(); const nf = []; const idx = geo.index.array; for (let k = 0; k < idx.length; k++) nf.push(fold[idx[k]]);
@@ -2071,8 +2091,8 @@ function buildFloraGeometries() {
   { // acid mushrooms cluster
     const g = new GB(); const rnd = seededRandom(9);
     for (let i = 0; i < 5; i++) { const x = (rnd() - 0.5) * 0.5, z = (rnd() - 0.5) * 0.5, h = 0.18 + rnd() * 0.3, r = 0.08 + rnd() * 0.07;
-      g.color([0.65, 0.7, 0.45]).add(new THREE.CylinderGeometry(r * 0.3, r * 0.4, h, 6), tmpM(x, h / 2, z));
-      g.color([0.72, 0.92, 0.28], [0.12, 0.3, 0.03]).add(new THREE.SphereGeometry(r, 10, 6, 0, TAU, 0, Math.PI / 2), tmpM(x, h, z, 0, 0, 0, 1, 0.7, 1)); }
+      g.color([0.65, 0.7, 0.45]).add(new THREE.CylinderGeometry(r * 0.3, r * 0.4, h, Q(5, 3), 1, true), tmpM(x, h / 2, z));
+      g.color([0.72, 0.92, 0.28], [0.12, 0.3, 0.03]).add(new THREE.SphereGeometry(r, Q(8, 5), Q(4, 2), 0, TAU, 0, Math.PI / 2), tmpM(x, h, z, 0, 0, 0, 1, 0.7, 1)); }
     F[FL.ACID_MUSH] = g.build(0.1, 0.5, 1);
   }
   { // veined nettle
@@ -2082,7 +2102,7 @@ function buildFloraGeometries() {
   }
   { // writhing weed: many tendrils
     const g = new GB(); const rnd = seededRandom(17);
-    for (let i = 0; i < 11; i++) { const a = rnd() * TAU, L = 0.9 + rnd() * 1.4, pts = []; for (let k = 0; k <= 7; k++) { const t = k / 7; pts.push([Math.cos(a) * t * 0.4 + Math.sin(t * 6 + i) * 0.12, t * L, Math.sin(a) * t * 0.4 + Math.cos(t * 5 + i) * 0.12, lerp(0.04, 0.012, t)]); }
+    for (let i = 0; i < 11; i++) { const a = rnd() * TAU, L = 0.9 + rnd() * 1.4, pts = []; if (LO && i % 2) continue; for (let k = 0; k <= 5; k++) { const t = k / 5; pts.push([Math.cos(a) * t * 0.4 + Math.sin(t * 6 + i) * 0.12, t * L, Math.sin(a) * t * 0.4 + Math.cos(t * 5 + i) * 0.12, lerp(0.04, 0.012, t)]); }
       g.tube(pts, 4, (t) => [0.3 + t * 0.2, 0.2 + t * 0.15, 0.7], (t) => [0.05 * t, 0.08 * t, 0.35 * t * t]); }
     F[FL.WRITHING_WEED] = g.build(0.9, 2.2, 1.3);
   }
@@ -2092,7 +2112,7 @@ function buildFloraGeometries() {
     g.tube(pts, 6, (t) => [0.25 + t * 0.1, 0.03, 0.05]);
     for (let y = 1.5, i = 0; y < H - 1; y += 1.4, i++) { const t = y / H, a = i * 2.4, sx = Math.sin(t * 4) * 0.5, sz = Math.cos(t * 3) * 0.4;
       g.leaf(sx, y, sz, V3(Math.cos(a), 0.6, Math.sin(a)), V3(-Math.sin(a), 0, Math.cos(a)), 2 + rnd() * 1.5, 0.5, 4, -0.9, (u) => [0.28 + u * 0.1, 0.02, 0.05]);
-      if (i % 3 === 0) g.color([1, 0.2, 0.35], [1.4, 0.18, 0.28]).add(new THREE.SphereGeometry(0.28, 8, 6), tmpM(sx + Math.cos(a + 1) * 0.5, y, sz + Math.sin(a + 1) * 0.5, 0, 0, 0, 1, 1.4, 1)); }
+      if (i % 3 === 0) g.color([1, 0.2, 0.35], [1.4, 0.18, 0.28]).add(new THREE.SphereGeometry(0.28, Q(8, 5), Q(6, 3)), tmpM(sx + Math.cos(a + 1) * 0.5, y, sz + Math.sin(a + 1) * 0.5, 0, 0, 0, 1, 1.4, 1)); }
     F[FL.BLOOD_KELP] = g.build(2.8, H, 2);
   }
   { // giant tree mushroom
@@ -2101,16 +2121,16 @@ function buildFloraGeometries() {
     g.tube(pts, 12, (t, a) => [0.55 + Math.sin(a * 40) * 0.05, 0.5, 0.64 + t * 0.1], null, false);
     const top = pts[12];
     const prof = []; for (let i = 0; i <= 14; i++) { const t = i / 14; prof.push(new THREE.Vector2(Math.sin(t * Math.PI * 0.5) * 11, Math.cos(t * Math.PI * 0.5) * 3.4)); }
-    g.add(new THREE.LatheGeometry(prof, 32), tmpM(top[0], top[1], top[2]), (x, y, z) => { const d = Math.hypot(x, z) / 11; return d > 0.9 ? [0.85, 0.35, 0.9] : [0.36 + d * 0.1, 0.16, 0.5]; }, (x, y, z) => { const d = Math.hypot(x, z) / 11; const spot = Math.sin(x * 1.7) * Math.sin(z * 1.9) > 0.85 ? 0.6 : 0; return [(d > 0.93 ? 0.9 : 0) + spot * 0.5, (d > 0.93 ? 0.25 : 0) + spot * 0.2, (d > 0.93 ? 1.3 : 0) + spot]; });
+    g.add(new THREE.LatheGeometry(prof, Q(32, 16)), tmpM(top[0], top[1], top[2]), (x, y, z) => { const d = Math.hypot(x, z) / 11; return d > 0.9 ? [0.85, 0.35, 0.9] : [0.36 + d * 0.1, 0.16, 0.5]; }, (x, y, z) => { const d = Math.hypot(x, z) / 11; const spot = Math.sin(x * 1.7) * Math.sin(z * 1.9) > 0.85 ? 0.6 : 0; return [(d > 0.93 ? 0.9 : 0) + spot * 0.5, (d > 0.93 ? 0.25 : 0) + spot * 0.2, (d > 0.93 ? 1.3 : 0) + spot]; });
     const gill = []; for (let i = 0; i <= 6; i++) { const t = i / 6; gill.push(new THREE.Vector2(t * 10.8, -t * 1.2 - 0.3 + t * t * 1.4)); }
-    g.add(new THREE.LatheGeometry(gill, 40), tmpM(top[0], top[1] + 0.2, top[2], Math.PI, 0, 0), () => [0.4, 0.2, 0.5], () => [0.35, 0.08, 0.55]);
+    g.add(new THREE.LatheGeometry(gill, Q(40, 16)), tmpM(top[0], top[1] + 0.2, top[2], Math.PI, 0, 0), () => [0.4, 0.2, 0.5], () => [0.35, 0.08, 0.55]);
     F[FL.TREE_MUSH] = g.build(0.5, H, 2); F[FL.TREE_MUSH].userData = { H, top };
   }
   { // jellyshroom
     const g = new GB(); const pts = []; for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push([Math.sin(t * 2) * 0.2, t * 2.6, 0, lerp(0.42, 0.3, t)]); }
     g.tube(pts, 8, () => [0.7, 0.62, 0.75], null, false);
     const prof = []; for (let i = 0; i <= 12; i++) { const t = i / 12; prof.push(new THREE.Vector2(Math.sin(t * Math.PI * 0.55) * 2.3, Math.cos(t * Math.PI * 0.5) * 1.7)); }
-    g.add(new THREE.LatheGeometry(prof, 20), tmpM(pts[6][0], 2.5, 0), (x, y, z) => [0.6, 0.32 + y * 0.1, 0.78], (x, y, z) => { const s = Math.sin(x * 3.1) * Math.sin(z * 2.9) * Math.sin(y * 4) > 0.3 ? 1 : 0; return [0.55 * s + 0.12, 0.2 * s + 0.03, 0.9 * s + 0.25]; });
+    g.add(new THREE.LatheGeometry(prof, Q(20, 10)), tmpM(pts[6][0], 2.5, 0), (x, y, z) => [0.6, 0.32 + y * 0.1, 0.78], (x, y, z) => { const s = Math.sin(x * 3.1) * Math.sin(z * 2.9) * Math.sin(y * 4) > 0.3 ? 1 : 0; return [0.55 * s + 0.12, 0.2 * s + 0.03, 0.9 * s + 0.25]; });
     for (let k = 0; k < 10; k++) { const a = k / 10 * TAU, r = 1.6; const tp = []; for (let i = 0; i <= 4; i++) tp.push([Math.cos(a) * r, 2.5 - i * 0.45, Math.sin(a) * r, 0.05]); g.tube(tp, 3, () => [0.8, 0.5, 0.9], (t) => [0.5 * t, 0.2 * t, 0.9 * t]); }
     F[FL.JELLYSHROOM] = g.build(0.15, 4, 1);
   }
@@ -2118,8 +2138,8 @@ function buildFloraGeometries() {
     const g = new GB(); const rnd = seededRandom(23), pts = [];
     for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push([Math.sin(t * 2) * 0.4, t * 6.5, 0, lerp(0.9, 0.6, t)]); }
     g.tube(pts, 10, (t) => [0.12, 0.18 + t * 0.1, 0.42]);
-    g.color([0.16, 0.3, 0.62], [0.05, 0.18, 0.45]).add(new THREE.IcosahedronGeometry(2.3, 2), tmpM(pts[8][0], 7.6, 0, 0, 0, 0, 1, 0.8, 1));
-    for (let k = 0; k < 26; k++) { const a = rnd() * TAU, e = rnd() * 1.2; const d = V3(Math.cos(a) * Math.cos(e), Math.sin(e) + 0.3, Math.sin(a) * Math.cos(e)).normalize(); const tp = []; const o = V3(pts[8][0], 7.6, 0).addScaledVector(d, 1.8);
+    g.color([0.16, 0.3, 0.62], [0.05, 0.18, 0.45]).add(new THREE.IcosahedronGeometry(2.3, Q(2, 1)), tmpM(pts[8][0], 7.6, 0, 0, 0, 0, 1, 0.8, 1));
+    for (let k = 0; k < 26; k++) { const a = rnd() * TAU, e = rnd() * 1.2; if (LO && k % 2) { rnd(); continue; } const d = V3(Math.cos(a) * Math.cos(e), Math.sin(e) + 0.3, Math.sin(a) * Math.cos(e)).normalize(); const tp = []; const o = V3(pts[8][0], 7.6, 0).addScaledVector(d, 1.8);
       for (let i = 0; i <= 6; i++) { const t = i / 6; tp.push([o.x + d.x * t * 3.2, o.y + d.y * t * 3.2 - t * t * 1.2, o.z + d.z * t * 3.2, lerp(0.14, 0.05, t)]); }
       g.tube(tp, 4, (t) => [0.2 + t * 0.4, 0.4 + t * 0.4, 0.8], (t) => [0.1 * t * t, 0.7 * t * t, 1.6 * t * t]); }
     F[FL.ANEMONE] = g.build(0.7, 11, 2);
@@ -2128,14 +2148,14 @@ function buildFloraGeometries() {
     const g = new GB(); const rnd = seededRandom(29);
     for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; g.leaf(0, 0.05, 0, V3(Math.cos(a), 0.5, Math.sin(a)), V3(-Math.sin(a), 0, Math.cos(a)), 1.1, 0.45, 4, -0.6, (t) => [0.22, 0.32 + t * 0.1, 0.1]); }
     g.color([0.18, 0.28, 0.1]).add(new THREE.CylinderGeometry(0.1, 0.16, 1.1, 6), tmpM(0, 0.55, 0));
-    g.add(new THREE.SphereGeometry(0.42, 14, 10), tmpM(0, 1.3, 0, 0, 0, 0, 1, 1.35, 1), (x, y, z) => (Math.sin(y * 22) > 0.2 ? [0.95, 0.5, 0.1] : [0.12, 0.08, 0.05]), (x, y) => (y > 0.3 ? [0.4, 0.15, 0.02] : [0, 0, 0]));
+    g.add(new THREE.SphereGeometry(0.42, Q(14, 7), Q(10, 5)), tmpM(0, 1.3, 0, 0, 0, 0, 1, 1.35, 1), (x, y, z) => (Math.sin(y * 22) > 0.2 ? [0.95, 0.5, 0.1] : [0.12, 0.08, 0.05]), (x, y) => (y > 0.3 ? [0.4, 0.15, 0.02] : [0, 0, 0]));
     for (let k = 0; k < 14; k++) { const a = rnd() * TAU, e = rnd() * 1.2 - 0.3; const d = V3(Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e)); const q = new THREE.Quaternion().setFromUnitVectors(V3(0, 1, 0), d); const m = new THREE.Matrix4().compose(V3(d.x * 0.42, 1.3 + d.y * 0.55, d.z * 0.42), q, V3(1, 1, 1)); g.color([0.9, 0.8, 0.5]).add(new THREE.ConeGeometry(0.05, 0.35, 4), m); }
     F[FL.TIGER_PLANT] = g.build(0.15, 1.8, 1);
   }
   { // bulb bush
     const g = new GB();
     for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; g.leaf(0, 0.05, 0, V3(Math.cos(a), 0.7, Math.sin(a)), V3(-Math.sin(a), 0, Math.cos(a)), 1.5, 0.7, 5, -0.8, (t) => [0.12, 0.3 + t * 0.2, 0.28]); }
-    g.color([0.4, 0.95, 0.85], [0.35, 1.3, 1.1]).add(new THREE.IcosahedronGeometry(0.55, 2), tmpM(0, 0.9, 0, 0, 0, 0, 1, 1.25, 1));
+    g.add(new THREE.IcosahedronGeometry(0.55, Q(2, 1)), tmpM(0, 0.9, 0, 0, 0, 0, 1, 1.25, 1), (x, y, z) => (Math.sin(x * 14) * Math.sin(y * 12) * Math.sin(z * 13) > 0.15 ? [0.1, 0.45, 0.42] : [0.25, 0.85, 0.75]), (x, y, z) => (Math.sin(x * 14) * Math.sin(y * 12) * Math.sin(z * 13) > 0.15 ? [0.02, 0.12, 0.1] : [0.12, 0.6, 0.5]));
     g.color([0.15, 0.35, 0.3]).add(new THREE.CylinderGeometry(0.08, 0.12, 0.7, 6), tmpM(0, 0.35, 0));
     F[FL.BULB_BUSH] = g.build(0.3, 2, 1.5);
   }
@@ -2145,35 +2165,35 @@ function buildFloraGeometries() {
       g.add(new THREE.CylinderGeometry(0.01, r, h, 6), m, (x, y) => [0.5 + y * 0.1, 0.85, 1.0], (x, y) => [0.2 + y * 0.2, 0.7 + y * 0.2, 1.2]); }
     F[FL.CRYSTAL] = g.build(0, 1, 1);
   }
-  const grass = (n, hmin, hmax, w, c0, c1, seed, lean = 0.35, emis) => { const g = new GB(); const rnd = seededRandom(seed); for (let i = 0; i < n; i++) { const a = rnd() * TAU, r = rnd() * 0.45; g.blade(Math.cos(a) * r, Math.sin(a) * r, hmin + rnd() * (hmax - hmin), w, lean * (0.5 + rnd()), rnd() * TAU, (t) => [lerp(c0[0], c1[0], t), lerp(c0[1], c1[1], t), lerp(c0[2], c1[2], t)]); } if (emis) g.e = g.e.map(() => 0); return g.build(0.35, hmax, 1.6); };
-  FloraGeo[FL.RED_GRASS] = grass(16, 0.6, 1.4, 0.09, [0.35, 0.05, 0.03], [0.95, 0.2, 0.1], 37);
-  FloraGeo[FL.SEA_GRASS] = grass(12, 0.3, 0.8, 0.07, [0.3, 0.35, 0.12], [0.7, 0.72, 0.35], 41);
-  FloraGeo[FL.LAND_GRASS] = grass(14, 0.25, 0.7, 0.06, [0.12, 0.25, 0.05], [0.35, 0.6, 0.15], 43, 0.25);
-  FloraGeo[FL.BLOOD_GRASS] = grass(10, 0.2, 0.55, 0.08, [0.18, 0.02, 0.03], [0.5, 0.06, 0.08], 47);
+  const grass = (n, hmin, hmax, w, c0, c1, seed, lean = 0.35, emis) => { const g = new GB(); const rnd = seededRandom(seed); if (LO) { n = Math.ceil(n / 2); w *= 1.5; } for (let i = 0; i < n; i++) { const a = rnd() * TAU, r = rnd() * 0.45; g.blade(Math.cos(a) * r, Math.sin(a) * r, hmin + rnd() * (hmax - hmin), w, lean * (0.5 + rnd()), rnd() * TAU, (t) => [lerp(c0[0], c1[0], t), lerp(c0[1], c1[1], t), lerp(c0[2], c1[2], t)]); } if (emis) g.e = g.e.map(() => 0); return g.build(0.35, hmax, 1.6); };
+  F[FL.RED_GRASS] = grass(16, 0.6, 1.4, 0.09, [0.35, 0.05, 0.03], [0.95, 0.2, 0.1], 37);
+  F[FL.SEA_GRASS] = grass(12, 0.3, 0.8, 0.07, [0.3, 0.35, 0.12], [0.7, 0.72, 0.35], 41);
+  F[FL.LAND_GRASS] = grass(14, 0.25, 0.7, 0.06, [0.12, 0.25, 0.05], [0.35, 0.6, 0.15], 43, 0.25);
+  F[FL.BLOOD_GRASS] = grass(10, 0.2, 0.55, 0.08, [0.18, 0.02, 0.03], [0.5, 0.06, 0.08], 47);
   { // land tree
     const g = new GB(), rnd = seededRandom(53), pts = [];
     for (let i = 0; i <= 10; i++) { const t = i / 10; pts.push([Math.sin(t * 2.5) * 0.6, t * 9, Math.cos(t * 2) * 0.4 - 0.4, lerp(0.42, 0.14, t)]); }
     g.tube(pts, 8, (t, a) => [0.3 + Math.sin(a * 30) * 0.04, 0.22, 0.14]);
-    for (let k = 0; k < 7; k++) { const a = k / 7 * TAU, r = 1.6 + rnd() * 1.4; g.color([0.14 + rnd() * 0.06, 0.34 + rnd() * 0.12, 0.08]).add(new THREE.IcosahedronGeometry(1.4 + rnd(), 1), tmpM(pts[10][0] + Math.cos(a) * r, 8.4 + rnd() * 1.6, pts[10][2] + Math.sin(a) * r, 0, 0, 0, 1, 0.6, 1)); }
-    g.color([0.18, 0.4, 0.1]).add(new THREE.IcosahedronGeometry(2.0, 1), tmpM(pts[10][0], 9.6, pts[10][2], 0, 0, 0, 1, 0.65, 1));
+    for (let k = 0; k < 7; k++) { const a = k / 7 * TAU, r = 1.6 + rnd() * 1.4; g.color([0.14 + rnd() * 0.06, 0.34 + rnd() * 0.12, 0.08]).add(new THREE.IcosahedronGeometry(1.4 + rnd(), Q(1, 0)), tmpM(pts[10][0] + Math.cos(a) * r, 8.4 + rnd() * 1.6, pts[10][2] + Math.sin(a) * r, 0, 0, 0, 1, 0.6, 1)); }
+    g.color([0.18, 0.4, 0.1]).add(new THREE.IcosahedronGeometry(2.0, Q(1, 0)), tmpM(pts[10][0], 9.6, pts[10][2], 0, 0, 0, 1, 0.65, 1));
     F[FL.LAND_TREE] = g.build(0.25, 10, 2);
   }
   { // bulbo tree
     const g = new GB(), pts = []; for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push([0, t * 3.2, 0, lerp(0.5, 0.3, t)]); }
     g.tube(pts, 8, () => [0.35, 0.28, 0.25]);
-    for (let k = 0; k < 5; k++) { const a = k / 5 * TAU; g.color([0.35, 0.2, 0.55], [0.18, 0.06, 0.3]).add(new THREE.SphereGeometry(0.55, 12, 8), tmpM(Math.cos(a) * 0.9, 3.4 + (k % 2) * 0.4, Math.sin(a) * 0.9)); g.leaf(0, 3.3, 0, V3(Math.cos(a + 0.6), 0.4, Math.sin(a + 0.6)), V3(-Math.sin(a + 0.6), 0, Math.cos(a + 0.6)), 2.2, 0.8, 4, -0.8, () => [0.2, 0.42, 0.14]); }
+    for (let k = 0; k < 5; k++) { const a = k / 5 * TAU; g.color([0.35, 0.2, 0.55], [0.18, 0.06, 0.3]).add(new THREE.SphereGeometry(0.55, Q(12, 6), Q(8, 4)), tmpM(Math.cos(a) * 0.9, 3.4 + (k % 2) * 0.4, Math.sin(a) * 0.9)); g.leaf(0, 3.3, 0, V3(Math.cos(a + 0.6), 0.4, Math.sin(a + 0.6)), V3(-Math.sin(a + 0.6), 0, Math.cos(a + 0.6)), 2.2, 0.8, 4, -0.8, () => [0.2, 0.42, 0.14]); }
     F[FL.BULBO_TREE] = g.build(0.2, 4.5, 2);
   }
   { // marblemelon plant
     const g = new GB(); for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; g.leaf(0, 0.05, 0, V3(Math.cos(a), 0.25, Math.sin(a)), V3(-Math.sin(a), 0, Math.cos(a)), 0.9, 0.55, 4, -0.4, () => [0.2, 0.45, 0.14]); }
-    for (let k = 0; k < 3; k++) { const a = k * 2.1; g.add(new THREE.SphereGeometry(0.26, 12, 8), tmpM(Math.cos(a) * 0.4, 0.22, Math.sin(a) * 0.4), (x, y, z) => (Math.sin(x * 30 + Math.sin(z * 25) * 2) > 0.3 ? [0.8, 0.9, 0.75] : [0.3, 0.55, 0.25])); }
+    for (let k = 0; k < 3; k++) { const a = k * 2.1; g.add(new THREE.SphereGeometry(0.26, Q(12, 6), Q(8, 4)), tmpM(Math.cos(a) * 0.4, 0.22, Math.sin(a) * 0.4), (x, y, z) => (Math.sin(x * 30 + Math.sin(z * 25) * 2) > 0.3 ? [0.8, 0.9, 0.75] : [0.3, 0.55, 0.25])); }
     F[FL.MARBLEMELON] = g.build(0.08, 0.6, 1);
   }
   { // lantern tree
     const g = new GB(), rnd = seededRandom(61), pts = []; for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push([Math.sin(t * 5) * 0.3, t * 4.2, Math.cos(t * 4) * 0.3, lerp(0.25, 0.08, t)]); }
     g.tube(pts, 6, () => [0.3, 0.2, 0.12]);
     for (let k = 0; k < 6; k++) { const a = k / 6 * TAU, y = 2.2 + rnd() * 2; const bp = [[Math.sin(y / 4.2 * 5) * 0.3, y, 0, 0.06], [Math.cos(a) * 1.2, y + 0.5, Math.sin(a) * 1.2, 0.03]]; g.tube(bp, 4, () => [0.3, 0.22, 0.12]);
-      g.color([1, 0.6, 0.15], [2.2, 0.9, 0.15]).add(new THREE.SphereGeometry(0.16, 8, 6), tmpM(Math.cos(a) * 1.2, y + 0.3, Math.sin(a) * 1.2, 0, 0, 0, 1, 1.3, 1));
+      g.color([1, 0.6, 0.15], [2.2, 0.9, 0.15]).add(new THREE.SphereGeometry(0.16, Q(8, 4), Q(6, 3)), tmpM(Math.cos(a) * 1.2, y + 0.3, Math.sin(a) * 1.2, 0, 0, 0, 1, 1.3, 1));
       g.leaf(Math.cos(a) * 1.2, y + 0.5, Math.sin(a) * 1.2, V3(Math.cos(a), 0.3, Math.sin(a)), V3(-Math.sin(a), 0, Math.cos(a)), 0.9, 0.4, 3, -0.4, () => [0.25, 0.45, 0.12]); }
     F[FL.LANTERN_TREE] = g.build(0.15, 5, 2);
   }
@@ -2184,7 +2204,7 @@ function buildFloraGeometries() {
   }
   { // pink caps
     const g = new GB(); const rnd = seededRandom(71);
-    for (let i = 0; i < 6; i++) { const x = (rnd() - 0.5) * 0.9, z = (rnd() - 0.5) * 0.9, h = 0.3 + rnd() * 0.6, r = 0.12 + rnd() * 0.12; g.color([0.8, 0.7, 0.75]).add(new THREE.CylinderGeometry(r * 0.25, r * 0.35, h, 6), tmpM(x, h / 2, z)); g.color([0.95, 0.4, 0.62], [0.35, 0.08, 0.25]).add(new THREE.SphereGeometry(r, 10, 6, 0, TAU, 0, Math.PI / 2), tmpM(x, h, z, 0, 0, 0, 1, 0.6, 1)); }
+    for (let i = 0; i < 6; i++) { const x = (rnd() - 0.5) * 0.9, z = (rnd() - 0.5) * 0.9, h = 0.3 + rnd() * 0.6, r = 0.12 + rnd() * 0.12; g.color([0.8, 0.7, 0.75]).add(new THREE.CylinderGeometry(r * 0.25, r * 0.35, h, 6), tmpM(x, h / 2, z)); g.color([0.95, 0.4, 0.62], [0.35, 0.08, 0.25]).add(new THREE.SphereGeometry(r, Q(10, 5), Q(5, 2), 0, TAU, 0, Math.PI / 2), tmpM(x, h, z, 0, 0, 0, 1, 0.6, 1)); }
     F[FL.PINK_CAP] = g.build(0.1, 1, 1);
   }
   { // ghost weed
@@ -2195,12 +2215,12 @@ function buildFloraGeometries() {
   }
   { // coral tubes
     const g = new GB(); const rnd = seededRandom(79);
-    for (let i = 0; i < 8; i++) { const x = (rnd() - 0.5) * 1.1, z = (rnd() - 0.5) * 1.1, h = 0.5 + rnd() * 1.4, r = 0.13 + rnd() * 0.16; const geo = new THREE.CylinderGeometry(r, r * 1.15, h, 10, 1, true);
-      g.add(geo, tmpM(x, h / 2, z), (lx, ly, lz) => [0.92, 0.55 + ly * 0.1, 0.22]); g.color([0.2, 0.08, 0.05]).add(new THREE.CircleGeometry(r * 0.95, 10), tmpM(x, h - 0.05, z, -Math.PI / 2)); }
+    for (let i = 0; i < 8; i++) { const x = (rnd() - 0.5) * 1.1, z = (rnd() - 0.5) * 1.1, h = 0.5 + rnd() * 1.4, r = 0.13 + rnd() * 0.16; const geo = new THREE.CylinderGeometry(r, r * 1.15, h, Q(10, 5), 1, true);
+      g.add(geo, tmpM(x, h / 2, z), (lx, ly, lz) => [0.92, 0.55 + ly * 0.1, 0.22]); g.color([0.2, 0.08, 0.05]).add(new THREE.CircleGeometry(r * 0.95, Q(10, 5)), tmpM(x, h - 0.05, z, -Math.PI / 2)); }
     F[FL.CORAL_TUBE] = g.build(0.04, 2, 1);
   }
   { // fan coral
-    const g = new GB(); const geo = new THREE.CircleGeometry(1, 24, 0, Math.PI); const Pp = geo.attributes.position;
+    const g = new GB(); const geo = new THREE.CircleGeometry(1, Q(24, 10), 0, Math.PI); const Pp = geo.attributes.position;
     for (let k = 0; k < Pp.count; k++) { const x = Pp.getX(k), y = Pp.getY(k); Pp.setZ(k, Math.sin(x * 3) * 0.08); }
     geo.computeVertexNormals();
     g.add(geo, tmpM(0, 0.05, 0, 0, 0, 0, 0.9, 1.2, 1), (x, y) => (Math.sin(Math.atan2(y, x) * 18) > 0.4 ? [0.85, 0.3, 0.75] : [0.45, 0.12, 0.45]));
@@ -2212,31 +2232,31 @@ const FLORA_DEF = [];
 function floraDefs() {
   const D = (t, o) => (FLORA_DEF[t] = Object.assign({ scale: [0.8, 1.25], tilt: 0.3, harvest: null, radius: 1, hit: 1, tints: null }, o));
   D(FL.CREEPVINE, { name: 'Creepvine', scale: [0.75, 1.3], tilt: 0, harvest: 'creepvine_sample', radius: 1.2, hit: 1.5, db: 'creepvine' });
-  D(FL.TABLE_CORAL, { name: 'Table Coral', scale: [0.8, 2.0], tilt: 0.6, harvest: 'table_coral', radius: 1.6, db: 'tablecoral', tints: [[1, 1, 1], [0.7, 0.55, 1.4], [0.5, 1.1, 1.3], [1.1, 0.8, 0.5]] });
-  D(FL.BRAIN_CORAL, { name: 'Brain Coral', scale: [0.8, 1.8], tilt: 0.7, radius: 1.3, db: 'braincoral' });
-  D(FL.ACID_MUSH, { name: 'Acid Mushroom', scale: [0.9, 1.6], tilt: 0.5, harvest: 'acid_mushroom', radius: 0.6, db: 'acidmushroom' });
-  D(FL.VEINED_NETTLE, { name: 'Veined Nettle', scale: [0.8, 1.4], tilt: 0.3, harvest: 'veined_nettle_seed', radius: 0.9, db: 'veinednettle' });
-  D(FL.WRITHING_WEED, { name: 'Writhing Weed', scale: [0.8, 1.5], tilt: 0.3, harvest: 'writhing_weed_seed', radius: 0.9, db: 'writhingweed' });
+  D(FL.TABLE_CORAL, { far: 110, name: 'Table Coral', scale: [0.8, 2.0], tilt: 0.6, harvest: 'table_coral', radius: 1.6, db: 'tablecoral', tints: [[1, 1, 1], [0.7, 0.55, 1.4], [0.5, 1.1, 1.3], [1.1, 0.8, 0.5]] });
+  D(FL.BRAIN_CORAL, { far: 110, name: 'Brain Coral', scale: [0.8, 1.8], tilt: 0.7, radius: 1.3, db: 'braincoral' });
+  D(FL.ACID_MUSH, { far: 60, name: 'Acid Mushroom', scale: [0.9, 1.6], tilt: 0.5, harvest: 'acid_mushroom', radius: 0.6, db: 'acidmushroom' });
+  D(FL.VEINED_NETTLE, { far: 80, name: 'Veined Nettle', scale: [0.8, 1.4], tilt: 0.3, harvest: 'veined_nettle_seed', radius: 0.9, db: 'veinednettle' });
+  D(FL.WRITHING_WEED, { far: 80, name: 'Writhing Weed', scale: [0.8, 1.5], tilt: 0.3, harvest: 'writhing_weed_seed', radius: 0.9, db: 'writhingweed' });
   D(FL.BLOOD_KELP, { name: 'Blood Kelp', scale: [0.7, 1.4], tilt: 0, harvest: 'blood_oil', radius: 1.3, hit: 1.5, db: 'bloodkelp' });
   D(FL.TREE_MUSH, { name: 'Giant Tree Mushroom', scale: [0.7, 1.35], tilt: 0.05, radius: 3, hit: 2.5, db: 'treemushroom' });
   D(FL.JELLYSHROOM, { name: 'Jellyshroom', scale: [0.7, 2.4], tilt: 0.25, harvest: 'jellyshroom_sample', radius: 2.4, hit: 2.2, db: 'jellyshroom' });
   D(FL.ANEMONE, { name: 'Giant Anemone', scale: [0.8, 1.5], tilt: 0.1, harvest: 'anemone_sample', radius: 3, hit: 2.5, db: 'anemone' });
-  D(FL.TIGER_PLANT, { name: 'Tiger Plant', scale: [0.9, 1.4], tilt: 0.2, harvest: 'tiger_plant_seed', radius: 1, db: 'tigerplant' });
-  D(FL.BULB_BUSH, { name: 'Bulb Bush', scale: [0.8, 1.6], tilt: 0.6, harvest: 'bulb_bush_sample', radius: 1.2, db: 'bulbbush' });
-  D(FL.CRYSTAL, { name: 'Cave Crystal', scale: [0.7, 1.8], tilt: 0.9, radius: 1, db: 'cavecrystal', tints: [[1, 1, 1], [1.4, 0.6, 1.2], [0.6, 1.3, 0.8]] });
-  D(FL.RED_GRASS, { name: 'Red Grass', scale: [0.8, 1.5], tilt: 0.7, radius: 0.7, db: 'redgrass' });
-  D(FL.SEA_GRASS, { name: 'Sea Grass', scale: [0.8, 1.6], tilt: 0.7, radius: 0.5, db: null });
+  D(FL.TIGER_PLANT, { far: 90, name: 'Tiger Plant', scale: [0.9, 1.4], tilt: 0.2, harvest: 'tiger_plant_seed', radius: 1, db: 'tigerplant' });
+  D(FL.BULB_BUSH, { far: 110, name: 'Bulb Bush', scale: [0.8, 1.6], tilt: 0.6, harvest: 'bulb_bush_sample', radius: 1.2, db: 'bulbbush' });
+  D(FL.CRYSTAL, { far: 90, name: 'Cave Crystal', scale: [0.7, 1.8], tilt: 0.9, radius: 1, db: 'cavecrystal', tints: [[1, 1, 1], [1.4, 0.6, 1.2], [0.6, 1.3, 0.8]] });
+  D(FL.RED_GRASS, { far: 60, name: 'Red Grass', scale: [0.8, 1.5], tilt: 0.7, radius: 0.7, db: 'redgrass' });
+  D(FL.SEA_GRASS, { far: 55, name: 'Sea Grass', scale: [0.8, 1.6], tilt: 0.7, radius: 0.5, db: null });
   D(FL.LAND_TREE, { name: 'Island Tree', scale: [0.7, 1.4], tilt: 0.05, radius: 2, db: 'landtree' });
-  D(FL.LAND_GRASS, { name: 'Grass', scale: [0.8, 1.6], tilt: 0.6, radius: 0.5, db: null });
+  D(FL.LAND_GRASS, { far: 70, name: 'Grass', scale: [0.8, 1.6], tilt: 0.6, radius: 0.5, db: null });
   D(FL.BULBO_TREE, { name: 'Bulbo Tree', scale: [0.8, 1.3], tilt: 0.1, harvest: 'bulbo_sample', radius: 1.5, db: 'bulbotree' });
-  D(FL.MARBLEMELON, { name: 'Marblemelon Plant', scale: [0.9, 1.3], tilt: 0.3, harvest: 'marblemelon', radius: 0.8, db: 'marblemelon', byHand: true });
+  D(FL.MARBLEMELON, { far: 60, name: 'Marblemelon Plant', scale: [0.9, 1.3], tilt: 0.3, harvest: 'marblemelon', radius: 0.8, db: 'marblemelon', byHand: true });
   D(FL.LANTERN_TREE, { name: 'Lantern Tree', scale: [0.8, 1.3], tilt: 0.1, harvest: 'lantern_fruit', radius: 1.5, db: 'lanterntree', byHand: true });
-  D(FL.BLUE_PALM, { name: 'Blue Palm', scale: [0.8, 1.5], tilt: 0.4, harvest: 'blue_palm_seed', radius: 1.2, db: 'bluepalm' });
-  D(FL.PINK_CAP, { name: 'Pink Cap', scale: [0.8, 1.6], tilt: 0.5, harvest: 'pink_cap_spores', radius: 0.8, db: 'pinkcap' });
-  D(FL.GHOST_WEED, { name: 'Ghost Weed', scale: [0.8, 1.4], tilt: 0.5, harvest: 'ghost_weed', radius: 1.2, db: 'ghostweed' });
-  D(FL.CORAL_TUBE, { name: 'Coral Tubes', scale: [0.8, 1.6], tilt: 0.5, harvest: 'coral_tube_sample', radius: 1, db: 'coraltube' });
-  D(FL.FAN_CORAL, { name: 'Sea Fan', scale: [0.7, 1.5], tilt: 0.5, radius: 0.8, db: 'seafan' });
-  D(FL.BLOOD_GRASS, { name: 'Blood Grass', scale: [0.8, 1.5], tilt: 0.7, radius: 0.5, db: null });
+  D(FL.BLUE_PALM, { far: 90, name: 'Blue Palm', scale: [0.8, 1.5], tilt: 0.4, harvest: 'blue_palm_seed', radius: 1.2, db: 'bluepalm' });
+  D(FL.PINK_CAP, { far: 60, name: 'Pink Cap', scale: [0.8, 1.6], tilt: 0.5, harvest: 'pink_cap_spores', radius: 0.8, db: 'pinkcap' });
+  D(FL.GHOST_WEED, { far: 110, name: 'Ghost Weed', scale: [0.8, 1.4], tilt: 0.5, harvest: 'ghost_weed', radius: 1.2, db: 'ghostweed' });
+  D(FL.CORAL_TUBE, { far: 80, name: 'Coral Tubes', scale: [0.8, 1.6], tilt: 0.5, harvest: 'coral_tube_sample', radius: 1, db: 'coraltube' });
+  D(FL.FAN_CORAL, { far: 70, name: 'Sea Fan', scale: [0.7, 1.5], tilt: 0.5, radius: 0.8, db: 'seafan' });
+  D(FL.BLOOD_GRASS, { far: 55, name: 'Blood Grass', scale: [0.8, 1.5], tilt: 0.7, radius: 0.5, db: null });
 }
 // shared sway material for all flora
 function makeSwayMaterial(opts = {}) {
@@ -2269,7 +2289,7 @@ function makeSwayMaterial(opts = {}) {
 const Flora = {
   mat: null, byChunk: new Map(), tmpQ: new THREE.Quaternion(), specialT: 0, harvested: new Set(),
   init() {
-    buildFloraGeometries(); floraDefs();
+    buildFloraGeometries(FloraGeo); GB.LO = true; buildFloraGeometries(FloraGeoLo); GB.LO = false; floraDefs();
     this.mat = makeSwayMaterial();
     Terrain.hooksLoad.push((c, r) => this.onLoad(c, r));
     Terrain.hooksUnload.push((c) => this.onUnload(c));
@@ -2282,7 +2302,7 @@ const Flora = {
     for (const f of r.flora) {
       const def = FLORA_DEF[f.t], geo = FloraGeo[f.t]; if (!def || !geo) continue;
       const d = f.d, n = d.length / 8;
-      const mesh = new THREE.InstancedMesh(geo, this.mat, n); mesh.frustumCulled = true; mesh.castShadow = false; mesh.receiveShadow = !!P().shadows;
+      const mesh = new THREE.InstancedMesh(geo, this.mat, n); mesh.name = "fl" + f.t; mesh.frustumCulled = true; mesh.castShadow = false; mesh.receiveShadow = !!P().shadows;
       const scales = new Float32Array(n);
       for (let i = 0; i < n; i++) {
         const o = i * 8; p.set(d[o], d[o + 1], d[o + 2]);
@@ -2300,9 +2320,11 @@ const Flora = {
       }
       mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingSphere();
+      mesh.userData.t = f.t; mesh.userData.hi = geo; mesh.userData.lo = FloraGeoLo[f.t] || geo;
       R.scene.add(mesh); list.meshes.push(mesh); list.data.push({ t: f.t, d, mesh, scales });
     }
-    this.byChunk.set(c.k, list);
+    list.c = c; this.byChunk.set(c.k, list);
+    this.lodChunk(list, R.camera.position);
   },
   addCollider(list, t, p, sc, geo) {
     let col = null;
@@ -2356,6 +2378,24 @@ const Flora = {
     if (small) { const m = hit.e.mesh; m.getMatrixAt(hit.i, _m4); _m4.scale(V3(0, 0, 0)); m.setMatrixAt(hit.i, _m4); m.instanceMatrix.needsUpdate = true; hit.e.scales[hit.i] = 0; this.harvested.add(hit.chunk + ':' + hit.t + ':' + hit.i); }
     FX.burst(hit.pos, 14, { col: [0.5, 0.8, 0.3], speed: 1.5, size: 0.12, life: 1.4, grav: -0.2 });
   },
+  // Flora LOD: per chunk, swap to the low-detail geometry beyond LOD_NEAR and hide small plants beyond their
+  // per-type draw distance (they are fogged out underwater long before that anyway). Distance is measured
+  // to the chunk's AABB so plants on a chunk edge never pop right in front of the camera.
+  LOD_NEAR: 42,
+  lodChunk(l, cp) {
+    const CH = Terrain.CH, c = l.c;
+    const dx = Math.max(0, Math.abs(cp.x - (c.cx + 0.5) * CH) - CH / 2), dy = Math.max(0, Math.abs(cp.y - (c.cy + 0.5) * CH) - CH / 2), dz = Math.max(0, Math.abs(cp.z - (c.cz + 0.5) * CH) - CH / 2);
+    const d = Math.hypot(dx, dy, dz), q = (P().floraDist || 100) / 100;
+    for (const m of l.meshes) {
+      const u = m.userData, far = u.far || (FLORA_DEF[u.t] && FLORA_DEF[u.t].far) || 1e9;
+      m.visible = d < far * q;
+      if (!u.lo) continue; // resources: no LOD variant
+      const g = d > this.LOD_NEAR * q ? u.lo : u.hi;
+      if (m.geometry !== g) m.geometry = g;
+    }
+  },
+  lodT: 0,
+  lod(dt, cp) { if ((this.lodT -= dt) > 0) return; this.lodT = 0.2; for (const l of this.byChunk.values()) this.lodChunk(l, cp); for (const l of Resources.byChunk.values()) this.lodChunk(l, cp); },
   // special behaviours of nearby flora: brain coral bubbles, tiger plants shooting spikes
   update(dt, pp) {
     this.specialT -= dt; if (this.specialT > 0) return; this.specialT = 0.5;
@@ -3060,7 +3100,7 @@ const Creatures = {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const c = this.list[i]; if (c.persistent || c === this.pet) continue;
       const d = c.pos.distanceTo(cp); const inView = _v[7].subVectors(c.pos, cp).normalize().dot(fwd) > 0.3;
-      if ((d > 210 && !inView) || d > 320 || (c.state === 'dead' && c.deadT <= 0 && !inView)) { c.dispose(); this.list.splice(i, 1); }
+      if ((d > 210 && !inView) || d > 320 || (c.state === 'dead' && c.deadT <= 0 && !inView) || (c.stuckCount >= 4 && !inView && d > 40)) { c.dispose(); this.list.splice(i, 1); } // chronically stuck: quietly recycled
     }
     for (let i = Fish.schools.length - 1; i >= 0; i--) { const s = Fish.schools[i]; const d = s.center.distanceTo(cp); const inView = _v[7].subVectors(s.center, cp).normalize().dot(fwd) > 0.3; if ((d > 170 && !inView) || d > 260 || !s.fish.length) Fish.schools.splice(i, 1); }
     if (Game.state !== 'playing' && Game.state !== 'title') return;
@@ -3248,7 +3288,7 @@ const Creatures = {
       const moved = c.pos.distanceTo(c.progRef);
       if (moved < Math.max(0.4, spd * 2 * 0.2) && spd > 0.5 && c.state !== 'latched') {
         c.stuckCount = (c.stuckCount || 0) + 1; const nn = V3(); Terrain.distN(c.pos.x, c.pos.y, c.pos.z, nn);
-        c.fwd.negate().addScaledVector(nn, 1.5).normalize(); c.pos.addScaledVector(nn, 0.5);
+        c.fwd.negate().addScaledVector(nn, 1.5).normalize(); c.pos.addScaledVector(nn, 0.5 * Math.min(4, c.stuckCount)); // escalate the back-off on repeats
         if (c.state === 'charge') c.setState('circle', 2); else { c.wanderPick(); c.setState('wander'); }
       } else c.stuckCount = 0;
       c.progRef.copy(c.pos); c.progT = 0;
@@ -3525,7 +3565,8 @@ function resDefs() {
 const ResGeo = [];
 function buildResGeometries() {
   const rock = (seed, col, speck, r = 0.5, flat = 0.75, emis) => { const geo = new THREE.IcosahedronGeometry(r, 1); const P = geo.attributes.position; const rnd = seededRandom(seed);
-    for (let i = 0; i < P.count; i++) { const v = V3().fromBufferAttribute(P, i); v.multiplyScalar(0.8 + rnd() * 0.4); v.y *= flat; if (v.y < -0.1) v.y = -0.1; P.setXYZ(i, v.x, v.y, v.z); }
+    const hs = (v) => { const q = Math.sin(Math.round(v.x * 1e3) * 12.9898 + Math.round(v.y * 1e3) * 78.233 + Math.round(v.z * 1e3) * 37.719 + seed * 4.1) * 43758.5453; return q - Math.floor(q); };
+    for (let i = 0; i < P.count; i++) { const v = V3().fromBufferAttribute(P, i); v.multiplyScalar(0.8 + hs(v) * 0.4); v.y *= flat; if (v.y < -0.1) v.y = -0.1; P.setXYZ(i, v.x, v.y, v.z); }
     geo.computeVertexNormals(); const g = new GB(); const rn2 = seededRandom(seed + 5);
     g.add(geo, null, () => (rn2() < 0.18 ? speck : col.map((c) => c * (0.85 + rn2() * 0.3))), emis ? () => (rn2() < 0.2 ? emis : [0, 0, 0]) : null); return g.build(0, 1, 1); };
   ResGeo[RS.LIMESTONE] = rock(1, [0.82, 0.78, 0.66], [0.72, 0.5, 0.3]);
@@ -3560,9 +3601,9 @@ const Resources = {
       arr.forEach((it, j) => { q.setFromAxisAngle(UP, it.rot); q2.setFromUnitVectors(UP, it.n); q2.slerp(_q[1].identity(), 0.4); q.premultiply(q2); const sc = t === RS.DEPOSIT ? 1 + TL.hash3(it.pos.x, it.pos.z, 1) * 0.5 : 0.8 + TL.hash3(it.pos.x, it.pos.z, 2) * 0.5; s.set(sc, sc, sc); it.scale = sc; m4.compose(it.pos, q, s); mesh.setMatrixAt(j, m4); it.mesh = mesh; it.idx = j;
         if (t === RS.DEPOSIT) { const mc = { titanium: [0.8, 0.8, 0.85], copper: [1, 0.55, 0.3], lead: [0.6, 0.6, 0.7], silver: [0.95, 0.95, 1], gold: [1, 0.85, 0.3], diamond: [0.8, 0.95, 1.1], lithium: [1, 0.85, 0.9], magnetite: [0.4, 0.4, 0.45], uraninite: [0.6, 1.2, 0.5], kyanite: [0.5, 0.7, 1.3] }[it.mineral] || [1, 1, 1]; mesh.setColorAt(j, col.setRGB(...mc)); }
         if (t === RS.DEPOSIT) it.col = Phys.add({ type: 's', x: it.pos.x, y: it.pos.y + 0.5, z: it.pos.z, r: 1.4 * sc }); });
-      mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); R.scene.add(mesh); meshes.push(mesh);
+      mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); mesh.userData.far = t === RS.DEPOSIT ? 170 : 95; R.scene.add(mesh); meshes.push(mesh);
     }
-    this.byChunk.set(c.k, { items, meshes });
+    const l = { items, meshes, c }; this.byChunk.set(c.k, l); Flora.lodChunk(l, R.camera.position);
   },
   onUnload(c) { const l = this.byChunk.get(c.k); if (!l) return; for (const m of l.meshes) { R.scene.remove(m); m.dispose(); } for (const it of l.items) if (it.col) Phys.remove(it.col); this.byChunk.delete(c.k); },
   hide(it) { it.alive = false; this.destroyed.add(it.id); if (it.mesh) { it.mesh.getMatrixAt(it.idx, _m4); _m4.scale(V3(0, 0, 0)); it.mesh.setMatrixAt(it.idx, _m4); it.mesh.instanceMatrix.needsUpdate = true; } if (it.col) { Phys.remove(it.col); it.col = null; } },
@@ -4479,6 +4520,8 @@ const Player = {
   latched: new Set(), grabbedBy: null, empT: 0, noise: 0.2, lightOn: false, infection: 0, faintT: 0, dead: false, lastBase: null,
   bob: 0, swimAnim: 0, hurtFlash: 0, o2WarnT: 0, lastHurt: 0, airVol: null, lastLedge: 0, hazardT: 0, radWarnT: 0, voidWarned: false, inLifepod: false,
   EYE: 1.6, R_SWIM: 0.42, R_WALK: 0.34,
+  // inside a sealed habitat / lifepod / cyclops / precursor air pocket (no water fog, neutral exposure)
+  indoors() { return !!(this.inside || this.airVol || this.mode === 'cyclops' || this.mode === 'pod'); },
   maskOn() { return this.mode === 'swim' && !Vehicles.current; },
   fwd(out) { const cp = Math.cos(this.pitch); return out.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp); },
   right(out) { return out.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw)); },
@@ -5662,7 +5705,7 @@ class Seamoth extends Vehicle {
 // ------------------------------------------------------------------ Prawn Suit (walking exosuit)
 class Prawn extends Vehicle {
   constructor(pos, yaw) {
-    super('prawn', pos, yaw); this.maxHp = this.hp = 600; this.maxPower = this.power = 200; this.r = 1.6; this.seatLocal = V3(0, 1.35, -0.35);
+    super('prawn', pos, yaw); this.maxHp = this.hp = 600; this.maxPower = this.power = 200; this.r = 1.6; this.seatLocal = V3(0, 1.35, -0.95); // eye sits inside the glass dome, in front of the torso shell
     this.spheres = [[0, 0.3, 0, 1.25], [0, 1.4, 0, 0.9]]; this.arms = ['claw', 'claw']; this.fuel = 1; this.onGround = false; this.yaw = yaw || 0;
     this.storage = new InventoryGrid(6, 4);
     this.feet = [V3(), V3()]; this.footT = [V3(), V3()]; this.footStep = [0, 0]; this.stepSide = 0; this.hookP = null;
@@ -5673,7 +5716,9 @@ class Prawn extends Vehicle {
   buildMesh() {
     const W = [0.9, 0.9, 0.92], O = [0.95, 0.55, 0.12], D = [0.28, 0.29, 0.32];
     const g = new GB(); g.color(W).add(new THREE.CapsuleGeometry(0.85, 0.7, 8, 16), tmpM(0, 1.2, 0, 0, 0, 0, 1.15, 1, 1)); box(g, 0, 1.6, 0.55, 1.4, 0.2, 0.8, O); box(g, 0, 0.35, 0, 1.1, 0.5, 0.9, D);
-    const torso = new THREE.Mesh(g.build(0, 1, 1), Build.mat);
+    // single-sided shell: the pilot's eye is just in front of it and must never see its inside
+    Prawn.mat = Prawn.mat || vcMat({ metal: 0.45, rough: 0.35, env: true });
+    const torso = new THREE.Mesh(g.build(0, 1, 1), Prawn.mat);
     const glass = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 12, 0, TAU, 0, Math.PI / 2), Mats.glass); glass.position.set(0, 1.35, -0.65); glass.rotation.x = -Math.PI / 2; glass.renderOrder = 4;
     this.torso = new THREE.Group(); this.torso.add(torso, glass); this.group.add(this.torso);
     const seg = (len, r, col) => { const gg = new GB(); gg.color(col).add(new THREE.CapsuleGeometry(r, len, 4, 10), tmpM(0, -len / 2, 0)); return new THREE.Mesh(gg.build(0, 1, 1), Build.mat); };
@@ -5713,6 +5758,12 @@ class Prawn extends Vehicle {
     this.pos.addScaledVector(this.vel, dt);
     this.onGround = false; const n = _v[4], sp = _v[5], old = _v[6];
     for (const s2 of this.spheres) { sp.set(s2[0], s2[1], s2[2]).add(this.pos); old.copy(sp); if (Phys.resolveSphere(sp, s2[3], 'ext', n, { ignore: (c) => c.veh === this })) { this.pos.add(_v[7].subVectors(sp, old)); if (n.y > 0.55) { this.onGround = true; if (this.vel.y < -6) Vehicles.damage(this, (-this.vel.y - 6) * 3, 'impact'); if (this.vel.y < 0) this.vel.y = 0; } else { const into = this.vel.dot(n); if (into < 0) this.vel.addScaledVector(n, -into); } } }
+    // legs carry the body: find the ground under the pelvis (short downward march through the SDF)
+    if (!this.thrusting || this.vel.y <= 0) {
+      let gy = this.pos.y; for (let q = 0; q < 10 && TL.density(this.pos.x, gy - 0.25, this.pos.z) < 0; q++) gy -= 0.25;
+      const solid = TL.density(this.pos.x, gy - 0.25, this.pos.z) >= 0, want = gy + 1.35 - 0.25;
+      if (solid && this.pos.y < want + 0.3) { if (this.pos.y < want) { this.pos.y = lerp(this.pos.y, want, 1 - Math.exp(-dt * 14)); if (this.vel.y < 0) this.vel.y = 0; } this.onGround = true; }
+    }
     if (Game.mode !== 'creative' && (w || s)) this.power = Math.max(0, this.power - dt * 0.08);
   }
   tick(dt) {
@@ -5791,7 +5842,7 @@ class CyclopsV extends Vehicle {
     I([0, 0.3, 13.2], () => (this.piloting ? 'Leave helm' : 'Pilot the Cyclops'), () => this.togglePilot());
     I([2.5, 0.6, -2], () => 'Cyclops Locker', () => UI.openStorage({ inv: this.storage, label: 'Cyclops Locker' }));
     I([-2.6, 0.7, 3], () => 'Fabricator', () => UI.openFab('cyclops'));
-    I([0, -1.0, -6], () => 'Exit Cyclops (lower hatch)', () => { const p = _v[0].set(0, -6.5, -6).applyMatrix4(this.group.matrixWorld); Player.mode = 'swim'; Player.frame = null; Player.pos.copy(p); Player.prevPos.copy(p); Player.vel.set(0, 0, 0); Audio_.play('hatch'); Game.flashFade(); }, { r: 1.2 });
+    I([0, -1.0, -6], () => 'Exit Cyclops (lower hatch)', () => { const p = this.exitPos(V3()); Player.frame = null; Player.pos.copy(p); Player.prevPos.copy(p); Player.mode = p.y > Ocean.heightAt(p.x, p.z) ? 'walk' : 'swim'; Player.vel.set(0, 0, 0); Audio_.play('hatch'); Game.flashFade(); }, { r: 1.2 });
     I([-2.4, 0.5, -9], () => 'Cyclops engine (upgrade console)', () => UI.openVehicle(this));
     I([2.6, 0.5, 6], () => (Vehicles.docked && Vehicles.docked.dockedIn === this ? 'Enter docked ' + Items.name(Vehicles.docked.kind) : 'Docking bay (empty)'), () => { const d = Vehicles.docked; if (d && d.dockedIn === this) Vehicles.undock(d, true); });
     Interact.add({ pos: V3(0, -5, -6), frame: this.group, r: 2.2, grp: 'ext', kind: 'cyclops', label: () => 'Enter Cyclops', use: () => Vehicles.enterCyclops(this) });
@@ -5800,24 +5851,30 @@ class CyclopsV extends Vehicle {
   buildMesh() {
     const g = new GB(); const W = [0.88, 0.88, 0.9], O = [0.95, 0.55, 0.12];
     CG.body(g, 36, [[0, 0.06, 0.07, 0], [0.08, 0.1, 0.12], [0.3, 0.12, 0.14], [0.75, 0.11, 0.12], [0.95, 0.06, 0.07], [1, 0.03, 0.03]], (t, a) => (Math.sin(a) > 0.2 && Math.sin(a) < 0.4 ? O : t < 0.07 && Math.sin(a) > -0.2 ? [0.25, 0.4, 0.5] : W), null, { segs: 30, rad: 22, n: 2.6 });
-    const geo = g.build(0, 1, 1); geo.rotateY(Math.PI); geo.translate(0, 0, 16.5);
+    const geo = orientOutward(g.build(0, 1, 1)); geo.translate(0, 0, 18); // loft runs bow (t=0, local +Z) -> stern: hull spans z -18..18
     const g2 = new GB(); box(g2, 0, 4.9, -2, 2.4, 1.2, 10, W); for (const s of [-1, 1]) box(g2, s * 4.5, 0, -12, 3, 0.3, 4, O, null, 0, 0, s * 0.1); box(g2, 0, 4, -14, 0.3, 4, 3, O); cyl(g2, 0, 0, -18.5, 1.6, 2.2, 2, [0.4, 0.4, 0.42], null, Math.PI / 2, 0, 0, 16);
     g2.color([0.2, 0.25, 0.3]).add(new THREE.BoxGeometry(3.5, 0.4, 5), tmpM(0, -4.3, -6));
-    // interior (visible through the bridge glass)
-    box(g2, 0, -1.3, 0, 6, 0.2, 30, [0.35, 0.36, 0.38]); box(g2, 0, 2.4, 0, 6, 0.1, 30, [0.6, 0.62, 0.65]); for (const s of [-1, 1]) box(g2, s * 3.1, 0.6, 0, 0.1, 3.8, 30, [0.7, 0.72, 0.75]);
-    box(g2, 0, -0.2, 13.3, 2, 0.9, 0.6, [0.3, 0.32, 0.35]); box(g2, 0, 0.35, 13.1, 1.6, 0.4, 0.05, [0.2, 0.6, 0.85], [0.2, 0.7, 1.1]);
-    box(g2, -2.2, -0.6, 3, 1.6, 1, 2.4, [0.8, 0.8, 0.82]); box(g2, -2.8, 0.7, 3, 0.1, 0.8, 1.2, [0.2, 0.6, 0.85], [0.2, 0.7, 1.1]); box(g2, 2.5, 0.2, -1, 1, 2.4, 2.4, [0.8, 0.8, 0.82]); box(g2, -2.4, 0.3, -9, 1.2, 2.6, 4, [0.35, 0.37, 0.4]);
-    for (let z = -13; z < 14; z += 3) box(g2, 0, 2.3, z, 0.6, 0.05, 0.3, [1, 1, 0.9], [2, 2, 1.7]);
-    this.mesh1 = new THREE.Mesh(geo, Build.mat); this.mesh2 = new THREE.Mesh(g2.build(0, 1, 1), Build.mat);
-    const bridge = new THREE.Mesh(new THREE.SphereGeometry(3.3, 24, 12, 0, Math.PI, 0, Math.PI / 2), Mats.glass); bridge.position.set(0, 0.2, 13.5); bridge.rotation.set(Math.PI / 2, Math.PI, 0); bridge.renderOrder = 4;
+    // interior (visible through the bridge glass) — separate INTERIOR material so sun/ambient don't flood it
+    const gi = new GB();
+    box(gi, 0, -1.3, 0, 6, 0.2, 30, [0.3, 0.31, 0.33]); box(gi, 0, 2.4, 0, 6, 0.1, 30, [0.5, 0.52, 0.55]); for (const s of [-1, 1]) { box(gi, s * 3.1, 0.6, 0, 0.1, 3.8, 30, [0.55, 0.57, 0.6]); for (let z = -13; z < 14; z += 4) box(gi, s * 3.02, 0.6, z, 0.06, 3.6, 0.25, [0.32, 0.34, 0.37]); box(gi, s * 3.03, -0.95, 0, 0.05, 0.08, 30, [0.95, 0.55, 0.12], [0.5, 0.25, 0.04]); }
+    box(gi, 0, -0.6, 14.2, 2.2, 1.0, 0.6, [0.3, 0.32, 0.35]); box(gi, 0, -0.02, 14.05, 1.6, 0.35, 0.04, [0.15, 0.45, 0.6], [0.06, 0.22, 0.32], -0.55, 0, 0); // helm console low and forward: just a glow at the bottom of the view
+    box(gi, -2.2, -0.6, 3, 1.6, 1, 2.4, [0.7, 0.7, 0.72]); box(gi, -2.8, 0.7, 3, 0.1, 0.8, 1.2, [0.2, 0.6, 0.85], [0.2, 0.7, 1.1]); box(gi, 2.5, 0.2, -1, 1, 2.4, 2.4, [0.7, 0.7, 0.72]); box(gi, -2.4, 0.3, -9, 1.2, 2.6, 4, [0.35, 0.37, 0.4]);
+    for (let z = -13; z < 14; z += 3) box(gi, 0, 2.3, z, 0.6, 0.05, 0.3, [1, 1, 0.9], [0.9, 0.9, 0.75]);
+    box(gi, 0, -1.3, 15.9, 4.6, 0.2, 2, [0.3, 0.31, 0.33]); box(gi, 0, -0.75, 16.8, 4.6, 1.0, 0.15, [0.28, 0.3, 0.33]); // bridge floor + kick panel under the dome
+    // hull shell is single-sided: from inside the sub only the interior set and the bridge glass are visible
+    Prawn.mat = Prawn.mat || vcMat({ metal: 0.45, rough: 0.35, env: true });
+    this.mesh1 = new THREE.Mesh(geo, Prawn.mat); this.mesh2 = new THREE.Mesh(g2.build(0, 1, 1), Build.mat); this.mesh3 = new THREE.Mesh(gi.build(0, 1, 1), Mats.interior);
+    // bridge canopy: full front-facing hemisphere of faint, low-reflection glass (seen from the helm)
+    Mats.glassIn = Mats.glassIn || Object.assign(Mats.glass.clone(), { opacity: 0.05, envMapIntensity: 0.08 });
+    const bridge = new THREE.Mesh(new THREE.SphereGeometry(3.3, 24, 12, 0, TAU, 0, Math.PI / 2), Mats.glassIn); bridge.position.set(0, 0.4, 13.6); bridge.rotation.set(Math.PI / 2, 0, 0); bridge.renderOrder = 4;
     this.shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0x40c0ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })); this.shieldMesh.scale.set(9, 8, 22); this.shieldMesh.visible = false;
-    this.group.add(this.mesh1, this.mesh2, bridge, this.shieldMesh);
+    this.group.add(this.mesh1, this.mesh2, this.mesh3, bridge, this.shieldMesh);
   }
   label() { return 'Cyclops'; }
   interact() { Vehicles.enterCyclops(this); }
   noise() { const base = [0.35, 0.6, 0.95][this.throttle]; return (this.silent ? base * 0.3 : base) * (this.piloting ? 1 : 0.3); }
   depthLimit() { return this.modules.includes('cyclops_depth1') ? 700 : 500; }
-  togglePilot() { this.piloting = !this.piloting; if (this.piloting) { Vehicles.current = this; Player.frame = this.group; UI.note('Helm: W/S throttle, A/D turn, Space/C rise/sink, 1/2/3 speed, V cameras, Z silent running, T sonar, G shield'); } else { Vehicles.current = null; this.cam = 0; } Audio_.play('click'); }
+  togglePilot() { this.piloting = !this.piloting; if (this.piloting) { Vehicles.current = this; Player.frame = this.group; Player.yaw = Math.PI; Player.pitch = 0; UI.note('Helm: W/S throttle, A/D turn, Space/C rise/sink, 1/2/3 speed, V cameras, Z silent running, T sonar, G shield'); } else { Vehicles.current = null; this.cam = 0; } Audio_.play('click'); }
   seatPos(out) { return out.copy(this.seatLocal).applyQuaternion(this.quat).add(this.pos); }
   cameraPose(cam, alpha) {
     const p = _v[0].lerpVectors(this.prevPos, this.pos, alpha), q = _q[0].slerpQuaternions(this.prevQuat, this.quat, alpha);
@@ -5862,7 +5919,13 @@ class CyclopsV extends Vehicle {
     for (const v of Vehicles.list) if ((v.kind === 'seamoth' || v.kind === 'prawn') && !v.docked && Vehicles.current === v && v.pos.distanceTo(dockP) < 3.5) Vehicles.dock(v, this);
   }
   spawnFire() { if (this.fires.length > 3) return; const f = { local: V3(rr(-2.5, 2.5), -1.0, rr(-13, 12)), hp: 3, alive: true }; this.fires.push(f); if (Player.mode === 'cyclops' || Vehicles.current === this) { UI.warn('Fire detected on board', 'bad'); Story.voice('Warning: fire in the engine room.', 'fire'); } }
-  exitPos(out) { return out.set(0, -6.5, -6).applyQuaternion(this.quat).add(this.pos); }
+  // below the lower hatch if free, else beside / on top of the hull, else eject upward until clear (never blocked)
+  exitPos(out) {
+    const free = (p) => TL.density(p.x, p.y, p.z) < -0.8 && !Phys.resolveSphere(p.clone(), 0.5, 'ext', _v[3], { noTerrain: true, ignore: (c) => c.veh === this });
+    for (const t of [[0, -6.5, -6], [7.5, -1.5, -6], [-7.5, -1.5, -6], [0, 6.5, 2]]) { out.set(...t).applyQuaternion(this.quat).add(this.pos); if (free(out)) return out; }
+    out.set(0, 6.5, 2).applyQuaternion(this.quat).add(this.pos); for (let i = 0; i < 80 && !free(out); i++) out.y += 1;
+    return out;
+  }
 }
 
 // ------------------------------------------------------------------ Vehicle manager
@@ -5934,7 +5997,7 @@ const Vehicles = {
     // vehicle headlights: the nearest two lit vehicles (current first)
     const L = R.lights; L.vehA.intensity = 0; L.vehB.intensity = 0;
     const lit = this.list.filter((v) => v.lightsOn && v.power > 0 && v.empT <= 0 && v.pos.distanceTo(R.camera.position) < 120).sort((a, b) => (a === this.current ? -1 : 0) - (b === this.current ? -1 : 0));
-    [L.vehA, L.vehB].forEach((S, i) => { const v = lit[i]; if (!v) return; const fwd = v.kind === 'cyclops' ? V3(0, 0, 1) : V3(0, 0, -1); const off = v.kind === 'cyclops' ? V3(0, -1, 16) : v.kind === 'prawn' ? V3(0, 1.2, -0.9) : V3(0, 0, -2.4); S.position.copy(off).applyQuaternion(v.group.quaternion).add(v.group.position); S.target.position.copy(S.position).add(fwd.applyQuaternion(v.group.quaternion).multiplyScalar(10)); S.intensity = v.kind === 'cyclops' ? 220 : 160; S.angle = 0.55; S.distance = 120; });
+    [L.vehA, L.vehB].forEach((S, i) => { const v = lit[i]; if (!v) return; const fwd = v.kind === 'cyclops' ? V3(0, 0, 1) : V3(0, 0, -1); const off = v.kind === 'cyclops' ? V3(0, -3.2, 18.5) : v.kind === 'prawn' ? V3(0, 0.9, -1.7) : V3(0, 0, -2.4); /* lamps sit outside the glass so the cockpit never catches the hotspot */ S.position.copy(off).applyQuaternion(v.group.quaternion).add(v.group.position); S.target.position.copy(S.position).add(fwd.applyQuaternion(v.group.quaternion).multiplyScalar(10)); S.intensity = v.kind === 'cyclops' ? 220 : 160; S.angle = 0.55; S.distance = 120; });
   },
 };
 
@@ -6342,8 +6405,8 @@ const UI = {
     const ring = (cx, cy, r, w, col, id) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(0,20,30,.45)" stroke="rgba(255,255,255,.12)" stroke-width="${w}"/><circle id="${id}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${TAU * r}" stroke-dashoffset="0" transform="rotate(-90 ${cx} ${cy})" style="filter:drop-shadow(0 0 4px ${col})"/>`;
     $('meters').innerHTML = `<svg width="240" height="170">${ring(66, 96, 56, 7, 'var(--o2)', 'mO2')}<text id="o2num" x="66" y="104" text-anchor="middle">45</text><text class="mlabel" x="66" y="124" text-anchor="middle">O₂</text>
       ${ring(158, 56, 22, 5, 'var(--hp)', 'mHP')}<text class="mlabel" x="158" y="60" text-anchor="middle">HP</text>
-      ${ring(206, 96, 22, 5, 'var(--food)', 'mFood')}<text class="mlabel" x="206" y="100" text-anchor="middle">FOOD</text>
-      ${ring(158, 138, 22, 5, 'var(--water)', 'mWater')}<text class="mlabel" x="158" y="142" text-anchor="middle">H₂O</text></svg>`;
+      <g id="gFW">${ring(206, 96, 22, 5, 'var(--food)', 'mFood')}<text class="mlabel" x="206" y="100" text-anchor="middle">FOOD</text>
+      ${ring(158, 138, 22, 5, 'var(--water)', 'mWater')}<text class="mlabel" x="158" y="142" text-anchor="middle">H₂O</text></g></svg>`;
   },
   setRing(id, f) { const c = $(id); const r = +c.getAttribute('r'); c.setAttribute('stroke-dashoffset', TAU * r * (1 - clamp(f, 0, 1))); },
   buildCompass() {
@@ -6361,7 +6424,8 @@ const UI = {
     const S = Player.stats;
     this.setRing('mO2', S.o2 / Player.o2max); $('o2num').textContent = Math.ceil(S.o2); $('o2num').style.fill = S.o2 < 15 ? 'var(--bad)' : '#fff';
     this.setRing('mHP', S.hp / 100); this.setRing('mFood', S.food / 100); this.setRing('mWater', S.water / 100);
-    const survival = Game.mode === 'survival' || Game.mode === 'hardcore'; for (const id of ['mFood', 'mWater']) $(id).parentNode.style.opacity = 1; $('meters').querySelectorAll('circle')[4].style.opacity = survival ? 1 : 0.25;
+    // Creative: no survival meters at all. Freedom: no food / water.
+    const md = Game.mode; $('meters').style.display = md === 'creative' ? 'none' : ''; $('gFW').style.display = md === 'survival' || md === 'hardcore' ? '' : 'none';
     // depth
     const dp = Vehicles.current ? -Vehicles.current.pos.y : -Player.pos.y; const db = $('depthBox');
     $('depthVal').textContent = Math.max(0, Math.round(dp)) + ' m'; const lim = Vehicles.current ? Vehicles.current.depthLimit() : null;
@@ -6434,7 +6498,8 @@ const UI = {
   },
   escape() {
     if (this.rebinding) return;
-    if (this.open) { this.closeAll(); return; }
+    // ESC always opens the pause menu (closing any open overlay on the way); in menus it steps back
+    if (this.open) { if (Game.state === 'playing' || Game.state === 'intro') this.pause(); else this.closeAll(); return; }
     if (Game.state === 'title') { this.menuBack(); return; }
     if (Game.state === 'playing') { if (Game.paused) { if (!$('pauseSub').classList.contains('hidden')) { $('pauseSub').classList.add('hidden'); $('pauseMain').classList.remove('hidden'); } else this.resume(); } else this.pause(); }
     if (Game.state === 'intro') this.pause();
@@ -7197,10 +7262,10 @@ const Game = {
     // environment + streaming
     Ocean.clearFoam();
     Env.update(fdt, cam);
-    if (Env.under && (Player.airVol || Player.inside)) { GU.guWaterDens.value *= 0.12; Post.fx.distort = 0; Post.fx.ca = 0; Post.fx.shaftStr *= 0.2; }
+    if (Env.under && Player.indoors()) { GU.guWaterDens.value *= 0.12; Post.fx.distort = 0; Post.fx.ca = 0; Post.fx.shaftStr *= 0.2; }
     Terrain.update(this.state === 'playing' || this.state === 'intro' ? (Vehicles.current ? Vehicles.current.pos : Player.pos) : cam.position);
     if (Terrain.proxy) Terrain.proxy.visible = !Env.under && Math.hypot(cam.position.x - WORLD.island.x, cam.position.z - WORLD.island.z) > 120;
-    this.updateDisturb(); Lights.update(fdt);
+    this.updateDisturb(); Lights.update(fdt); Flora.lod(fdt, cam.position);
     if (this.state === 'playing' && !this.paused) Flora.update(fdt, Player.pos);
     Creatures.render(alpha); Fish.render(alpha); Vehicles.render(alpha); Tools.render(fdt); Build.animateAquaria(fdt); Fabricate.update(fdt);
     FX.update(fdt); Audio_.update(fdt); UI.update(fdt);
@@ -7229,7 +7294,7 @@ const Lights = {
     const cands = [];
     for (const f of Tools.flares) cands.push({ p: f.pos, c: [1, 0.35, 0.15], i: 18 + Math.random() * 10, d: 28 });
     if (Player.mode === 'pod') { Lifepod.group.updateMatrixWorld(); cands.push({ p: _v[2].set(0, 1.6, 0).applyMatrix4(Lifepod.group.matrixWorld).clone(), c: [1, 0.95, 0.85], i: Lifepod.systemsFixed ? 3 : 1.6, d: 7, force: true }); }
-    if (Player.mode === 'cyclops' && Cyclops.v) cands.push({ p: _v[2].copy(Player.local).setY(1.8).applyMatrix4(Cyclops.v.group.matrixWorld).clone(), c: Cyclops.v.power > 0 ? [0.9, 0.95, 1] : [1, 0.1, 0.05], i: 4, d: 12, force: true });
+    if (Player.mode === 'cyclops' && Cyclops.v) { const on = Cyclops.v.power > 0; for (const dz of [-5, 5]) cands.push({ p: _v[2].copy(Player.local).setY(1.9).setZ(clamp(Player.local.z + dz, -13, 9)).setY(2.2).applyMatrix4(Cyclops.v.group.matrixWorld).clone(), c: on ? [0.9, 0.95, 1] : [1, 0.1, 0.05], i: on ? 9 : 4, d: 14, force: true }); }
     if (Player.inside) { const b = Build.bases.get(Player.insideBase); const pw = b && b.power > 0.5; const pc = [...(b ? b.pieces : [])].sort((a, c) => a.center.distanceTo(Player.pos) - c.center.distanceTo(Player.pos)); for (const p of pc.slice(0, 2)) cands.push({ p: p.center.clone().add(V3(0, 1.2, 0)), c: pw ? [1, 0.97, 0.9] : [1, 0.08, 0.04], i: pw ? 3.5 : 2.5, d: 10, force: true }); }
     if (Player.airVol) cands.push({ p: Player.pos.clone().add(V3(0, 2.5, 0)), c: [0.4, 1, 0.6], i: 10, d: 18, force: true });
     for (const m of Build.mods) if (m.spot && m.pos.distanceTo(cam.position) < 80) { const b = Build.bases.get(m.base); if (b && b.power > 0.5) cands.push({ p: m.pos.clone().add(V3(0, 2, 0)), c: [1, 1, 0.9], i: 60, d: 45 }); }
