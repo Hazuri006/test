@@ -144,7 +144,7 @@ h3{margin:8px 0 6px;font-weight:400;letter-spacing:.12em;color:var(--cy);text-tr
 .gitem img{width:90%;height:90%;object-fit:contain;pointer-events:none}
 .gitem .bat{position:absolute;left:4px;right:4px;bottom:3px;height:3px;background:rgba(255,255,255,.15)}
 .gitem .bat>div{height:100%;background:var(--good)}
-.equip{display:grid;grid-template-columns:repeat(2,64px);gap:8px;align-content:start}
+.equip{display:grid;grid-template-columns:repeat(2,64px);gap:20px 10px;align-content:start;padding-bottom:14px}
 .eslot{width:64px;height:64px;border:1px dashed rgba(111,243,255,.35);border-radius:8px;position:relative;background:rgba(4,26,36,.6)}
 .eslot .lab{position:absolute;left:0;right:0;bottom:-15px;text-align:center;font-size:9px;letter-spacing:.1em;color:var(--dim)}
 .eslot .gitem{position:absolute;inset:3px}
@@ -206,7 +206,7 @@ h3{margin:8px 0 6px;font-weight:400;letter-spacing:.12em;color:var(--cy);text-tr
 #terminal .panel{width:min(640px,90vw);padding:22px;max-height:80vh}
 #terminal .body{font-size:14px;line-height:1.6;white-space:pre-wrap}
 #vehUI .panel{padding:18px;width:min(640px,94vw)}
-.mods{display:flex;gap:10px;margin:10px 0}
+.mods{display:flex;gap:10px;margin:10px 0 26px}
 .mods .eslot{width:70px;height:70px}
 </style>
 </head>
@@ -259,7 +259,7 @@ h3{margin:8px 0 6px;font-weight:400;letter-spacing:.12em;color:var(--cy);text-tr
   </div>
 
   <div id="pda" class="overlay hidden"><div class="tablet"><div class="tabs" id="pdaTabs"></div><div class="tabBody" id="pdaBody"></div><div class="footer"><span class="small" style="margin-right:auto">TAB / ESC to close</span><button class="btn" data-close>Back</button></div></div></div>
-  <div id="fabUI" class="overlay hidden"><div class="ring" id="fabRing"></div><div style="position:absolute;bottom:28px;left:50%;transform:translateX(-50%)"><button class="btn" data-close>Back</button></div></div>
+  <div id="fabUI" class="overlay hidden"><div class="ring" id="fabRing"></div><div style="position:absolute;top:84px;left:36px"><button class="btn" data-close>Back</button></div></div>
   <div id="buildUI" class="overlay hidden"><div class="panel"><div class="tabs" id="buildTabs"></div><div class="bgrid scroll" id="buildGrid" style="flex:1"></div><div class="footer"><span class="small" style="margin-right:auto" id="buildInfo"></span><button class="btn" data-close>Back</button></div></div></div>
   <div id="storageUI" class="overlay hidden"><div class="panel"><div><h3>Inventory</h3><div id="stInv"></div></div><div><h3 id="stTitle">Storage</h3><div id="stCont"></div></div><div style="align-self:flex-end"><button class="btn" data-close>Back</button></div></div></div>
   <div id="vehUI" class="overlay hidden"><div class="panel"><div id="vehUIBody"></div><div class="footer"><button class="btn" data-close>Back</button></div></div></div>
@@ -514,6 +514,8 @@ function terrainLib() {
   const RS_COUNT = 12;
   const srgb = (c) => c.map((v) => Math.pow(v, 2.2));
   // fog = inscatter colour at the surface (sRGB-ish), dens = extinction per metre, glow = self-lit ambient of the biome
+  // STUB: a Below Zero-style arctic biome (STRETCH) is not part of this world.
+  // STUB: lava-zone obsidian formations are represented only by the dark volcanic rock palette, not separate meshes.
   const BIOMES = [
     { id: 0, name: 'Safe Shallows', fog: [0.16, 0.62, 0.70], dens: 0.017, glow: [0, 0, 0], sand: [0.88, 0.82, 0.64], rock: [0.80, 0.74, 0.64], amp: 3, amb: 'shallows', depth: [0, 35],
       flora: [[FL.SEA_GRASS, 0.34], [FL.TABLE_CORAL, 0.010], [FL.BRAIN_CORAL, 0.006], [FL.ACID_MUSH, 0.03], [FL.VEINED_NETTLE, 0.012], [FL.WRITHING_WEED, 0.02], [FL.FAN_CORAL, 0.02], [FL.CORAL_TUBE, 0.004]],
@@ -2806,6 +2808,7 @@ const CMat = {
 };
 
 // ------------------------------------------------------------------ Spine solver: body follows the trail of the head
+// STUB: creature eyes are fixed to the head; per-eye tracking of the player is not animated (heads turn toward targets via steering).
 class Spine {
   constructor(n, L) { this.n = n; this.L = L; this.trail = []; this.P = Array.from({ length: n }, () => V3()); this.R = Array.from({ length: n }, () => V3(1, 0, 0)); this.U = Array.from({ length: n }, () => V3(0, 1, 0)); this.spacing = L / (n - 1) / 2; this.prevP = Array.from({ length: n }, () => V3()); this.init = false; }
   reset(head, fwd) { this.trail.length = 0; for (let i = 0; i < 8; i++) this.trail.push(head.clone().addScaledVector(fwd, -i * this.L / 7)); this.init = true; }
@@ -3996,6 +3999,8 @@ const Structures = {
     World.statics.push({ kind: 'wreck', w, F });
   },
   // ------------------------------------------------------------------ PRECURSOR FACILITIES
+  // STUB: Alien Arch teleporters between precursor facilities (STRETCH) are not implemented; every facility is reached by swimming or by vehicle.
+  // STUB: precursor glyph panels are not modelled — alien walls carry only the glowing green line inlays below.
   precursorGeo(g, parts) { // dark alien metal with glowing green lines
     const dark = [0.12, 0.14, 0.13], line = [0.3, 1.0, 0.45], lineE = [0.4, 2.2, 0.7];
     for (const p of parts) {
@@ -5065,6 +5070,8 @@ const Tools = {
 // =====================================================================================
 // Base pieces snap to a world grid: 6 m cells, 3.6 m layers. Rotation in 90° steps.
 const CELL = 6, LAYER = 3.6;
+// STUB: oxygen pipes / surface pumps (STRETCH) are not buildable; oxygen refills at the surface, inside bases, vehicles and air pockets.
+// STUB: Alien Containment breeding (STRETCH) — the aquarium shows the fish you place in it, but they do not breed.
 const BASE_PIECES = {};
 (function defPieces() {
   const P_ = (id, name, cat, cost, o = {}) => (BASE_PIECES[id] = Object.assign({ id, name, cat, cost, kind: 'cell', m: ['module', [0.85, 0.85, 0.85]], hull: 0 }, o));
@@ -5553,7 +5560,7 @@ const Rocket = {
   createPlatform(p, instant) {
     const grp = new THREE.Group(); grp.add(this.platformMesh()); grp.position.set(p.x, 0.5, p.z); R.scene.add(grp);
     this.platform = { pos: grp.position.clone(), group: grp, parts: new THREE.Group() }; grp.add(this.platform.parts);
-    Phys.add({ type: 'y', x: p.x, z: p.z, y0: -8, y1: 2.2, r: 12 });
+    this.col = Phys.add({ type: 'y', x: p.x, z: p.z, y0: -8, y1: 2.2, r: 12 });
     this.term = Interact.add({ pos: grp.position.clone().add(V3(8.5, 2.2, 0)), r: 1.5, kind: 'rocket', label: () => this.label(), use: () => this.use() });
     Beacons.add(grp.position.clone().add(V3(0, 4, 0)), 'Neptune Launch Platform', 'base'); if (!instant) Build.animate(grp);
     this.rebuild(); Story.flag('rocket_platform');
@@ -5829,6 +5836,8 @@ const Cyclops = {
   },
   extinguishAt(o, dir, dt) { const v = this.v; if (!v) return; for (const f of v.fires) { if (!f.alive) continue; const wp = _v[1].copy(f.local).applyMatrix4(v.group.matrixWorld); const rel = _v[2].subVectors(wp, o); if (rel.length() < 4.5 && rel.normalize().dot(dir) > 0.8) { f.hp -= dt * 1.6; if (f.hp <= 0) { f.alive = false; Audio_.play('extinguish'); } } } },
 };
+// STUB: Cyclops is a single walkable deck (helm, fabricator, lockers, docking bay, engine room). Only the depth, fire-suppression,
+// shield and sonar upgrade modules exist; decoy tubes, thermal reactor, engine efficiency and vehicle-repair modules are not implemented.
 class CyclopsV extends Vehicle {
   constructor(pos, yaw) {
     super('cyclops', pos, yaw); this.maxHp = this.hp = 1500; this.maxPower = this.power = 1200; this.r = 5; this.yaw = yaw || 0; this.throttle = 1; this.silent = false; this.shield = false; this.heat = 0; this.fires = []; this.cam = 0; this.piloting = false;
@@ -5838,14 +5847,15 @@ class CyclopsV extends Vehicle {
     this.buildMesh(); Cyclops.v = this;
     this.col = { type: 'c', ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0, r: 4.3, grp: 'ext', veh: this }; Phys.dynamic.push(this.col);
     // interactables inside (frame-local, group 'cyclops')
-    const I = (p, label, use, o = {}) => Interact.add(Object.assign({ pos: V3(...p), frame: this.group, r: o.r || 0.9, grp: 'cyclops', label, use, kind: 'cyclops' }, o));
+    this.its = []; // every interactable is tracked so clear()/destroy() leave nothing behind
+    const I = (p, label, use, o = {}) => { const it = Interact.add(Object.assign({ pos: V3(...p), frame: this.group, r: o.r || 0.9, grp: 'cyclops', label, use, kind: 'cyclops' }, o)); this.its.push(it); return it; };
     I([0, 0.3, 13.2], () => (this.piloting ? 'Leave helm' : 'Pilot the Cyclops'), () => this.togglePilot());
     I([2.5, 0.6, -2], () => 'Cyclops Locker', () => UI.openStorage({ inv: this.storage, label: 'Cyclops Locker' }));
     I([-2.6, 0.7, 3], () => 'Fabricator', () => UI.openFab('cyclops'));
     I([0, -1.0, -6], () => 'Exit Cyclops (lower hatch)', () => { const p = this.exitPos(V3()); Player.frame = null; Player.pos.copy(p); Player.prevPos.copy(p); Player.mode = p.y > Ocean.heightAt(p.x, p.z) ? 'walk' : 'swim'; Player.vel.set(0, 0, 0); Audio_.play('hatch'); Game.flashFade(); }, { r: 1.2 });
     I([-2.4, 0.5, -9], () => 'Cyclops engine (upgrade console)', () => UI.openVehicle(this));
     I([2.6, 0.5, 6], () => (Vehicles.docked && Vehicles.docked.dockedIn === this ? 'Enter docked ' + Items.name(Vehicles.docked.kind) : 'Docking bay (empty)'), () => { const d = Vehicles.docked; if (d && d.dockedIn === this) Vehicles.undock(d, true); });
-    Interact.add({ pos: V3(0, -5, -6), frame: this.group, r: 2.2, grp: 'ext', kind: 'cyclops', label: () => 'Enter Cyclops', use: () => Vehicles.enterCyclops(this) });
+    this.its.push(Interact.add({ pos: V3(0, -5, -6), frame: this.group, r: 2.2, grp: 'ext', kind: 'cyclops', label: () => 'Enter Cyclops', use: () => Vehicles.enterCyclops(this) }));
     Beacons.add(this.pos, 'Cyclops', 'base', this);
   }
   buildMesh() {
@@ -5931,7 +5941,7 @@ class CyclopsV extends Vehicle {
 // ------------------------------------------------------------------ Vehicle manager
 const Vehicles = {
   list: [], current: null, mvbs: [], docked: null, lightT: 0,
-  clear() { for (const v of this.list) { R.scene.remove(v.group); if (v.legs) for (const L of v.legs) R.scene.remove(L.th, L.sh, L.ft); const i = Phys.dynamic.indexOf(v.col); if (i >= 0) Phys.dynamic.splice(i, 1); } this.list = []; for (const m of this.mvbs) { R.scene.remove(m.mesh); Interact.remove(m.it); const i = Phys.dynamic.indexOf(m.col); if (i >= 0) Phys.dynamic.splice(i, 1); } this.mvbs = []; this.current = null; this.docked = null; Cyclops.v = null; },
+  clear() { for (const v of this.list) { R.scene.remove(v.group); for (const it of v.its || []) Interact.remove(it); if (v.legs) for (const L of v.legs) R.scene.remove(L.th, L.sh, L.ft); const i = Phys.dynamic.indexOf(v.col); if (i >= 0) Phys.dynamic.splice(i, 1); } this.list = []; for (const m of this.mvbs) { R.scene.remove(m.mesh); Interact.remove(m.it); const i = Phys.dynamic.indexOf(m.col); if (i >= 0) Phys.dynamic.splice(i, 1); } this.mvbs = []; this.current = null; this.docked = null; Cyclops.v = null; },
   deployMVB(p) { const m = new MVB(p); this.mvbs.push(m); Audio_.play('deploy'); Story.flag('mvb'); return m; },
   spawn(kind, pos, yaw, instant) {
     const C = kind === 'seamoth' ? Seamoth : kind === 'prawn' ? Prawn : CyclopsV; const v = new C(pos, yaw); this.list.push(v); v.finalizeTick();
@@ -5972,7 +5982,7 @@ const Vehicles = {
   },
   destroy(v) {
     Effects.explosion(v.pos, 6, 20); if (this.current === v || (Player.mode === 'cyclops' && Cyclops.v === v)) { this.current = null; Player.frame = null; Player.mode = 'swim'; Player.pos.copy(v.pos).add(V3(0, 3, 0)); Player.prevPos.copy(Player.pos); UI.note(Items.name(v.kind) + ' destroyed!', 'bad'); }
-    R.scene.remove(v.group); if (v.legs) for (const L of v.legs) R.scene.remove(L.th, L.sh, L.ft); const i = Phys.dynamic.indexOf(v.col); if (i >= 0) Phys.dynamic.splice(i, 1); this.list.splice(this.list.indexOf(v), 1); if (v === Cyclops.v) Cyclops.v = null; Beacons.removeFor(v);
+    R.scene.remove(v.group); for (const it of v.its || []) Interact.remove(it); if (v.legs) for (const L of v.legs) R.scene.remove(L.th, L.sh, L.ft); const i = Phys.dynamic.indexOf(v.col); if (i >= 0) Phys.dynamic.splice(i, 1); this.list.splice(this.list.indexOf(v), 1); if (v === Cyclops.v) Cyclops.v = null; Beacons.removeFor(v);
     for (let k = 0; k < 6; k++) World.spawnPickup('titanium', v.pos.clone().add(V3(rr(-2, 2), rr(-1, 1), rr(-2, 2))));
   },
   pick(o, dir, range) { let best = null, bt = range; for (const v of this.list) { if (v === this.current || v.docked) continue; for (const s of v.spheres) { const c = _v[0].set(s[0], s[1], s[2]).applyQuaternion(v.quat).add(v.pos); const rel = _v[1].subVectors(c, o); const t = rel.dot(dir); if (t < 0 || t - s[3] > bt) continue; if (rel.lengthSq() - t * t < (s[3] + 0.3) ** 2) { const tt = Math.max(0, t - s[3]); if (tt < bt) { bt = tt; best = { v, dist: tt, pos: c.clone() }; } } } } return best; },
@@ -6498,6 +6508,9 @@ const UI = {
   },
   escape() {
     if (this.rebinding) return;
+    // ending: ESC skips the launch cinematic to the credits, and the credits back to the title
+    if (!$('credits').classList.contains('hidden') && this.creditsSkip) { this.creditsSkip(); return; }
+    if (Game.state === 'ending' && Story.cutscene && Story.cutscene.type === 'launch') { Story.cutscene.t = Math.max(Story.cutscene.t, 36); return; }
     // ESC always opens the pause menu (closing any open overlay on the way); in menus it steps back
     if (this.open) { if (Game.state === 'playing' || Game.state === 'intro') this.pause(); else this.closeAll(); return; }
     if (Game.state === 'title') { this.menuBack(); return; }
@@ -6717,7 +6730,7 @@ const UI = {
     this.show('credits', true); const roll = $('creditRoll');
     roll.innerHTML = `<h1>SUBNAUTICA</h1><div>A single-file procedural browser recreation</div><h4>INSPIRED BY</h4><div>Subnautica by Unknown Worlds Entertainment</div><h4>BUILT WITH</h4><div>Three.js · Web Audio API · Web Workers</div><h4>EVERY MESH, TEXTURE AND SOUND</h4><div>generated procedurally at runtime</div><h4>THANK YOU FOR PLAYING</h4><div>The Kharaa bacterium has been contained.<br>You escaped planet 4546B.</div><div style="height:40vh"></div>`;
     let y = window.innerHeight, fin = false; const finish = () => { if (fin) return; fin = true; this.show('credits', false); done(); };
-    const step = () => { if (fin) return; y -= 0.9; roll.style.top = y + 'px'; if (y < -roll.clientHeight) finish(); else requestAnimationFrame(step); };
+    let last = 0; const step = (ts) => { if (fin) return; const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts; y -= 54 * dt; roll.style.top = y + 'px'; if (y < -roll.clientHeight) finish(); else requestAnimationFrame(step); }; // frame-rate independent scroll
     requestAnimationFrame(step); $('credits').onclick = finish; this.creditsSkip = finish;
   },
   // ------------------------------------------------------------------ title menus
@@ -7166,7 +7179,7 @@ const Game = {
     for (const p of Projectiles.list) R.scene.remove(p.m); Projectiles.list = []; for (const r of Effects.rings) R.scene.remove(r.m); Effects.rings = []; for (const f of Tools.flares) R.scene.remove(f.mesh); Tools.flares = [];
     for (const s in FX.sets) FX.sets[s].parts.length = 0;
     if (Story.shock) { R.scene.remove(Story.shock.mesh, Story.shock.sphere); Story.shock = null; } if (Story.cutscene && Story.cutscene.ship) R.scene.remove(Story.cutscene.ship); if (Story.cutscene && Story.cutscene.beam) R.scene.remove(Story.cutscene.beam); Story.introC = null; if (Story.introPanel && Story.introPanel.parent) Story.introPanel.parent.remove(Story.introPanel);
-    if (Rocket.platform) { R.scene.remove(Rocket.platform.group); Interact.remove(Rocket.term); Rocket.platform = null; } Rocket.stages = 0;
+    if (Rocket.platform) { R.scene.remove(Rocket.platform.group); Interact.remove(Rocket.term); if (Rocket.col) Phys.remove(Rocket.col); Rocket.col = null; Rocket.platform = null; } Rocket.stages = 0;
     Structures.emit = Structures.emit0.map((e) => ({ ...e })); for (const l of Structures.leaks) l.fixed = false; for (const e of Structures.eggs || []) e.visible = true; if (Structures.gun) Structures.gun.quaternion.copy(Structures.gun0);
     Lifepod.radioFixed = false; Lifepod.systemsFixed = false; Lifepod.medkitT = 0;
     Story.reset(); Blueprints.reset(); DB.reset(); Inventory.reset(); Player.reset(); Creatures.pet = null; Creatures.clear();
@@ -7308,7 +7321,7 @@ const Lights = {
 Structures.emit0 = null;
 { const si = Structures.init.bind(Structures); Structures.init = function () { si(); this.emit0 = this.emit.map((e) => ({ ...e, p: e.p.clone() })); if (this.gun) this.gun0 = this.gun.quaternion.clone(); }; }
 // debug handle (browser console): window.SN.Player.pos, window.SN.Game.newGame('creative', 2), ...
-window.SN = { Game, Player, Input, Vehicles, Creatures, Fish, Terrain, TL, Build, Inventory, Story, UI, World, Env, R, Post, Flora, Resources, Items, Blueprints, SaveSys, Structures, Lifepod, Cyclops, Weather, Ocean, Tools, Aim, Settings, Phys, Leviathan, DB, Rocket, THREE };
+window.SN = { RECIPES, GU, FX, Fabricate, Game, Player, Input, Vehicles, Creatures, Fish, Terrain, TL, Build, Inventory, Story, UI, World, Env, R, Post, Flora, Resources, Items, Blueprints, SaveSys, Structures, Lifepod, Cyclops, Weather, Ocean, Tools, Aim, Settings, Phys, Leviathan, DB, Rocket, THREE };
 Game.init();
 
 </script>
