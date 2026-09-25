@@ -1004,7 +1004,8 @@ vec3 nmsSunTrans(int i, vec3 p) {
   vec3 d = p - a.c; float r = max(length(d), 1.0); vec3 up = d / r;
   float mu = dot(up, uSunDir);
   float dip = r > a.Rg ? acos(clamp(a.Rg / r, -1.0, 1.0)) : 0.0;
-  float vis = smoothstep(-uSunAng, uSunAng, asin(clamp(mu, -1.0, 1.0)) + dip);
+  // star disk setting behind the planet limb (+ ~1° for refraction / twilight so the terminator is not razor sharp)
+  float vis = smoothstep(-uSunAng - 0.018, uSunAng, asin(clamp(mu, -1.0, 1.0)) + dip);
   if (vis <= 0.0) return vec3(0.0);
   if (a.Rt <= a.Rg + 1.0) return vec3(vis);
   if (r > a.Rt) {
@@ -1218,9 +1219,18 @@ const SUN_BLOCK_NEW = /* glsl */`
 const LFB_PATCHED = THREE.ShaderChunk.lights_fragment_begin.replace(SUN_BLOCK_OLD, SUN_BLOCK_NEW);
 const ENV_PARS_PATCHED = /* glsl */`
 #ifdef USE_ENVMAP
+	// The dynamic IBL is captured at the camera. For far-away surfaces (terrain seen from orbit)
+	// that environment is wrong: the night side would be lit by the camera's view of the sunlit
+	// planet. Blend distant surfaces toward a local sky-light factor from their own sun elevation.
+	float nmsFarSky( vec3 wp ) {
+		if ( uAtmoCount < 1 ) return 1.0;
+		float w = smoothstep( 1500.0, 15000.0, length( wp ) ); if ( w <= 0.0 ) return 1.0;
+		float mu = dot( normalize( wp - uAtmoA[ 0 ].xyz ), uSunDir );
+		return mix( 1.0, 0.015 + 0.985 * smoothstep( -0.22, 0.12, mu ), w );
+	}
 	vec3 getIBLIrradiance( const in vec3 normal ) {
 		vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
-		return nmsSH( worldNormal ) * uEnvScale * nmsSkyVis;
+		return nmsSH( worldNormal ) * uEnvScale * nmsSkyVis * nmsFarSky( vNmsWorldPos );
 	}
 	vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float roughness ) {
 		#ifdef ENVMAP_TYPE_CUBE_UV
@@ -1229,7 +1239,7 @@ const ENV_PARS_PATCHED = /* glsl */`
 			reflectVec = inverseTransformDirection( reflectVec, viewMatrix );
 			vec4 envMapColor = textureCubeUV( envMap, envMapRotation * reflectVec, roughness );
 			// specular occlusion from sky visibility (caves / interiors): no light leaks
-			return envMapColor.rgb * envMapIntensity * uEnvScale * nmsSkyVis * nmsSkyVis;
+			return envMapColor.rgb * envMapIntensity * uEnvScale * nmsSkyVis * nmsSkyVis * nmsFarSky( vNmsWorldPos );
 		#else
 			return vec3( 0.0 );
 		#endif
@@ -1424,7 +1434,7 @@ const Lighting = {
 // depth atlas and filtered with PCSS in every lit shader (see GLSL_LIB).
 // ---------------------------------------------------------------------
 const Shadows = {
-  atlas: null, size: 0, cams: [], splits: [0, 0, 0, 0], count: 4, backExtent: 1800, frameSkip: 0,
+  atlas: null, size: 0, cams: [], splits: [0, 0, 0, 0], count: 4, backExtent: 1800, frameSkip: 0, stats: [0, 0, 0, 0],
   defaultDepth: null,
   init() {
     this.defaultDepth = nmsDepthMat();
@@ -1496,12 +1506,18 @@ const Shadows = {
     const sm = r.shadowMap.needsUpdate; r.shadowMap.needsUpdate = false;
     const at = this.atlas; at.viewport.set(0, 0, this.size * 2, this.size * 2); at.scissorTest = false;
     r.setRenderTarget(at); r.setClearColor(0xffffff, 1); r.clear(true, true, false);
-    // Far cascades may update at a lower rate on lower tiers (cached)
+    // Terrain chunks only cast into a cascade when they come within its far split (+ margin for
+    // cliffs and trees). Farther terrain is shadowed by the per-chunk horizon angles instead, so
+    // the large coarse chunks do not get re-drawn into every cascade (the dominant draw cost).
+    const chunks = this._chunks || (this._chunks = []); chunks.length = 0;
+    for (const o of list) if (o.userData.chunk) { const bs = o.geometry.boundingSphere || (o.geometry.computeBoundingSphere(), o.geometry.boundingSphere); chunks.push(o, _v1.copy(bs.center).applyMatrix4(o.matrixWorld).length() - bs.radius); }
     for (let i = 0; i < this.count; i++) {
+      const lim = this.splits[i] + 150; for (let k = 0; k < chunks.length; k += 2) chunks[k].visible = chunks[k + 1] < lim;
       at.viewport.set((i % 2) * this.size, Math.floor(i / 2) * this.size, this.size, this.size);
       r.setRenderTarget(at);
-      r.render(R.scene, this.cams[i]);
+      const c0 = r.info.render.calls; r.render(R.scene, this.cams[i]); this.stats[i] = r.info.render.calls - c0; // draws per cascade (debug panel)
     }
+    for (let k = 0; k < chunks.length; k += 2) chunks[k].visible = true;
     at.viewport.set(0, 0, this.size * 2, this.size * 2);
     for (const o of list) { o.material = o.userData._mat; o.userData._mat = null; }
     r.shadowMap.needsUpdate = sm; r.setClearColor(0x000000, 0);
@@ -1511,6 +1527,8 @@ const Shadows = {
 // ---------------------------------------------------------------------
 // Local lights: fixed pool of three.js lights (no shader recompiles),
 // assigned every frame to the most important registered emitters.
+// STUB: true clustered / tiled light culling is not implemented — any number of emitters can be
+//       registered, but only the nearest-N (8) are shaded each frame (forward, per pixel).
 // Emitter: { getPos(outRender), color:Color, intensity (candela), range, flicker }
 // ---------------------------------------------------------------------
 const LocalLights = {
@@ -2087,9 +2105,21 @@ const IBL = {
   shPending: false, frameCounter: 0, forced: true,
   init() {
     this.pmrem = new PMREMGenerator(R.renderer);
-    this.P = { uFace: { value: 0 }, uCube: { value: null }, uGroundAlb: { value: new Color(0.3, 0.3, 0.3) }, uGroundR: { value: 0 } };
+    this.P = { uFace: { value: 0 }, uCube: { value: null }, uGroundAlb: { value: new Color(0.3, 0.3, 0.3) }, uGroundR: { value: 0 }, uInterior: { value: 0 }, uInteriorUp: { value: new Vector3(0, 1, 0) } };
     this.capturePass = new FSPass(GLSL_ATMO_MARCH + GLSL_SKY_BG + /* glsl */`
-      uniform float uFace; uniform vec3 uGroundAlb; uniform float uGroundR; in vec2 vUv; layout(location = 0) out vec4 o;
+      uniform float uFace; uniform vec3 uGroundAlb; uniform float uGroundR; uniform float uInterior; uniform vec3 uInteriorUp; in vec2 vUv; layout(location = 0) out vec4 o;
+      // Enclosed interiors (space station): the capture cannot see the walls, so the surroundings are
+      // replaced by a procedural room radiance (lit walls, darker floor, emissive ceiling strips, in nits).
+      // This keeps ambient/reflections inside consistent with the interior lights and prevents space
+      // (sun + stars) from leaking into the hall.
+      vec3 nmsInteriorEnv(vec3 d) {
+        float y = dot(d, uInteriorUp);
+        vec3 tU = normalize(cross(uInteriorUp, abs(uInteriorUp.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0)));
+        vec3 wall = vec3(0.52, 0.54, 0.57) * 22.0, flo = vec3(0.3, 0.31, 0.33) * 12.0, ceil = vec3(0.45) * 16.0;
+        float strip = smoothstep(0.9, 0.97, abs(sin(dot(d, tU) * 7.0))) * smoothstep(0.55, 0.85, y);
+        vec3 c = mix(wall, ceil, smoothstep(0.3, 0.6, y)); c = mix(c, flo, smoothstep(-0.25, -0.55, y));
+        return (c + vec3(1.0, 0.96, 0.9) * 700.0 * strip) * uPreExposure;
+      }
       vec3 faceDir(float f, vec2 uv) { float sc = uv.x * 2.0 - 1.0, tc = uv.y * 2.0 - 1.0;
         if (f < 0.5) return vec3(1.0, -tc, -sc); if (f < 1.5) return vec3(-1.0, -tc, sc); if (f < 2.5) return vec3(sc, 1.0, tc);
         if (f < 3.5) return vec3(sc, -1.0, -tc); if (f < 4.5) return vec3(sc, -tc, 1.0); return vec3(-sc, -tc, -1.0); }
@@ -2125,7 +2155,9 @@ const IBL = {
         }
         vec3 T = vec3(1.0);
         vec3 L = nmsAtmosphere(rd, tMax, 12, 0.5, T, tc, cS, cT, 1, tMax > 1e29);
-        o = vec4(max(col * T + L, vec3(0.0)), 1.0);
+        vec3 outc = max(col * T + L, vec3(0.0));
+        if (uInterior > 0.0) outc = mix(outc, nmsInteriorEnv(rd), uInterior);
+        o = vec4(outc, 1.0);
       }`, this.P);
     this.shPass = new FSPass(/* glsl */`
       uniform samplerCube uCube; layout(location = 0) out vec4 o;
@@ -2709,7 +2741,7 @@ const Post = {
       if (w > 0) {
         const avgLog = acc / w;
         let target = avgLog + 3.0; // EV100 = log2(L * 100 / 12.5)
-        target = clamp(target, this.minEV ?? 1.5, 17.5);
+        target = clamp(target, this.minEV ?? 1.5, 20); // up to sunlit snow under a hot star
         const speed = target > this.exposureEV ? 2.2 : 0.55;
         this.exposureEV += (target - this.exposureEV) * (1 - Math.exp(-dt * speed));
       }
@@ -3709,7 +3741,7 @@ class Planet {
     g.setIndex(SHARED_INDEX);
     let r2 = 0; for (let i = 0; i < d.pos.length; i += 3) { const q = d.pos[i] * d.pos[i] + d.pos[i + 1] * d.pos[i + 1] + d.pos[i + 2] * d.pos[i + 2]; if (q > r2) r2 = q; }
     g.boundingSphere = new Sphere(new Vector3(), Math.sqrt(r2) + 2);
-    const m = new Mesh(g, this.material); m.position.set(d.center[0], d.center[1], d.center[2]); m.matrixAutoUpdate = false; m.updateMatrix();
+    const m = new Mesh(g, this.material); m.position.set(d.center[0], d.center[1], d.center[2]); m.matrixAutoUpdate = false; m.updateMatrix(); m.userData.chunk = true; // (shadow-caster distance culling)
     m.customDepthMaterial = this.depthMat; m.castShadow = m.receiveShadow = true; m.visible = false; m.userData.terrain = true;
     this.root.add(m); n.mesh = m; n.minH = d.minH; n.maxH = d.maxH; n.state = 2; this.meshCount++;
     n.center.set(d.center[0], d.center[1], d.center[2]);
@@ -4048,15 +4080,40 @@ const Geo = {
     return g;
   },
   /** Noise-displaced icosphere (rocks, boulders, heads, asteroids) */
-  rock(rng, r, detail = 2, rough = 0.35, squash = 1) {
-    const g = new IcosahedronGeometry(r, detail); const p = g.attributes.position, N = makeNoiseLib(rng.int(1, 1e9));
-    const sx = rng.range(0.8, 1.3), sz = rng.range(0.8, 1.3), off = rng.range(0, 100);
+  /** Weld a non-indexed geometry (three's polyhedra) into an indexed one so normals can be smoothed */
+  weld(g) {
+    const p = g.attributes.position, map = new Map(), verts = [], idx = [];
     for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), l = Math.hypot(x, y, z);
-      const d = 1 + rough * (N.fbm(x / r * 1.3 + off, y / r * 1.3, z / r * 1.3, 4) + 0.35 * N.ridged(x / r * 2.7, y / r * 2.7 + off, z / r * 2.7, 3) - 0.3);
-      p.setXYZ(i, x * d * sx, y * d * squash * (y < 0 ? 0.6 : 1), z * d * sz);
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let j = map.get(k); if (j === undefined) { j = verts.length / 3; map.set(k, j); verts.push(p.getX(i), p.getY(i), p.getZ(i)); } idx.push(j);
     }
-    g.deleteAttribute('uv'); const g2 = THREE.BufferGeometryUtils ? g : g; g2.computeVertexNormals(); return g2;
+    const out = new BufferGeometry(); out.setAttribute('position', new Float32BufferAttribute(verts, 3)); out.setIndex(idx); g.dispose(); return out;
+  },
+  /** Weathered rock: smooth-shaded icosphere, fBm + ridged displacement, a few planar fracture cuts
+   *  (flat faces with rounded edges), fine surface noise, and baked vertex colour (strata, speckle,
+   *  cavity occlusion) so it reads as stone rather than a faceted polyhedron. */
+  rock(rng, r, detail = 2, rough = 0.35, squash = 1) {
+    const g = Geo.weld(new IcosahedronGeometry(r, detail + (r > 1.2 ? 3 : 1))); const p = g.attributes.position, N = makeNoiseLib(rng.int(1, 1e9));
+    const sx = rng.range(0.8, 1.3), sz = rng.range(0.8, 1.3), off = rng.range(0, 100);
+    const cuts = []; for (let k = 0; k < 5; k++) cuts.push([new Vector3(rng.range(-1, 1), rng.range(-0.3, 1), rng.range(-1, 1)).normalize(), rng.range(0.74, 0.93)]);
+    const dir = new Vector3(), rad = new Float32Array(p.count), col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      dir.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+      let s = 1 + rough * (N.fbm(dir.x * 1.3 + off, dir.y * 1.3, dir.z * 1.3, 4) + 0.35 * N.ridged(dir.x * 2.7, dir.y * 2.7 + off, dir.z * 2.7, 3) - 0.3);
+      for (const [n, o] of cuts) { const c = dir.dot(n); if (c > 0.05 && s * c > o) s = o / c; }
+      s *= 1 + 0.035 * rough * N.fbm(dir.x * 9 + off, dir.y * 9, dir.z * 9, 3);
+      rad[i] = s; p.setXYZ(i, dir.x * r * s * sx, dir.y * r * s * squash * (dir.y < 0 ? 0.6 : 1), dir.z * r * s * sz);
+    }
+    // baked colour: sedimentary banding + speckle, darkened in concavities (cavity AO)
+    let mean = 0; for (let i = 0; i < p.count; i++) mean += rad[i]; mean /= p.count;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i) / r, band = 0.5 + 0.5 * Math.sin(y * 9 + N.fbm(p.getX(i) / r * 2, y * 2, p.getZ(i) / r * 2 + off, 3) * 4);
+      const speck = N.fbm(p.getX(i) / r * 14 + off, p.getY(i) / r * 14, p.getZ(i) / r * 14, 2);
+      const ao = clamp(1 + (rad[i] - mean) * 2.2, 0.55, 1.05);
+      const v = (0.82 + band * 0.16 + speck * 0.18) * ao; col[i * 3] = v; col[i * 3 + 1] = v * 0.985; col[i * 3 + 2] = v * 0.965;
+    }
+    g.setAttribute('color', new Float32BufferAttribute(col, 3));
+    g.computeVertexNormals(); return g;
   },
   crossQuads(w, h, n = 2) { const gs = []; for (let i = 0; i < n; i++) { const q = new PlaneGeometry(w, h); q.translate(0, h / 2, 0); q.rotateY(i * Math.PI / n); gs.push(q); } return Geo.merge(gs); },
 };
@@ -4297,7 +4354,7 @@ function buildFloraKind(kind, rng, planet, fadeU) {
     }
     case 'rock': case 'boulder': {
       const g = Geo.rock(rng, kind === 'boulder' ? 1.6 : 0.6, kind === 'boulder' ? 3 : 2, 0.35, rng.range(0.5, 0.9));
-      addSolid(g, { color: rcol.clone().multiplyScalar(rng.range(0.9, 1.3)), roughness: 0.88 }, {});
+      addSolid(g, { color: rcol.clone().multiplyScalar(rng.range(0.9, 1.3)), vertexColors: true, roughness: 0.88 }, {});
       out.height = kind === 'boulder' ? 1.6 : 0.6; out.radius = out.height; break;
     }
     case 'pillar': {
@@ -4320,7 +4377,7 @@ function buildFloraKind(kind, rng, planet, fadeU) {
       addSolid(Geo.merge(gs), { vertexColors: true, roughness: 0.35, emissive: col, emissiveIntensity: kind === 'sodium' ? 30 : 8 }, { sss: 0.8, wind: 0.05, sssColor: col });
       out.height = 0.8; out.radius = 0.5; out.glow = kind === 'sodium' ? col : null; break;
     }
-    default: { const g = Geo.rock(rng, 0.5); addSolid(g, { color: rcol, roughness: 0.9 }, {}); out.height = 0.5; out.radius = 0.5; }
+    default: { const g = Geo.rock(rng, 0.5); addSolid(g, { color: rcol, vertexColors: true, roughness: 0.9 }, {}); out.height = 0.5; out.radius = 0.5; }
   }
   return out;
 }
@@ -4562,7 +4619,9 @@ const World = {
     // moon / planet-shine fill: brightest nearby body
     let moon = null, best = 0;
     for (const p of this.planets) {
-      const d = p.pos.distanceTo(this.camI); if (d < p.R * 1.5) continue;
+      // the fill is one global directional light: a body we are close to (standing on, or orbiting)
+      // would wrongly light its own night side with it, so only farther moons/planets count
+      const d = p.pos.distanceTo(this.camI); if (d < p.R * 8) continue;
       const toStar = _v1.copy(sys.star.pos).sub(p.pos).normalize(), toCam = _v2.copy(this.camI).sub(p.pos).normalize();
       const alpha = Math.acos(clamp(toStar.dot(toCam), -1, 1)), phase = (Math.sin(alpha) + (Math.PI - alpha) * Math.cos(alpha)) / Math.PI;
       const lux = sys.star.lux * 0.25 * (2 / 3) * phase * (p.R / d) * (p.R / d);
@@ -4680,6 +4739,7 @@ function buildCreatureMesh(sp) {
   const pushV = (p, n, c, bi, bw) => { pos.push(p.x, p.y, p.z); nrm.push(n.x, n.y, n.z); col.push(c.r, c.g, c.b); si.push(bi[0], bi[1] || 0, bi[2] || 0, bi[3] || 0); sw.push(bw[0], bw[1] || 0, bw[2] || 0, bw[3] || 0); return pos.length / 3 - 1; };
   /** Loft a tube along bone chain points; ringR(t) radius, bonesAt(t) → [[bi],[w]] */
   const loft = (pts, radiusFn, boneFn, radial, flatY = 1, belly = true, cap0 = false, cap1 = false) => {
+    radial = Math.round(radial * 1.7); // dense cross-sections: smooth silhouettes, no visible facets up close
     const rings = pts.length, start = pos.length / 3; const t = new Vector3(), n = new Vector3(), b = new Vector3(); let prevN = null;
     for (let i = 0; i < rings; i++) {
       const u = i / (rings - 1);
@@ -4702,10 +4762,11 @@ function buildCreatureMesh(sp) {
   // --- body: tail tip → pelvis → spine → chest → neck → head base
   const chain = [t4, t3, t2, t1, pelvis, spine, chest, neck1, neck2, head];
   const cp = chain.map(W); const segs = [];
-  for (let i = 0; i < cp.length - 1; i++) for (let k = 0; k < 4; k++) segs.push({ p: cp[i].clone().lerp(cp[i + 1], k / 4), b0: chain[i], b1: chain[i + 1], t: k / 4 });
+  const RPB = 8; // body rings per bone
+  for (let i = 0; i < cp.length - 1; i++) for (let k = 0; k < RPB; k++) segs.push({ p: cp[i].clone().lerp(cp[i + 1], k / RPB), b0: chain[i], b1: chain[i + 1], t: k / RPB });
   segs.push({ p: cp[cp.length - 1], b0: head, b1: head, t: 0 });
   const bodyPts = segs.map(s => s.p);
-  const nT = 4 * 4, nB = 4 * 3; // tail rings, torso rings
+  const nT = RPB * 4, nB = RPB * 3; // tail rings, torso rings
   loft(bodyPts, (u) => {
     const i = u * (segs.length - 1);
     if (i < nT) return r0 * (0.12 + 0.88 * Math.pow(i / nT, 1.4)) * (sp.plan === 'swimmer' ? 0.9 : 1);
@@ -4754,7 +4815,25 @@ function buildCreatureMesh(sp) {
   const mesh = new SkinnedMesh(g, mat);
   mesh.add(pelvis); mesh.bind(new Skeleton(bones));
   mesh.frustumCulled = false; mesh.castShadow = true;
-  return { mesh, bones, pelvis, spine, chest, neck1, neck2, head, tail: [t1, t2, t3, t4], legs, wings, hip, S };
+  // Fur by shell texturing: K extra skinned layers pushed out along the bind-pose normal, sharing
+  // geometry and skeleton. Each layer keeps only the strands whose hash exceeds its height, so
+  // strands taper; lower layers are darkened (self-occlusion). Only shown for near creatures.
+  const shells = [];
+  if (sp.skin === 'fur') {
+    const K = 6, len = clamp(S * 0.045, 0.012, 0.09), den = 1 / Math.max(0.004, len * 0.22);
+    for (let k = 1; k <= K; k++) {
+      const u = { uShell: { value: k / K }, uShellH: { value: len }, uShellDen: { value: den } };
+      const sm = pbr(Object.assign({}, matParams, { side: THREE.FrontSide }), { sss: 0.35, sssColor: sp.base.clone().lerp(new Color(1, 0.8, 0.6), 0.5), key: 'fur', uniforms: u,
+        vertexPars: 'uniform float uShell; uniform float uShellH; varying vec3 vShellP;\n',
+        vertexBegin: 'transformed += normal * uShell * uShellH; vShellP = position; // bind-pose offset, then skinned\n',
+        fragPars: 'uniform float uShell; uniform float uShellDen; varying vec3 vShellP;\n',
+        fragBegin: 'if ( fract( sin( dot( floor( vShellP * uShellDen ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) < uShell * 0.85 + 0.1 ) discard;\n',
+        fragMap: 'diffuseColor.rgb *= mix( 0.55, 1.05, uShell );\n' });
+      const shell = new SkinnedMesh(g, sm); shell.bind(mesh.skeleton, mesh.bindMatrix); shell.frustumCulled = false; shell.castShadow = false; shell.visible = false;
+      mesh.add(shell); shells.push(shell);
+    }
+  }
+  return { mesh, bones, pelvis, spine, chest, neck1, neck2, head, tail: [t1, t2, t3, t4], legs, wings, hip, S, shells };
 }
 
 // =====================================================================
@@ -4910,7 +4989,7 @@ class Creature {
       aimBone(lg.shin, knee, target); lg.shin.updateMatrixWorld(true);
     }
   }
-  dispose() { this.planet.root.remove(this.group); this.rig.mesh.geometry.dispose(); this.rig.mesh.material.dispose(); NMS_MATERIALS.delete(this.rig.mesh.material); this.rig.mesh.skeleton.dispose(); }
+  dispose() { this.planet.root.remove(this.group); this.rig.mesh.geometry.dispose(); for (const m of [this.rig.mesh, ...this.rig.shells]) { m.material.dispose(); NMS_MATERIALS.delete(m.material); } this.rig.mesh.skeleton.dispose(); }
 }
 /** Rotate a bone so its local -Y axis points from 'from' toward 'to' (world space) */
 function aimBone(bone, from, to) {
@@ -4959,6 +5038,7 @@ class FaunaSet {
     // AI LOD: near every frame, far every 3rd frame
     for (const c of this.creatures) {
       const d = c.pos.distanceTo(pl); c.lod = d < 60 ? 0 : d < 160 ? 1 : 2;
+      const furOn = d < 35 && c.state !== 'dead'; for (const sh of c.rig.shells) sh.visible = furOn; // fur shells only up close
       c.acc = (c.acc || 0) + dt; c.frameSkip = (c.frameSkip + 1) % (c.lod === 0 ? 1 : 3);
       if (c.frameSkip === 0) { c.update(c.acc, ctx); c.acc = 0; }
     }
@@ -5076,7 +5156,8 @@ class Sentinel {
     }
   }
   update(dt, ctx) {
-    this.t += dt; const planet = this.sys.planet, pl = ctx.playerLocal, toP = _v1.copy(pl).sub(this.pos), dP = toP.length(), up = _v2.copy(this.pos).normalize();
+    const V = this._tv || (this._tv = { toP: new Vector3(), up: new Vector3(), n: new Vector3(), d: new Vector3(), last: this.pos.clone(), side: new Vector3() });
+    this.t += dt; const planet = this.sys.planet, pl = ctx.playerLocal, toP = V.toP.copy(pl).sub(this.pos), dP = toP.length(), up = V.up.copy(this.pos).normalize();
     const hostile = this.sys.wanted > 0 && dP < 160;
     const speed = { drone: 9, quad: 7, walker: 4, dropship: 12 }[this.kind];
     let goal;
@@ -5091,6 +5172,26 @@ class Sentinel {
     const gR = planet.groundR(this.pos), seaR = planet.seaR;
     const floor = Math.max(gR, seaR > 0 ? seaR : 0);
     this.pos.setLength(this.kind === 'drone' ? floor + this.hover + Math.sin(this.t * 1.3) * 0.4 : this.kind === 'dropship' ? floor + 25 : gR);
+    // obstacles: POI buildings, base pieces, tree trunks and boulders push the body out (no clipping)
+    if (this.kind !== 'dropship') {
+      const r = { drone: 0.8, quad: 1.4, walker: 2.5 }[this.kind], n = V.n, bump = () => { const vn = this.vel.dot(n); if (vn < 0) this.vel.addScaledVector(n, -vn); };
+      if (planet.pois && planet.pois.collide(this.pos, r, n)) bump();
+      if (Base.collide(this.pos, r, n)) bump();
+      if (planet.flora) for (const c of planet.flora.collidersNear(this.pos, r + 1)) {
+        const d = V.d.copy(this.pos).sub(c.p), along = d.dot(c.up); if (c.type === 'trunk') { if (along < -1 || along > c.h) continue; d.addScaledVector(c.up, -along); } else d.addScaledVector(c.up, -c.r * 0.3);
+        const l = d.length(), min = c.r + r; if (l < min && l > 1e-4) { n.copy(d).divideScalar(l); this.pos.addScaledVector(n, min - l); bump(); }
+      }
+    }
+    // stuck detection: no progress for 2 s while trying to move → turn, back off, pick a new route
+    this.stuckT = (this.stuckT || 0) + dt;
+    if (this.stuckT > 2) {
+      const progress = this.pos.distanceTo(V.last); V.last.copy(this.pos); this.stuckT = 0;
+      if (goal && progress < 1.0 && this.pos.distanceTo(goal) > 5 && this.kind !== 'dropship') {
+        V.side.crossVectors(up, this.vel.lengthSq() > 1e-4 ? this.vel : this.heading).normalize().multiplyScalar(Math.random() < 0.5 ? -1 : 1);
+        this.vel.multiplyScalar(-0.6).addScaledVector(V.side, speed * 0.8);
+        this.target = this.pos.clone().addScaledVector(V.side, 25).addScaledVector(up, 0); this.patrolT = 4;
+      }
+    }
     if (dP > 1) this.heading.lerp(toP.clone().normalize(), hostile || this.scanning ? 0.1 : 0.02);
     if (this.vel.lengthSq() > 0.5 && !hostile) this.heading.lerp(this.vel.clone().normalize(), 0.05);
     this.heading.sub(_v5.copy(up).multiplyScalar(this.heading.dot(up))).normalize();
@@ -5142,14 +5243,18 @@ class SentinelSystem {
       const have = this.list.filter(s => s.alive && s.kind === k && !s.leaving).length;
       if (have < want[k] && this.spawnT <= 0 && ctx.playerOnFoot) {
         this.spawnT = this.wanted ? 2.5 : 8;
-        const up = ctx.playerLocal.clone().normalize(), t = new Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); t.sub(up.clone().multiplyScalar(t.dot(up))).normalize();
+        // spawn direction: a random tangent that lies well outside the view frustum (never pops in on screen)
+        const up = ctx.playerLocal.clone().normalize(), cd = ctx.camDirLocal.clone().addScaledVector(up, -ctx.camDirLocal.dot(up)); if (cd.lengthSq() < 1e-6) cd.set(up.y, -up.x, 0); cd.normalize();
+        const t = new Vector3(); for (let k = 0; k < 12; k++) { t.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5); t.addScaledVector(up, -t.dot(up)).normalize(); if (t.dot(cd) < 0.1) break; }
+        if (t.dot(cd) >= 0.1) t.copy(cd).negate();
         const r = this.wanted ? 70 : 140; const p = ctx.playerLocal.clone().addScaledVector(t, r).addScaledVector(up, k === 'dropship' ? 60 : 8);
         const s = new Sentinel(this, k, p); if (k === 'dropship') s.dropTarget = ctx.playerLocal.clone().addScaledVector(t, 30); this.list.push(s);
       }
     }
     for (const s of [...this.list]) {
       const d = s.pos.distanceTo(ctx.playerLocal);
-      if ((!s.alive) || (s.leaving && d > 150) || d > 500) { s.dispose(); this.list.splice(this.list.indexOf(s), 1); continue; }
+      const onScreen = d > 1e-3 && _v1.copy(s.pos).sub(ctx.playerLocal).divideScalar(d).dot(ctx.camDirLocal) > ctx.camFovCos;
+      if ((!s.alive) || (s.leaving && d > 150 && !onScreen) || d > 600) { s.dispose(); this.list.splice(this.list.indexOf(s), 1); continue; } // leave only when unseen
       s.update(dt, ctx);
     }
   }
@@ -5671,8 +5776,11 @@ const Space = {
     for (let k = 0; k < 4; k++) { const r = k === 0 ? race : arng.pick(RACES); const a = buildAlien(r, arng.int(1, 1e9)); a.position.set(arng.range(-4, 4), floorY + 3, hallZ + arng.range(-8, 8)); a.rotation.y = arng.range(0, TAU); S.add(a); this.aliens.push(a); }
     S.position.copy(st.pos); S.quaternion.copy(st.quat); this.root.add(S);
     this.stationObj = S; this.stationBoxes = boxes; this.stationInfo = { C, bw, bh, depth, floorY, hallZ, back };
-    this.stationLights = [LocalLights.add({ getPos: (o) => this.stationObj.localToWorld(o.set(0, bh / 2 - 4, 40)), color: new Color(1, 0.96, 0.9), intensity: 30000, range: 90 }),
-      LocalLights.add({ getPos: (o) => this.stationObj.localToWorld(o.set(0, floorY + 9, hallZ)), color: new Color(1, 0.95, 0.85), intensity: 1500, range: 30 })];
+    // hangar flood lights down the bay + hall ceiling lamps (nearest-N of these feed the light pool)
+    const L = (x, y, z, I, range, col = new Color(1, 0.96, 0.9)) => LocalLights.add({ getPos: (o) => this.stationObj.localToWorld(o.set(x, y, z)), color: col, intensity: I, range });
+    this.stationLights = [L(0, bh / 2 - 4, 40, 30000, 90)];
+    for (let z = C / 2 - 20; z > C / 2 - depth + 10; z -= 40) this.stationLights.push(L(0, bh / 2 - 3, z, 22000, 80));
+    for (let z = hallZ - 6; z < back; z += 9) this.stationLights.push(L(0, floorY + 9.5, z, 1400, 26, new Color(1, 0.95, 0.85)));
     // ---------------- asteroid field ----------------
     const af = sys.asteroids, arng2 = new RNG(af.seed); const geos = [0, 1, 2].map(i => Geo.rock(arng2, 1, 2, 0.45));
     const amat = pbr({ color: 0x4d4944, roughness: 0.9 });
@@ -5686,7 +5794,8 @@ const Space = {
       this.rocks.push(rock); this.rockMeshes[k].setMatrixAt(slot, _m1.compose(p, q, _v1.set(rock.dead ? 0 : s, rock.dead ? 0 : s, rock.dead ? 0 : s)));
     }
     this.rockMeshes.forEach(m => m.instanceMatrix.needsUpdate = true);
-    // ---------------- freighter (capital ship; STUB: walkable interior / frigates) ----------------
+    // ---------------- freighter (capital ship) ----------------
+    // STUB: owning a freighter, its walkable interior and frigate expeditions (STRETCH) are not implemented; freighters are flyable-around scenery with collision.
     if (sys.freighter) {
       const F = [{ geo: box(90, 60, 700, 0, 0, 0), mat: 'panelDark' }, { geo: box(160, 30, 220, 0, 20, -120), mat: 'panel' }, { geo: box(40, 90, 120, 0, 60, 180), mat: 'panelDark' },
         { geo: cyl(30, 40, 90, 0, 0, 390, 20, Math.PI / 2), mat: 'darkmetal' }, { geo: box(20, 4, 4, 0, 108, 200), mat: 'lightR' }];
@@ -5730,13 +5839,22 @@ const Space = {
     for (const a of this.aliens) animateAlien(a, dt, null);
     // spawn traders / pirates
     this.npcTimer -= dt; this.pirateTimer -= dt;
-    if (this.npcTimer <= 0 && this.npcs.filter(n => n.role === 'trader').length < 5) { this.npcTimer = 12 + Math.random() * 10; this.npcs.push(new NPCShip('trader', this)); }
+    if (this.npcTimer <= 0 && this.npcs.filter(n => n.role === 'trader').length < 5) {
+      this.npcTimer = 12 + Math.random() * 10; const n = new NPCShip('trader', this);
+      if (this.seenAt(n.pos)) { n.dispose(); this.npcTimer = 3; } else this.npcs.push(n); // never pop in on screen: retry later
+    }
     const g = typeof Game !== 'undefined' ? Game : null;
     if (g && g.mode !== 'creative' && this.pirateTimer <= 0 && g.inShip() && !Frames.ref) { this.pirateTimer = 160 + Math.random() * 200; const n = this.sys.info.conflict === 'Peaceful' ? 1 : this.sys.info.conflict === 'Pirate controlled' ? 4 : 2; for (let i = 0; i < n; i++) this.npcs.push(new NPCShip('pirate', this)); g.notify('Pirates detected! Hostile starships incoming', 'bad'); Music.set('tense'); }
     for (const n of [...this.npcs]) { n.update(dt); if (n.dead) { n.dispose(); this.npcs.splice(this.npcs.indexOf(n), 1); } }
     for (const s of [...this.shots]) { s.update(dt); if (s.done) this.shots.splice(this.shots.indexOf(s), 1); }
   },
-  place() { for (const n of this.npcs) n.place(); }
+  place() { for (const n of this.npcs) n.place(); },
+  camFwdInertial(out) { return out.copy(U.uCamFwd.value).applyQuaternion(Frames.refQuat()).normalize(); },
+  /** Would an object at inertial position pI be visible (inside the view cone and nearer than 4 km)? */
+  seenAt(pI) {
+    const c = Frames.toInertial(Frames.camPos, _sv1), d = _sv2.copy(pI).sub(c), l = d.length();
+    return l < 4000 && d.dot(this.camFwdInertial(new Vector3())) > l * 0.35;
+  }
 };
 
 // ---------------- NPC ships (traders, pirates, sentinel interceptors) ----------------
@@ -5759,7 +5877,9 @@ class NPCShip {
       this.pos = this.path[0].clone(); this.pi = 1; this.speed = 180;
     } else {
       const pI = Frames.toInertial(Ship.pos, new Vector3());
-      this.pos = pI.clone().add(new Vector3(rng.range(-1, 1), rng.range(-0.3, 0.3), rng.range(-1, 1)).normalize().multiplyScalar(2500)); this.speed = 240;
+      // arrive from behind the player's view so nothing appears on screen
+      const dir = new Vector3(rng.range(-1, 1), rng.range(-0.3, 0.3), rng.range(-1, 1)).normalize(), camF = space.camFwdInertial(new Vector3()); if (dir.dot(camF) > -0.2) dir.addScaledVector(camF, -dir.dot(camF) - 0.6).normalize();
+      this.pos = pI.clone().add(dir.multiplyScalar(2500)); this.speed = 240;
     }
     this.quat = new Quaternion(); this.vel = new Vector3();
   }
@@ -5810,6 +5930,7 @@ class Projectile {
 // =====================================================================
 // MODULE: Exocraft — Roamer-style buggy with raycast suspension springs,
 // lateral tyre friction, front-wheel steering (D steers right).
+// STUB: Nomad hovercraft, Colossus truck and Nautilon submarine (STRETCH) — only the Roamer exists.
 // =====================================================================
 const Exocraft = {
   obj: null, active: false, deployed: false, pos: new Vector3(), vel: new Vector3(), quat: new Quaternion(), angVel: new Vector3(), steer: 0, wheels: [],
@@ -5893,10 +6014,26 @@ function buildAstronaut() {
   g.userData.parts = parts; return g;
 }
 function buildMultitool() {
-  const P = [{ geo: box(0.07, 0.09, 0.42, 0, 0, -0.1), mat: 'panelDark' }, { geo: cyl(0.025, 0.03, 0.26, 0, 0.01, -0.38, 12, Math.PI / 2), mat: 'metal' }, { geo: box(0.05, 0.14, 0.07, 0, -0.1, 0.02, 0.3), mat: 'darkmetal' },
-    { geo: box(0.06, 0.04, 0.12, 0, 0.065, -0.06), mat: 'lightB' }, { geo: cyl(0.02, 0.02, 0.02, 0, 0.01, -0.515, 10, Math.PI / 2), mat: 'lightA' }, { geo: box(0.1, 0.05, 0.16, 0, -0.03, -0.24), mat: 'panel' }];
+  // Streamlined sci-fi pistol: lathed body pod, barrel with muzzle ring and emitter, scanner housing
+  // with a glowing strip, side power canister, angled grip and rear fins. Paint uses clearcoat.
+  const paint = pbr({ color: 0xb9b5ad, metalness: 0.15, roughness: 0.36, clearcoat: 0.8, clearcoatRoughness: 0.12 });
+  const accent = pbr({ color: 0xb4501c, metalness: 0.1, roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.2 });
+  const lathe = (prof, seg = 28) => { const g = new LatheGeometry(prof.map(([r, z]) => new Vector2(r, z)), seg); g.rotateX(-Math.PI / 2); return g; }; // axis → -Z (forward)
+  const body = lathe([[0, -0.135], [0.028, -0.13], [0.044, -0.095], [0.05, -0.01], [0.047, 0.09], [0.037, 0.16], [0.025, 0.205], [0, 0.212]]); body.scale(1, 1.18, 1); body.translate(0, 0, -0.06);
+  const ring = new TorusGeometry(0.021, 0.0065, 10, 24); ring.translate(0, 0, -0.35);
+  const P = [
+    { geo: body, mat: paint },
+    { geo: cyl(0.016, 0.018, 0.15, 0, 0.0, -0.3, 16, Math.PI / 2), mat: 'metal' }, { geo: ring, mat: 'darkmetal' },
+    { geo: cyl(0.012, 0.012, 0.008, 0, 0.0, -0.357, 14, Math.PI / 2), mat: 'lightA' },
+    { geo: sph(0.03, 0, 0.056, -0.06, 0.95, 0.55, 2.3), mat: accent }, { geo: box(0.011, 0.006, 0.11, 0, 0.074, -0.06), mat: 'lightB' },
+    { geo: cyl(0.019, 0.019, 0.1, 0.052, -0.004, -0.02, 14, Math.PI / 2), mat: 'darkmetal' }, { geo: cyl(0.012, 0.012, 0.085, 0.066, -0.004, -0.02, 10, Math.PI / 2), mat: 'lightB' },
+    { geo: box(0.038, 0.13, 0.052, 0, -0.088, 0.045, 0.32), mat: 'darkmetal' }, { geo: sph(0.024, 0, -0.15, 0.068, 0.85, 0.5, 1.15), mat: 'darkmetal' },
+    { geo: box(0.004, 0.028, 0.05, -0.02, 0.05, 0.05, 0.35, 0, -0.3), mat: accent }, { geo: box(0.004, 0.028, 0.05, 0.02, 0.05, 0.05, 0.35, 0, 0.3), mat: accent },
+  ];
   const g = assemble(P, { cast: true }); g.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); nmsPatch(o.material); o.material.userData.nms.uLocked.value = 1; } }); return g;
 }
+// private scratch for collision: callees (POI, base, planet sampling) are free to use _v1.._v5
+const _pc1 = new Vector3(), _pc2 = new Vector3(), _pc3 = new Vector3(), _pc4 = new Vector3();
 const Player = {
   pos: new Vector3(), vel: new Vector3(), qBody: new Quaternion(), pitch: 0, up: new Vector3(0, 1, 0), onGround: false, groundN: new Vector3(0, 1, 0),
   mode: 'foot', third: false, crouch: false, sprint: false, stamina: 1, jet: 1, health: 100, shield: 100, life: 100, hazard: 100, swimming: false, inCave: false, sheltered: false,
@@ -5904,7 +6041,7 @@ const Player = {
   temp: 20, tox: 0, rad: 0, hazardKind: 'none', underwater: 0,
   init() {
     this.body = buildAstronaut(); R.scene.add(this.body);
-    this.tool = buildMultitool(); R.camera.add(this.tool); this.tool.position.set(0.22, -0.2, -0.42);
+    this.tool = buildMultitool(); R.camera.add(this.tool); this.tool.position.set(0.2, -0.17, -0.36); this.tool.rotation.set(0.04, 0.16, 0.02); // three-quarter view of the side
     this.shadowProxy = buildAstronaut(); this.shadowProxy.traverse(o => { o.layers.set(LAYER_SHADOWONLY); }); R.scene.add(this.shadowProxy);
   },
   /** Gravity direction provider (unit "up"): planet radial, or station floor when inside a station */
@@ -5972,7 +6109,7 @@ const Player = {
       return;
     }
     if (!planet) return;
-    const r = this.pos.length(), dir = _v1.copy(this.pos).divideScalar(r);
+    const r = this.pos.length(), dir = _pc1.copy(this.pos).divideScalar(r);
     // liquids: swimming below the surface (lava burns, ice is solid)
     const liq = planet.desc.liquid, seaR = planet.seaR;
     if (liq === 'ice' && seaR > 0 && r < seaR + 0.02) { this.pos.setLength(seaR); const vn = this.vel.dot(dir); if (vn < 0) this.vel.addScaledVector(dir, -vn); this.onGround = true; this.groundN.copy(dir); }
@@ -5982,46 +6119,46 @@ const Player = {
     // terrain: SDF (voxel patches: caves / edits) or heightfield
     if (planet.inPatch(this.pos)) {
       for (let it = 0; it < 3; it++) {
-        const c = _v2.copy(this.pos).addScaledVector(dir, this.radius);
+        const c = _pc2.copy(this.pos).addScaledVector(dir, this.radius);
         const f = planet.density(c);
         if (f > -this.radius) {
-          const e = 0.25, gx = planet.density(_v3.copy(c).setX(c.x + e)) - planet.density(_v3.copy(c).setX(c.x - e)), gy = planet.density(_v3.copy(c).setY(c.y + e)) - planet.density(_v3.copy(c).setY(c.y - e)), gz = planet.density(_v3.copy(c).setZ(c.z + e)) - planet.density(_v3.copy(c).setZ(c.z - e));
-          const n = _v4.set(-gx, -gy, -gz).normalize(); if (!isFinite(n.x)) break;
+          const e = 0.25, gx = planet.density(_pc3.copy(c).setX(c.x + e)) - planet.density(_pc3.copy(c).setX(c.x - e)), gy = planet.density(_pc3.copy(c).setY(c.y + e)) - planet.density(_pc3.copy(c).setY(c.y - e)), gz = planet.density(_pc3.copy(c).setZ(c.z + e)) - planet.density(_pc3.copy(c).setZ(c.z - e));
+          const n = _pc4.set(-gx, -gy, -gz).normalize(); if (!isFinite(n.x)) break;
           this.pos.addScaledVector(n, f + this.radius);
           const vn = this.vel.dot(n); if (vn < 0) this.vel.addScaledVector(n, -vn);
           if (n.dot(dir) > 0.55) { this.onGround = true; this.groundN.copy(n); }
         } else break;
       }
       // head clearance in caves
-      const head = _v2.copy(this.pos).addScaledVector(dir, this.height - this.radius); const fh = planet.density(head);
+      const head = _pc2.copy(this.pos).addScaledVector(dir, this.height - this.radius); const fh = planet.density(head);
       if (fh > -this.radius) { this.pos.addScaledVector(dir, -(fh + this.radius) * 0.5); const vn = this.vel.dot(dir); if (vn > 0) this.vel.addScaledVector(dir, -vn); }
     } else {
       const gR = planet.groundR(this.pos);
       if (r < gR + 0.02) {
         this.pos.setLength(gR);
         // ground normal from nearby heights
-        const e = 0.6; const t1 = _v3.set(-dir.z, 0, dir.x); if (t1.lengthSq() < 1e-6) t1.set(0, dir.z, -dir.y); t1.normalize(); const t2 = _v4.crossVectors(dir, t1);
+        const e = 0.6; const t1 = _pc3.set(-dir.z, 0, dir.x); if (t1.lengthSq() < 1e-6) t1.set(0, dir.z, -dir.y); t1.normalize(); const t2 = _pc4.crossVectors(dir, t1);
         const pA = this.pos.clone().addScaledVector(t1, e), pB = this.pos.clone().addScaledVector(t2, e);
         pA.setLength(planet.groundR(pA)); pB.setLength(planet.groundR(pB));
         this.groundN.crossVectors(pA.sub(this.pos), pB.sub(this.pos)).normalize(); if (this.groundN.dot(dir) < 0) this.groundN.negate();
         const vn = this.vel.dot(dir); if (vn < 0) { if (vn < -14 && Game.mode !== 'creative') this.damage((-vn - 14) * 6, 'Fall damage'); this.vel.addScaledVector(dir, -vn); }
         // slide on very steep slopes
-        if (this.groundN.dot(dir) < 0.6) this.vel.addScaledVector(_v3.copy(this.groundN).addScaledVector(dir, -this.groundN.dot(dir)), 0.25);
+        if (this.groundN.dot(dir) < 0.6) this.vel.addScaledVector(_pc3.copy(this.groundN).addScaledVector(dir, -this.groundN.dot(dir)), 0.25);
         else this.onGround = true;
       } else if (prevGround && r < gR + 0.35 && this.vel.dot(dir) <= 0.5 && !this.jetting) { this.pos.setLength(gR); this.onGround = true; } // stick to ground going downhill
     }
     // flora trunks & rocks, POI buildings, base pieces, the ship hull, the exocraft
     if (planet.flora) for (const c of planet.flora.collidersNear(this.pos, 3)) {
-      if (c.type === 'trunk') { const d = _v2.copy(this.pos).sub(c.p); const along = d.dot(c.up); if (along < -1 || along > c.h) continue; d.addScaledVector(c.up, -along); const l = d.length(), min = c.r + this.radius; if (l < min && l > 1e-4) { this.pos.addScaledVector(d, (min - l) / l); const vn = this.vel.dot(d.normalize()); if (vn < 0) this.vel.addScaledVector(d, -vn); } }
-      else { const cc = _v2.copy(c.p).addScaledVector(c.up, c.r * 0.3); const d = _v3.copy(this.pos).addScaledVector(dir, this.radius).sub(cc); const l = d.length(), min = c.r + this.radius; if (l < min && l > 1e-4) { d.divideScalar(l); this.pos.addScaledVector(d, min - l); const vn = this.vel.dot(d); if (vn < 0) this.vel.addScaledVector(d, -vn); if (d.dot(dir) > 0.6) this.onGround = true; } }
+      if (c.type === 'trunk') { const d = _pc2.copy(this.pos).sub(c.p); const along = d.dot(c.up); if (along < -1 || along > c.h) continue; d.addScaledVector(c.up, -along); const l = d.length(), min = c.r + this.radius; if (l < min && l > 1e-4) { this.pos.addScaledVector(d, (min - l) / l); const vn = this.vel.dot(d.normalize()); if (vn < 0) this.vel.addScaledVector(d, -vn); } }
+      else { const cc = _pc2.copy(c.p).addScaledVector(c.up, c.r * 0.3); const d = _pc3.copy(this.pos).addScaledVector(dir, this.radius).sub(cc); const l = d.length(), min = c.r + this.radius; if (l < min && l > 1e-4) { d.divideScalar(l); this.pos.addScaledVector(d, min - l); const vn = this.vel.dot(d); if (vn < 0) this.vel.addScaledVector(d, -vn); if (d.dot(dir) > 0.6) this.onGround = true; } }
     }
-    const nrm = _v3;
+    const nrm = _pc3;
     for (const off of [0.4, 1.2]) {
-      const c = _v2.copy(this.pos).addScaledVector(dir, off);
+      const c = _pc2.copy(this.pos).addScaledVector(dir, off);
       if (planet.pois && planet.pois.collide(c, this.radius, nrm)) { this.pos.copy(c).addScaledVector(dir, -off); const vn = this.vel.dot(nrm); if (vn < 0) this.vel.addScaledVector(nrm, -vn); if (nrm.dot(dir) > 0.6) this.onGround = true; }
       if (typeof Base !== 'undefined' && Base.collide(c, this.radius, nrm)) { this.pos.copy(c).addScaledVector(dir, -off); const vn = this.vel.dot(nrm); if (vn < 0) this.vel.addScaledVector(nrm, -vn); if (nrm.dot(dir) > 0.6) this.onGround = true; }
     }
-    if (Ship.obj && Ship.state !== 'flying' && Game.shipPlanet === planet) { const d = _v2.copy(this.pos).addScaledVector(dir, 0.9).sub(Ship.pos); const l = d.length(), min = Ship.length * 0.32 + this.radius; if (l < min && l > 1e-3) { this.pos.addScaledVector(d, (min - l) / l); } }
+    if (Ship.obj && Ship.state !== 'flying' && Game.shipPlanet === planet) { const d = _pc2.copy(this.pos).addScaledVector(dir, 0.9).sub(Ship.pos); const l = d.length(), min = Ship.length * 0.32 + this.radius; if (l < min && l > 1e-3) { this.pos.addScaledVector(d, (min - l) / l); } }
     if (this.onGround) this.lastSafe.copy(this.pos);
   },
   damage(n, why) {
@@ -6103,9 +6240,9 @@ const Player = {
       P.head.rotation.x = this.pitch * 0.5;
     }
     this.body.visible = show3rd; this.shadowProxy.visible = visible && !this.third;
-    this.tool.visible = visible && !this.third && Game.state === 'play';
-    const sway = Math.sin(this.bob) * 0.008; this.tool.position.set(0.22 + sway, -0.2 + Math.abs(sway) + (Game.aiming ? 0.07 : 0), -0.42 + (Game.aiming ? 0.05 : 0));
-    this.tool.position.x -= Game.aiming ? 0.22 : 0;
+    this.tool.visible = visible && !this.third && Game.state === 'play' && !Game.photo;
+    const sway = Math.sin(this.bob) * 0.008; this.tool.position.set(0.2 + sway, -0.17 + Math.abs(sway) + (Game.aiming ? 0.06 : 0), -0.36 + (Game.aiming ? 0.04 : 0)); this.tool.rotation.y = Game.aiming ? 0 : 0.16;
+    this.tool.position.x -= Game.aiming ? 0.2 : 0;
   }
 };
 // =====================================================================
@@ -6741,7 +6878,7 @@ const UI = {
       const aim = $('aimpt'); if (Ship.target && !Ship.target.dead) { const s = this.project(Frames.fromInertial(Ship.target.pos, _v1)); if (s) { aim.style.display = 'block'; aim.style.left = s.x + 'px'; aim.style.top = s.y + 'px'; } else aim.style.display = 'none'; } else aim.style.display = 'none';
     }
     const fps = $('fps'); fps.style.display = Settings.v.showFps || Settings.v.debug ? 'block' : 'none';
-    if (Settings.v.showFps || Settings.v.debug) { const T = Post.timings; fps.textContent = `${Math.round(Game.fps)} fps  ${(Game.frameMs).toFixed(1)} ms\n` + (Settings.v.debug ? `sim ${Game.simMs.toFixed(1)}  shadows ${Game.shadowMs.toFixed(1)}  gbuf ${(T.gbuffer || 0).toFixed(1)}\nao ${(T.ao || 0).toFixed(1)} clouds ${(T.clouds || 0).toFixed(1)} fog ${(T.fog || 0).toFixed(1)} comp ${(T.composite || 0).toFixed(1)}\ntransp ${(T.transparent || 0).toFixed(1)} post ${(T.post || 0).toFixed(1)} final ${(T.final || 0).toFixed(1)}\ncalls ${Game.calls} tris ${(Game.tris / 1e6).toFixed(2)}M EV ${Post.exposureEV.toFixed(1)}` : ''); }
+    if (Settings.v.showFps || Settings.v.debug) { const T = Post.timings; fps.textContent = `${Math.round(Game.fps)} fps  ${(Game.frameMs).toFixed(1)} ms\n` + (Settings.v.debug ? `draws ${Game.calls}  tris ${(Game.tris / 1e6).toFixed(2)}M  csm ${Shadows.stats.slice(0, Shadows.count).join('/')}\nsim ${Game.simMs.toFixed(1)}  shadows ${Game.shadowMs.toFixed(1)}  gbuf ${(T.gbuffer || 0).toFixed(1)}\nao ${(T.ao || 0).toFixed(1)} clouds ${(T.clouds || 0).toFixed(1)} fog ${(T.fog || 0).toFixed(1)} comp ${(T.composite || 0).toFixed(1)}\ntransp ${(T.transparent || 0).toFixed(1)} post ${(T.post || 0).toFixed(1)} final ${(T.final || 0).toFixed(1)}\ncalls ${Game.calls} tris ${(Game.tris / 1e6).toFixed(2)}M EV ${Post.exposureEV.toFixed(1)}` : ''); }
   },
   project(pFrame) { const v = _v5.copy(pFrame).sub(Frames.camPos).applyMatrix4(R.camera.matrixWorldInverse); if (v.z > -0.1) return null; v.applyMatrix4(R.camera.projectionMatrix); return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight }; },
   updateMarkers() {
@@ -6831,11 +6968,15 @@ const UI = {
       const offers = [0, 1, 2].map(k => { const cls = rng.pick(['fighter', 'hauler', 'explorer', 'shuttle', rng.chance(0.2) ? 'exotic' : 'fighter']); return { cls, seed: rng.int(1, 1e9), price: Math.round({ fighter: 180000, hauler: 260000, explorer: 220000, shuttle: 120000, exotic: 900000 }[cls] * rng.range(0.8, 1.2)) }; });
       for (const o of offers) body.append(el('div.recipe', { onclick: () => { if (Game.buyShip(o)) this.closeOverlay(); } }, el('div', {}, el('b', {}, ShipDefs[o.cls].name + ' class starship'), el('div.small', {}, `${ShipDefs[o.cls].slots} slots · maneuver ${ShipDefs[o.cls].maneuver} · trade-in value applied`)), el('div.cost', {}, o.price.toLocaleString() + ' U')));
     } else if (mode === 'tech') {
+      // units → nanites exchange so blueprints are always reachable by trading resources
+      body.append(el('div.recipe', { onclick: () => { if (Game.units < 25000 && Game.mode !== 'creative') { Game.notify('Insufficient units', 'bad'); return; } if (Game.mode !== 'creative') Game.units -= 25000; Game.nanites += 10; Audio.pickup(); this.trade(title, mode); } }, el('div', {}, el('b', {}, 'Nanite exchange'), el('div.small', {}, 'Trade units for 10 nanites')), el('div.cost', {}, '25,000 U')));
       for (const [id, cost] of [['Hyperdrive', 50], ['Phase Beam', 60], ['Terrain Manipulator', 40], ['Personal Forcefield', 80]]) body.append(el('div.recipe', { onclick: () => { if (Game.buyTech(id, cost)) this.trade(title, mode); } }, el('img', { src: Icons.urls[id] }), el('div', {}, el('b', {}, id + ' blueprint'), el('div.small', {}, ITEMS[id].desc)), el('div.cost', {}, cost + ' nanites')));
     } else {
-      const ids = Object.keys(ITEMS).filter(id => ITEMS[id].type !== 'tech' && ITEMS[id].value > 0);
+      // essentials first (guarantees every progression item can always be bought — no soft-lock), then the rest
+      const essential = ['Warp Cell', 'Antimatter', 'Antimatter Housing', 'Chromatic Metal', 'Oxygen', 'Di-hydrogen', 'Tritium', 'Sodium', 'Carbon', 'Ferrite Dust', 'Metal Plating', 'Starship Launch Fuel', 'Hermetic Seal', 'Condensed Carbon', 'Pure Ferrite'].filter(id => ITEMS[id]);
+      const ids = [...new Set([...essential, ...Object.keys(ITEMS)])].filter(id => ITEMS[id].type !== 'tech' && ITEMS[id].value > 0);
       const buy = el('div', { style: { columns: '2 320px' } }); const sell = el('div', { style: { columns: '2 320px' } });
-      for (const id of ids.slice(0, 26)) buy.append(el('div.recipe', { onclick: () => { if (Game.buy(id, ITEMS[id].type === 'res' ? 25 : 1)) this.trade(title, mode); } }, el('img', { src: Icons.urls[id] }), el('div', {}, el('b', {}, id), el('div.small', {}, 'Buy ' + (ITEMS[id].type === 'res' ? 25 : 1))), el('div.cost', {}, (priceOf(id, false) * (ITEMS[id].type === 'res' ? 25 : 1)).toLocaleString() + ' U')));
+      for (const id of ids.slice(0, 32)) buy.append(el('div.recipe', { onclick: () => { if (Game.buy(id, ITEMS[id].type === 'res' ? 25 : 1)) this.trade(title, mode); } }, el('img', { src: Icons.urls[id] }), el('div', {}, el('b', {}, id), el('div.small', {}, 'Buy ' + (ITEMS[id].type === 'res' ? 25 : 1))), el('div.cost', {}, (priceOf(id, false) * (ITEMS[id].type === 'res' ? 25 : 1)).toLocaleString() + ' U')));
       const owned = new Map(); for (const inv of [Game.suit, Game.shipInv]) for (const s of inv.slots) if (s) owned.set(s.id, (owned.get(s.id) || 0) + s.n);
       for (const [id, n] of owned) sell.append(el('div.recipe', { onclick: () => { if (Game.sell(id, n)) this.trade(title, mode); } }, el('img', { src: Icons.urls[id] }), el('div', {}, el('b', {}, id + ' ×' + n), el('div.small', {}, 'Sell all')), el('div.cost', {}, (priceOf(id, true) * n).toLocaleString() + ' U')));
       body.append(el('h3', {}, 'SELL'), sell, el('h3', {}, 'BUY'), buy);
@@ -6935,6 +7076,9 @@ const WarpFX = {
 // 120 Hz flight physics, interpolated rendering), interactions,
 // objectives, weather, death/respawn, save/load (compressed localStorage
 // + JSON export/import), title, intro, warp, photo mode, debug panel.
+// STUB: portals with glyph addresses, black holes with lensing, the galactic-centre ending
+//       sequence and settlements (all STRETCH) are not implemented — the last objective only
+//       tracks the distance to the centre. Companions can be adopted and follow, but not ridden.
 // =====================================================================
 const OBJECTIVES = [
   { title: 'Mine Ferrite Dust from rocks (hold LMB with the mining laser)', check: g => g.countAll('Ferrite Dust') >= 30 || g.tool.hasTech('Scanner'), progress: g => `Ferrite Dust ${Math.min(30, g.countAll('Ferrite Dust'))}/30` },
@@ -6980,13 +7124,16 @@ const Game = {
     Galaxy.generate(hashStr('title-universe')); const idx = 1234; this.systemIndex = idx;
     World.loadSystem(idx, { startType: 'lush', time: 200 });
     Frames.ref = null; const P = World.planets[0], sys = World.system;
-    const sun = sys.star.dir.clone(), side = new Vector3().crossVectors(sun, UP).normalize();
-    this.titleCam = { planet: P, base: P.pos.clone().addScaledVector(side, P.R * 2.3).addScaledVector(sun, -P.R * 0.9).addScaledVector(UP, P.R * 0.35), t: 0 };
+    // frame the planet from outside its ring system, a little above the ring plane, with the
+    // terminator in view (sun from the side, slightly behind)
+    const sun = sys.star.dir.clone(), n = P.ringNormalLocal ? P.ringNormalLocal.clone().applyQuaternion(P.quat).normalize() : UP.clone();
+    const side = new Vector3().crossVectors(sun, n).normalize(), far = P.desc.rings ? P.desc.rings.outer / P.R + 1.1 : 2.6;
+    this.titleCam = { planet: P, base: P.pos.clone().addScaledVector(side, P.R * far).addScaledVector(sun, -P.R * 0.8).addScaledVector(n, P.R * 0.55), look: P.pos.clone().addScaledVector(n, P.R * 0.15).addScaledVector(side, -P.R * 0.35), up: n, t: 0 };
     Frames.camPos.copy(this.titleCam.base); Post.dof = 0; Music.set('menu'); Base.clear();
     this.titleHold = 0;
   },
   toTitle() { this.cleanupWorld(); this.startTitle(); Input.releaseLock(); },
-  cleanupWorld() { if (this.sentinels) { this.sentinels.dispose(); this.sentinels = null; } Base.clear(); if (Exocraft.obj) { Exocraft.deployed = false; Exocraft.obj.visible = false; } this.photo = false; this.build = false; this.visor = false; $('visor').classList.remove('active'); if (this.graveObj) { this.graveObj.parent && this.graveObj.parent.remove(this.graveObj); this.graveObj = null; } },
+  cleanupWorld() { if (this.sentinels) { this.sentinels.dispose(); this.sentinels = null; } Base.clear(); if (Exocraft.obj) { Exocraft.deployed = false; Exocraft.obj.visible = false; } this.photo = false; $('hud').style.visibility = ''; this.build = false; this.visor = false; $('visor').classList.remove('active'); if (this.graveObj) { this.graveObj.parent && this.graveObj.parent.remove(this.graveObj); this.graveObj = null; } },
   // ------------------------------------------------------------------ new game / intro
   newGame(slot, mode, seedStr) {
     this.slot = slot; this.mode = mode; this.seedStr = String(seedStr); this.units = mode === 'creative' ? 5e6 : 1500; this.nanites = mode === 'creative' ? 9999 : 20; this.playTime = 0; this.flags = {}; this.objIndex = 0;
@@ -7315,7 +7462,7 @@ const Game = {
   toggleTorch() { Player.torch = !Player.torch; Audio.uiClick(); },
   toggleBuild() { if (!Frames.ref || !this.onFoot()) { this.notify('Build on a planet surface', 'bad'); return; } this.build = !this.build; Base.active = this.build; $('buildbar').classList.toggle('hidden', !this.build); $('buildhelp').classList.toggle('hidden', !this.build); if (this.build) { if (!Base.computer) Base.ghostType = 'computer'; UI.buildBar(); } else Base.updateGhost(); },
   togglePhoto() {
-    this.photo = !this.photo;
+    this.photo = !this.photo; $('hud').style.visibility = this.photo ? 'hidden' : ''; // clean frame for photos
     if (this.photo) { this.photoCam = { pos: Frames.camPos.clone(), q: R.camera.quaternion.clone(), dof: 0.4, focus: 8, exp: Settings.v.exposureComp, filter: 0 }; this.buildPhotoPanel(); }
     else { $('overlay-root').innerHTML = ''; $('overlay-root').classList.remove('active'); Post.dof = 0; Post.filter = 0; Settings.v.exposureComp = this.photoCam.exp; UI.overlay = null; }
   },
@@ -7526,7 +7673,7 @@ const Game = {
         const invY = Settings.v.invertYShip ? -1 : 1;
         const sinp = { pitch: -this.stick.y * invY, yaw: this.stick.x, roll: (Input.isDown('rollRight') ? 1 : 0) - (Input.isDown('rollLeft') ? 1 : 0), throttleUp: Input.isDown('throttle'), brake: Input.isDown('brake'), boost: Input.isDown('boost'), pulse: Input.isDown('pulse') };
         if (UI.overlay) Object.assign(sinp, { pitch: 0, yaw: 0, roll: 0, throttleUp: false, brake: false, pulse: false });
-        const env = { nearObstacle: this.pulseObstacle(), collide: (next, vel, r) => { if (!Frames.ref && Space.stationObj) { const n = Space.collideStation(next, r); if (n) { const vn = vel.dot(n); if (vn < 0) { vel.addScaledVector(n, -vn * 1.5); Ship.hitDamage(Math.abs(vn) * 0.003); } } const h = Space.rockRaycast(next, _v1.set(0, 1, 0), 0.1); for (const rk of Space.rocks) { if (rk.dead) continue; const d = next.distanceTo(rk.p) - rk.s - r; if (d < 0) { const n = next.clone().sub(rk.p).normalize(); next.addScaledVector(n, -d); const vn = vel.dot(n); if (vn < 0) { vel.addScaledVector(n, -vn * 1.5); Ship.hitDamage(0.05); } } } } } };
+        const env = { nearObstacle: this.pulseObstacle(), collide: (next, vel, r) => { if (!Frames.ref && Space.stationObj) { const n = Space.collideStation(next, r); if (n) { const vn = vel.dot(n); if (vn < 0) { vel.addScaledVector(n, -vn * 1.5); Ship.hitDamage(Math.abs(vn) * 0.003); } } for (const rk of Space.rocks) { if (rk.dead) continue; const d = next.distanceTo(rk.p) - rk.s - r; if (d < 0) { const n = next.clone().sub(rk.p).normalize(); next.addScaledVector(n, -d); const vn = vel.dot(n); if (vn < 0) { vel.addScaledVector(n, -vn * 1.5); Ship.hitDamage(0.05); } } } } else if (Frames.ref) this.shipWorldCollide(next, vel, r); } };
         for (let k = 0; k < 2; k++) Ship.physics(dt / 2, sinp, env);
         this.shipWeapons(dt, inp);
         if (Ship.hull <= 0) this.shipDestroyed();
@@ -7562,6 +7709,20 @@ const Game = {
     // objectives
     const o = OBJECTIVES[this.objIndex]; if (o && o.check(this)) { this.objIndex++; const nx = OBJECTIVES[this.objIndex]; if (nx) { this.notify('Objective complete. Next: ' + nx.title, 'good'); Audio.tone({ type: 'sine', f: 660, dur: 0.15, gain: 0.06 }); Audio.tone({ type: 'sine', f: 990, dur: 0.3, gain: 0.05, delay: 0.12 }); } }
     Effects.update(dt);
+  },
+  /** Starship vs planet-surface obstacles (POI buildings, base pieces, tree trunks, boulders):
+   *  push the hull sphere out and reflect the inbound velocity, with a little hull damage. */
+  shipWorldCollide(next, vel, r) {
+    const P = Frames.ref, n = this._scN || (this._scN = new Vector3()), d = this._scD || (this._scD = new Vector3());
+    if (next.length() - P.groundR(next) > 90) return; // nothing tall enough up there
+    const bounce = () => { const vn = vel.dot(n); if (vn < 0) { vel.addScaledVector(n, -vn * 1.4); Ship.hitDamage(Math.abs(vn) * 0.004); } };
+    if (P.pois && P.pois.collide(next, r, n)) bounce();
+    if (Base.collide(next, r, n)) bounce();
+    if (P.flora) for (const c of P.flora.collidersNear(next, r + 2)) {
+      d.copy(next).sub(c.p); const along = d.dot(c.up);
+      if (c.type === 'trunk') { if (along < -1 || along > c.h) continue; d.addScaledVector(c.up, -along); } else d.addScaledVector(c.up, -c.r * 0.3);
+      const l = d.length(), min = c.r + r; if (l < min && l > 1e-4) { n.copy(d).divideScalar(l); next.addScaledVector(n, min - l); bounce(); }
+    }
   },
   aiCtx(P, camDir) {
     return {
@@ -7646,8 +7807,8 @@ const Game = {
     let fov = Settings.v.fovFoot; const q = cam.quaternion; Post.dofBlur = 0;
     if (this.state === 'title' || this.state === 'menu' || this.state === 'loading' || (this.state === 'dead' && !Frames.ref)) {
       if (this.titleCam) { const tc = this.titleCam; tc.t += dt; const P = tc.planet; const drift = new Vector3(Math.sin(tc.t * 0.02) * P.R * 0.15, Math.sin(tc.t * 0.013) * P.R * 0.08, tc.t * 2);
-        Frames.camPos.copy(tc.base).add(drift); const look = P.pos.clone().add(new Vector3(0, P.R * 0.55, 0)).addScaledVector(World.system.star.dir, -P.R * 0.2);
-        _m1.lookAt(Frames.camPos, look, UP); q.setFromRotationMatrix(_m1); fov = 50; }
+        Frames.camPos.copy(tc.base).add(drift);
+        _m1.lookAt(Frames.camPos, tc.look, tc.up); q.setFromRotationMatrix(_m1); fov = 50; }
       if (this.state === 'menu') Post.dof = 0.6; else if (this.state === 'title') Post.dof = 0;
     } else if (this.photo) {
       const pc = this.photoCam; const sp = (Input.isDown('sprint') ? 30 : 6) * dt;
@@ -7721,6 +7882,10 @@ const Game = {
     const ts = performance.now();
     Shadows.update(cam, Frames.camPos, U.uSunDir.value, P ? _v1.copy(Frames.camPos).normalize() : UP);
     Shadows.render(); this.shadowMs = performance.now() - ts;
+    // enclosed station interior → procedural room environment for IBL (re-capture on change)
+    const interior = Player.env === 'station' && Space.stationObj ? 1 : 0;
+    if (interior !== IBL.P.uInterior.value) { IBL.P.uInterior.value = interior; IBL.forced = true; }
+    if (interior) IBL.P.uInteriorUp.value.set(0, 1, 0).applyQuaternion(World.system.station.quat).applyQuaternion(_q1.copy(Frames.refQuat()).invert());
     IBL.update(false);
     Post.render({ camDelta: cd, reset: false, sunUV: sunUV || new Vector2(-9, -9), sunVisible: !!sunUV && sunUV.x > -0.2 && sunUV.x < 1.2 && sunUV.y > -0.2 && sunUV.y < 1.2, grade: new Vector4(...grade) });
     this.calls = R.renderer.info.render.calls; this.tris = R.renderer.info.render.triangles; R.renderer.info.reset();
