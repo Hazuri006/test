@@ -2053,7 +2053,7 @@ const Froxels = {
 // asynchronously). Updates follow time of day, weather and space travel.
 // =====================================================================
 const GLSL_SKY_BG = /* glsl */`
-uniform mat3 uRenderToGal; uniform vec3 uNebA; uniform vec3 uNebB; uniform float uPixAng; uniform float uNebAmt;
+uniform mat3 uRenderToGal; uniform vec3 uNebA; uniform vec3 uNebB; uniform float uPixAng; uniform float uNebAmt; uniform float uStarGain;
 float sh31(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
 float vnoise(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(mix(sh31(i), sh31(i + vec3(1, 0, 0)), f.x), mix(sh31(i + vec3(0, 1, 0)), sh31(i + vec3(1, 1, 0)), f.x), f.y),
@@ -2072,20 +2072,33 @@ vec3 nmsStars(vec3 d) {
     vec2 g = (uv * 0.5 + 0.5) * N; vec2 cell = floor(g); vec2 fr = fract(g);
     vec3 key = vec3(cell, face * 131.0 + float(l) * 17.0);
     float h = sh31(key);
-    float dens = l == 0 ? 0.35 : l == 1 ? 0.3 : 0.22;
+    float dens = l == 0 ? 0.35 : l == 1 ? 0.24 : 0.12;
     if (h < dens) {
       vec2 sp = vec2(sh31(key + 3.1), sh31(key + 7.7)) * 0.8 + 0.1;
       float cellAng = 2.0 / N * (1.0 / (1.0 + dot(uv, uv)));
       float sig = max(uPixAng * 0.65 / cellAng, 0.06);
       vec2 dd = fr - sp;
       float hb = sh31(key + 11.3);
-      float b = (l == 0 ? 60.0 + pow(hb, 8.0) * 2500.0 : l == 1 ? 18.0 + pow(hb, 6.0) * 120.0 : 5.0 + hb * 6.0);
+      float b = (l == 0 ? 60.0 + pow(hb, 8.0) * 2500.0 : l == 1 ? 12.0 + pow(hb, 6.0) * 90.0 : 2.5 + hb * 3.5);
       col += starCol(sh31(key + 5.5)) * b * exp(-dot(dd, dd) / (sig * sig));
     }
   }
   return col;
 }
+// Night-sky glow inside an atmosphere: airglow + integrated starlight + zodiacal light. Physically it is
+// ~1e-4 nits; it is boosted (~0.03 nits) so that, once the eye has adapted, a moonless night is dark
+// but readable (it also feeds the IBL, which is what lights the terrain at night). Brighter toward the
+// horizon (van Rhijn effect), fades in after sunset.
+vec3 nmsAirglow(vec3 rd) {
+  if (uAtmoCount < 1) return vec3(0.0);
+  vec3 c = uAtmoA[0].xyz; float r = length(c); if (r > uAtmoB[0].w * 1.02) return vec3(0.0);
+  vec3 up = -c / max(r, 1.0); float mu = dot(rd, up);
+  float night = 1.0 - smoothstep(-0.25, 0.02, dot(up, uSunDir));
+  float h = 0.35 + 0.65 * pow(1.0 - clamp(abs(mu), 0.0, 1.0), 3.0);
+  return vec3(0.32, 0.42, 0.55) * 0.03 * h * night * (mu < -0.02 ? 0.35 : 1.0);
+}
 vec3 nmsSkyBackground(vec3 dRender) {
+  vec3 ag = nmsAirglow(dRender);
   vec3 d = normalize(uRenderToGal * dRender);
   float band = exp(-pow(d.y * 3.2, 2.0));
   float n1 = vfbm(d * 2.2), n2 = vfbm(d * 5.0 + 3.0);
@@ -2094,10 +2107,11 @@ vec3 nmsSkyBackground(vec3 dRender) {
   vec3 c = (mix(uNebA, uNebB, n2) * neb * 18.0 + vec3(0.9, 0.85, 0.8) * band * 3.0 * (0.4 + n1)) * uNebAmt;
   c *= 1.0 - dust * 0.8;
   c += nmsStars(d) * (1.0 - dust * 0.7);
-  return c * uPreExposure * 1.0;
+  return (c * uStarGain + ag) * uPreExposure;
 }
 `;
 Object.assign(U, {
+  uStarGain: { value: 1 }, // perceptual star/nebula gain (see Game.render): stars keep a similar on-screen brightness across exposures
   uRenderToGal: { value: new Matrix3() }, uNebA: { value: new Color(0.2, 0.35, 0.9) }, uNebB: { value: new Color(0.9, 0.35, 0.25) }, uPixAng: { value: 0.001 }, uNebAmt: { value: 1 },
 });
 const IBL = {
@@ -2512,7 +2526,10 @@ const Post = {
     // ---------------- Bloom (energy conserving, no threshold) ----------------
     this.bloomDown = new FSPass(/* glsl */`
       uniform sampler2D uSrc; uniform vec2 uTexel; uniform float uFirst; in vec2 vUv; layout(location = 0) out vec4 o;
-      vec3 s(vec2 uv) { return textureLod(uSrc, uv, 0.0).rgb; }
+      uniform float uBloomClamp;
+      // first level: clamp each tap's luminance so a small, extremely bright disk (the star, a moon
+      // crescent at night exposure) produces a soft glow instead of flooding the frame
+      vec3 s(vec2 uv) { vec3 c = textureLod(uSrc, uv, 0.0).rgb; if (uFirst > 0.5) { float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c *= min(1.0, uBloomClamp / max(l, 1e-6)); } return c; }
       float kw(vec3 c) { return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); }
       void main() {
         vec2 t = uTexel;
@@ -2527,7 +2544,7 @@ const Post = {
           r = (g0 * w0 * 0.125 + g1 * w1 * 0.125 + g2 * w2 * 0.125 + g3 * w3 * 0.125 + g4 * w4 * 0.5) / (w0 * 0.125 + w1 * 0.125 + w2 * 0.125 + w3 * 0.125 + w4 * 0.5);
         } else r = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
         o = vec4(min(r, vec3(60000.0)), 1.0);
-      }`, { uSrc: { value: null }, uTexel: { value: new Vector2() }, uFirst: { value: 0 } }, { noLib: true });
+      }`, { uSrc: { value: null }, uTexel: { value: new Vector2() }, uFirst: { value: 0 }, uBloomClamp: { value: 24 } }, { noLib: true });
     this.bloomUp = new FSPass(/* glsl */`
       uniform sampler2D uSrc; uniform vec2 uTexel; in vec2 vUv; layout(location = 0) out vec4 o;
       void main() { vec2 t = uTexel;
@@ -2581,8 +2598,8 @@ const Post = {
       vec3 hdrAt(vec2 uv) {
         vec3 c = textureLod(uSrc, uv, 0.0).rgb;
         vec3 b = textureLod(uBloom, uv, 0.0).rgb / 6.0;
-        c = mix(c, b, 0.06);
-        if (uDirtOn > 0.5) c += b * textureLod(uDirt, uv, 0.0).rgb * 0.35;
+        c = mix(c, b, 0.04);
+        if (uDirtOn > 0.5) c += b * textureLod(uDirt, uv, 0.0).rgb * 0.08;
         return c;
       }
       vec3 flare(vec2 uv) {
@@ -2648,13 +2665,13 @@ const Post = {
         // visor effects: frost (edges), toxic tint, radiation static, damage vignette, hull entry glow
         vec2 cc = vUv - 0.5; float edge = smoothstep(0.25, 0.75, length(cc * vec2(uRes.x / uRes.y, 1.0)));
         if (uVisorA.x > 0.0) { float fr = frostMask(vUv, edge + (1.0 - uVisorA.x) * -0.35); col = mix(col, vec3(0.78, 0.86, 0.95) * (0.8 + 0.2 * vn2(vUv * uRes * 0.25)), fr * uVisorA.x * 0.6); }
-        if (uVisorA.z > 0.0) col = mix(col, col * vec3(0.7, 1.15, 0.55) + vec3(0.02, 0.05, 0.0), uVisorA.z * (0.4 + 0.6 * edge));
+        if (uVisorA.z > 0.0) col = mix(col, col * vec3(0.8, 1.06, 0.66), uVisorA.z * (0.25 + 0.75 * edge));
         if (uVisorA.w > 0.0) { float st = h12(vec2(floor(vUv.y * uRes.y / 2.0), floor(uTime * 30.0))); col += (st - 0.5) * 0.2 * uVisorA.w + vec3(0.0, 0.03, 0.0) * uVisorA.w; }
         if (uVisorB.y > 0.0) col = mix(col, vec3(0.6, 0.02, 0.0), edge * uVisorB.y * 0.6);
         if (uVisorB.z > 0.0) col += vec3(1.0, 0.45, 0.15) * edge * uVisorB.z * 0.5;
         // subtle optical vignette + film grain
         col *= mix(1.0, 0.82, edge * 0.8);
-        if (uGrain > 0.5) col += (h12(vUv * uRes + fract(uTime * 13.7) * 100.0) - 0.5) * 0.018;
+        if (uGrain > 0.5) col += (h12(vUv * uRes + fract(uTime * 13.7) * 100.0) - 0.5) * 0.012 * sqrt(clamp(dot(col, vec3(0.333)), 0.0, 1.0));
         o = vec4(srgb(clamp(col, 0.0, 1.0)), 1.0);
       }`, P);
     // FXAA (when TAA is disabled) runs on the tone-mapped image
@@ -6030,7 +6047,8 @@ function buildMultitool() {
     { geo: box(0.038, 0.13, 0.052, 0, -0.088, 0.045, 0.32), mat: 'darkmetal' }, { geo: sph(0.024, 0, -0.15, 0.068, 0.85, 0.5, 1.15), mat: 'darkmetal' },
     { geo: box(0.004, 0.028, 0.05, -0.02, 0.05, 0.05, 0.35, 0, -0.3), mat: accent }, { geo: box(0.004, 0.028, 0.05, 0.02, 0.05, 0.05, 0.35, 0, 0.3), mat: accent },
   ];
-  const g = assemble(P, { cast: true }); g.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); nmsPatch(o.material); o.material.userData.nms.uLocked.value = 1; } }); return g;
+  // indicator emissives are dim (tens of nits): at night exposure a lamp-bright strip would bloom over the view
+  const g = assemble(P, { cast: true }); g.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); nmsPatch(o.material); o.material.userData.nms.uLocked.value = 1; if (o.material.emissiveIntensity > 1) o.material.emissiveIntensity = 60; } }); return g;
 }
 // private scratch for collision: callees (POI, base, planet sampling) are free to use _v1.._v5
 const _pc1 = new Vector3(), _pc2 = new Vector3(), _pc3 = new Vector3(), _pc4 = new Vector3();
@@ -7840,13 +7858,21 @@ const Game = {
     const cd = _v5.copy(Frames.camPos).sub(Frames.prevCamPos); if (Frames.switched) { cd.set(0, 0, 0); Frames.switched = false; Post.reset = true; } Frames.prevCamPos.copy(Frames.camPos);
     // ---- exposure & shared uniforms
     // exposure floor: open space never adapts so far that the faint star field turns into noise
-    Post.minEV = this.state === 'play' && Frames.ref && !this.inShip() ? 1.2 : (!Frames.ref && Player.env !== 'station' && this.state === 'play') ? 7.5 : -1; Post.updateExposure(dt); U.uPreExposure.value = Post.exposure;
+    // eyes adapt to night / eclipses down to about EV -2.5 (moonlight, airglow); open space keeps a floor
+    Post.minEV = (!Frames.ref && Player.env !== 'station' && this.state === 'play') ? 7.5 : -2.5; Post.updateExposure(dt); U.uPreExposure.value = Post.exposure;
+    // Stars are tuned for open space (EV ~7.5). A night-adapted eye (EV -2.5) would otherwise turn every star
+    // into a blown-out blob, and a sunlit daytime sky must hide them: scale the background with exposure,
+    // capped at 1 inside an atmosphere (no stars in a blue sky), higher on airless worlds (stars by day).
+    { const Pr = Frames.ref, inAtmo = Pr && Pr.desc.atmo && Frames.camPos.length() < Pr.desc.atmo.Rt;
+      const dEV = Post.exposureEV - 7.5; U.uStarGain.value = Math.min(Math.pow(2, dEV * (dEV < 0 ? 1.0 : 0.5)), inAtmo ? 1 : 64); }
     Post.prepareCamera(cam);
     World.prepareRender(cam, performance.now() / 1000);
     U.uSunDirView.value.copy(U.uSunDir.value).applyMatrix3(U.uViewRot.value);
     // ---- dynamic objects placement (camera-relative)
     const P = Frames.ref, visible = this.state === 'play' || this.state === 'build' || this.state === 'pause' || this.state === 'dead';
     if (P) { const up = _v1.copy(Frames.camPos).normalize(); this.sunElevation = up.dot(P.uniforms.uSunPlanet.value); } else this.sunElevation = 1;
+    // nightfall hint (once per game) when on foot in the dark without the torch
+    if (P && this.state === 'play' && this.onFoot() && this.sunElevation < -0.08 && !Player.torch && !this.flags.torchHint) { this.flags.torchHint = true; this.notify(`Night falls — press ${Input.keyName(Input.bind.torch)} for the torch`, 'info'); }
     if (Ship.obj) { Ship.obj.visible = visible && World.system && (Frames.ref ? this.shipPlanet === Frames.ref || this.inShip() || Ship.state !== 'landed' : true); const sp = this.control === 'ship' ? _v1.copy(this.prev.s).lerp(Ship.pos, this.acc * 60) : Ship.pos; Ship.obj.position.copy(sp).sub(Frames.camPos); Ship.obj.quaternion.copy(this.control === 'ship' ? _q2.copy(this.prev.sq).slerp(Ship.quat, this.acc * 60) : Ship.quat); Ship.visuals(dt, this.inShip() && this.shipView === 'cockpit'); }
     Player.visuals(dt, visible && this.onFoot());
     Exocraft.place();
@@ -7902,7 +7928,7 @@ function nextFrame() { return new Promise(r => requestAnimationFrame(() => r()))
 // =====================================================================================
 window.__errors = window.__errors || [];
 window.addEventListener('error', (e) => { window.__errors.push(String(e.message || e)); });
-window.__nms = { Game, World, Player, Ship, Space, Frames, Post, U, R, Settings, Input, UI, Base, Galaxy, Discoveries, Multitool, Exocraft, TerrainWorkers, TerrainTex, Shadows, IBL, Audio, Effects, RECIPES, REFINER, ITEMS };
+window.__nms = { Game, World, Player, Ship, Space, Frames, Post, U, R, Settings, Input, UI, Base, Galaxy, Discoveries, Multitool, Exocraft, TerrainWorkers, TerrainTex, Shadows, IBL, Audio, Effects, RECIPES, REFINER, ITEMS, RNG, hashStr, Lighting, Atmosphere, Clouds, Froxels };
 Game.boot();
 </script>
 </body>
